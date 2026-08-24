@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -14,20 +15,38 @@ import (
 )
 
 func TestRouteSeparation(t *testing.T) {
-	public := httptest.NewServer(publicRouter())
-	defer public.Close()
-	internal := httptest.NewServer(internalRouter(newRegistry()))
-	defer internal.Close()
+	const issuer = "http://localhost:8080"
+	publicHandler, err := publicRouter(issuer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	internalHandler := internalRouter(newRegistry())
 
-	for _, path := range []string{"/healthz", "/readyz", "/metrics", "/.well-known/openid-configuration"} {
-		resp := get(t, public.URL+path)
+	for _, path := range []string{"/readyz", "/metrics"} {
+		resp := serveRequest(publicHandler, path)
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("public %s status = %d, want %d", path, resp.StatusCode, http.StatusNotFound)
 		}
 		_ = resp.Body.Close()
 	}
+
+	resp := serveRequest(publicHandler, "/.well-known/openid-configuration")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("discovery status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var discovery struct {
+		Issuer string `json:"issuer"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&discovery); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if discovery.Issuer != issuer {
+		t.Errorf("discovery issuer = %q, want %q", discovery.Issuer, issuer)
+	}
+
 	for _, path := range []string{"/healthz", "/readyz", "/metrics"} {
-		resp := get(t, internal.URL+path)
+		resp := serveRequest(internalHandler, path)
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("internal %s status = %d, want %d", path, resp.StatusCode, http.StatusOK)
 		}
@@ -56,7 +75,11 @@ func TestMetricsIncludeGoAndProcessCollectors(t *testing.T) {
 func TestRunCancellation(t *testing.T) {
 	publicAddress := freeAddress(t)
 	internalAddress := freeAddress(t)
-	cfg := config.Config{BindAddress: publicAddress, InternalBindAddress: internalAddress}
+	cfg := config.Config{
+		BindAddress:         publicAddress,
+		InternalBindAddress: internalAddress,
+		Issuer:              "http://" + publicAddress,
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -90,6 +113,12 @@ func TestRunClosesPublicListenerWhenInternalListenFails(t *testing.T) {
 	if _, err := net.Dial("tcp", publicAddress); err == nil {
 		t.Fatal("public listener remained open")
 	}
+}
+
+func serveRequest(handler http.Handler, path string) *http.Response {
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+	return recorder.Result()
 }
 
 func get(t *testing.T, url string) *http.Response {

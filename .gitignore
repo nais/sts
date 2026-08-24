@@ -1,3 +1,4 @@
 /sts
 *.tgz
 .env
+/.idea/

@@ -14,9 +14,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nais/sts/internal/config"
+	"github.com/nais/sts/internal/oauth"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 	"golang.org/x/sync/errgroup"
 )
@@ -33,8 +35,12 @@ func Run(ctx context.Context, cfg config.Config) error {
 		_ = publicListener.Close()
 		return fmt.Errorf("listen on internal address %q: %w", cfg.InternalBindAddress, err)
 	}
+	router, err := publicRouter(cfg.Issuer)
+	if err != nil {
+		return err
+	}
 
-	publicServer := newHTTPServer(publicRouter())
+	publicServer := newHTTPServer(router)
 	internalServer := newHTTPServer(internalRouter(newRegistry()))
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -76,10 +82,48 @@ func newHTTPServer(handler http.Handler) *http.Server {
 	}
 }
 
-func publicRouter() http.Handler {
+func publicRouter(issuer string) (http.Handler, error) {
 	router := chi.NewRouter()
-	router.Mount("/", op.RegisterServer(op.UnimplementedServer{}, *op.DefaultEndpoints))
-	return router
+	e := &op.Endpoints{
+		Token:   op.NewEndpoint("/token"),
+		JwksURI: op.NewEndpoint("/jwks"),
+	}
+	s, err := oauth.NewServer(issuer, e)
+	if err != nil {
+		return nil, err
+	}
+	router.Use(contextMiddleware(issuer))
+	router.HandleFunc(oidc.DiscoveryEndpoint, discoveryHandler(e))
+	router.Mount("/", s)
+	return router, nil
+}
+
+func contextMiddleware(issuer string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(op.ContextWithIssuer(r.Context(), issuer))
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func discoveryHandler(endpoints *op.Endpoints) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		issuer := op.IssuerFromContext(r.Context())
+		op.Discover(w, &oidc.DiscoveryConfiguration{
+			Issuer:        issuer,
+			TokenEndpoint: endpoints.Token.Absolute(issuer),
+			JwksURI:       endpoints.JwksURI.Absolute(issuer),
+			GrantTypesSupported: []oidc.GrantType{
+				oidc.GrantTypeClientCredentials,
+				oidc.GrantTypeTokenExchange,
+			},
+			TokenEndpointAuthMethodsSupported: []oidc.AuthMethod{
+				oidc.AuthMethodPrivateKeyJWT,
+			},
+			TokenEndpointAuthSigningAlgValuesSupported: []string{"RS256"},
+		})
+	}
 }
 
 func internalRouter(registry *prometheus.Registry) http.Handler {
