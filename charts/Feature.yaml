@@ -1,0 +1,16 @@
+environmentKinds:
+  - management
+
+values:
+  tenantName:
+    displayName: Tenant name
+    computed:
+      template: "{{.Tenant.Name}}"
+  ingress.host:
+    displayName: STS host
+    computed:
+      template: "sts.external.{{.Tenant.Name}}.cloud.nais.io"
+  image.tag:
+    displayName: Image version
+    config:
+      type: string

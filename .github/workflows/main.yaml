@@ -1,0 +1,62 @@
+name: Build and publish
+
+on:
+  push:
+    paths-ignore:
+      - "*.md"
+
+permissions:
+  contents: read
+
+env:
+  NAME: sts
+  FEATURE_REPOSITORY: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature
+
+jobs:
+  test:
+    name: ${{ matrix.task }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [check, test]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # ratchet:actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
+      - run: mise run ${{ matrix.task }}
+
+  build_and_push:
+    if: github.ref == 'refs/heads/main'
+    needs: test
+    permissions:
+      packages: write
+      id-token: write
+    name: Build, sign, and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
+      - name: Read Go version
+        id: go_version
+        run: echo "go_version=$(mise current go)" >> "$GITHUB_OUTPUT"
+      - uses: nais/platform-build-push-sign@07a21e2293624a78499c79eeea3ce6d314f8a8d9 # ratchet:nais/platform-build-push-sign@main
+        id: build-push-sign
+        with:
+          name: ${{ env.NAME }}
+          build_args: |
+            GO_VERSION=${{ steps.go_version.outputs.go_version }}
+          google_service_account: gh-${{ env.NAME }}
+          workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
+          push_ghcr: true
+          push: true
+      - name: Update chart values
+        run: yq -i ".image.tag = \"${{ steps.build-push-sign.outputs.version }}\"" charts/values.yaml
+      - name: Package chart
+        run: |
+          yq -i ".version = \"${{ steps.build-push-sign.outputs.version }}\"" charts/Chart.yaml
+          helm package charts
+      - name: Push chart
+        run: helm push "${{ env.NAME }}"*.tgz "${{ env.FEATURE_REPOSITORY }}"
