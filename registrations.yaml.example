@@ -1,0 +1,9 @@
+clients:
+  tenant:cluster:namespace:workload:
+    workloadIssuer: https://container.googleapis.com/v1/projects/nais-dev-cdea/locations/europe-north1/clusters/nais-dev
+    workloadSubject: system:serviceaccount:trong:debug
+    allowedAudiences:
+      - http://some-api.nais.example
+
+subjectTokenIssuers:
+  - https://container.googleapis.com/v1/projects/nais-dev-cdea/locations/europe-north1/clusters/nais-dev

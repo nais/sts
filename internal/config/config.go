@@ -16,6 +16,7 @@ type Config struct {
 	InternalBindAddress string     `env:"INTERNAL_BIND_ADDRESS, default=:8081"`
 	Issuer              string     `env:"ISSUER, default=http://localhost:8080"`
 	LogLevel            slog.Level `env:"LOG_LEVEL, default=info"`
+	RegistrationsFile   string     `env:"REGISTRATIONS_FILE, default=registrations.yaml"`
 }
 
 func Load(ctx context.Context) (Config, error) {
@@ -36,6 +37,9 @@ func loadWith(ctx context.Context, lookuper envconfig.Lookuper) (Config, error) 
 func (c Config) validate() error {
 	if c.BindAddress == "" || c.InternalBindAddress == "" {
 		return fmt.Errorf("bind addresses must not be empty")
+	}
+	if c.RegistrationsFile == "" {
+		return fmt.Errorf("registrations file must not be empty")
 	}
 	if c.Issuer == "" {
 		return fmt.Errorf("issuer must not be empty")

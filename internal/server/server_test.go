@@ -7,16 +7,18 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nais/sts/internal/config"
+	"github.com/nais/sts/internal/oauth"
 )
 
 func TestRouteSeparation(t *testing.T) {
 	const issuer = "http://localhost:8080"
-	publicHandler, err := publicRouter(issuer)
+	publicHandler, err := publicRouter(issuer, loadRegistrations(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,6 +81,7 @@ func TestRunCancellation(t *testing.T) {
 		BindAddress:         publicAddress,
 		InternalBindAddress: internalAddress,
 		Issuer:              "http://" + publicAddress,
+		RegistrationsFile:   registrationsFile(t),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -106,7 +109,7 @@ func TestRunClosesPublicListenerWhenInternalListenFails(t *testing.T) {
 	}
 	defer func() { _ = listener.Close() }()
 
-	err = Run(context.Background(), config.Config{BindAddress: publicAddress, InternalBindAddress: listener.Addr().String()})
+	err = Run(context.Background(), config.Config{BindAddress: publicAddress, InternalBindAddress: listener.Addr().String(), RegistrationsFile: registrationsFile(t)})
 	if err == nil {
 		t.Fatal("Run returned nil error")
 	}
@@ -153,4 +156,22 @@ func waitForHTTP(t *testing.T, url string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("server did not become ready: %s", url)
+}
+
+func loadRegistrations(t *testing.T) *oauth.RegistrationStore {
+	t.Helper()
+	registrations, err := oauth.LoadRegistrationStore(registrationsFile(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registrations
+}
+
+func registrationsFile(t *testing.T) string {
+	t.Helper()
+	path := t.TempDir() + "/registrations.yaml"
+	if err := os.WriteFile(path, []byte("clients: {}\nsubjectTokenIssuers: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

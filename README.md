@@ -18,7 +18,7 @@ The service will support:
 Install the pinned tools and run the checks with [mise](https://mise.jdx.dev/):
 
 ```shell
-cp .env.example .env
+mise run setup
 mise install
 mise run test
 mise run check
@@ -35,6 +35,20 @@ The public listener uses `http://localhost:8080`.
 The internal listener uses `http://localhost:8081` and serves `/healthz`, `/readyz`, and `/metrics`.
 
 Edit `.env` to override the local configuration.
+
+### Request tokens
+
+The token tasks require `kubectl` access to the development cluster in the
+`dev-nais` tenant. Configure `CLIENT_ID`, `WORKLOAD_NAME`, and `TOKEN_AUDIENCE`
+in `.env`.
+
+```shell
+mise run token:m2m
+mise run token:obo
+```
+
+Both tasks create a workload identity token from the active Kubernetes context
+and namespace. The OBO task also uses it as the subject token.
 
 ## Helm
 

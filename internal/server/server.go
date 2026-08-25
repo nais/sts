@@ -26,6 +26,10 @@ import (
 const shutdownTimeout = 5 * time.Second
 
 func Run(ctx context.Context, cfg config.Config) error {
+	registrations, err := oauth.LoadRegistrationStore(cfg.RegistrationsFile)
+	if err != nil {
+		return err
+	}
 	publicListener, err := net.Listen("tcp", cfg.BindAddress)
 	if err != nil {
 		return fmt.Errorf("listen on public address %q: %w", cfg.BindAddress, err)
@@ -35,7 +39,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 		_ = publicListener.Close()
 		return fmt.Errorf("listen on internal address %q: %w", cfg.InternalBindAddress, err)
 	}
-	router, err := publicRouter(cfg.Issuer)
+	router, err := publicRouter(cfg.Issuer, registrations)
 	if err != nil {
 		return err
 	}
@@ -82,13 +86,13 @@ func newHTTPServer(handler http.Handler) *http.Server {
 	}
 }
 
-func publicRouter(issuer string) (http.Handler, error) {
+func publicRouter(issuer string, registrations *oauth.RegistrationStore) (http.Handler, error) {
 	router := chi.NewRouter()
 	e := &op.Endpoints{
 		Token:   op.NewEndpoint("/token"),
 		JwksURI: op.NewEndpoint("/jwks"),
 	}
-	s, err := oauth.NewServer(issuer, e)
+	s, err := oauth.NewServer(issuer, e, registrations)
 	if err != nil {
 		return nil, err
 	}

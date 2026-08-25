@@ -70,10 +70,56 @@ run = "gofumpt -w ./"
 description = "Run tests"
 run = "go test -cover ./..."
 
+[tasks.setup]
+description = "Create local configuration files"
+run = '''
+test -e .env || cp .env.example .env
+test -e registrations.yaml || cp registrations.yaml.example registrations.yaml
+'''
+
 [tasks.local]
 description = "Run the service locally"
 run = "go run ./cmd/sts"
 env = { _.file = ".env" }
+
+[tasks."token:m2m"]
+description = "Get a client credentials token"
+env = { _.file = ".env" }
+run = '''
+: "${CLIENT_ID:?set CLIENT_ID}"
+: "${WORKLOAD_NAME:?set WORKLOAD_NAME}"
+: "${TOKEN_AUDIENCE:?set TOKEN_AUDIENCE}"
+WORKLOAD_TOKEN="$(kubectl create token "${WORKLOAD_NAME}" --audience "${ISSUER}")"
+curl --fail-with-body \
+  --request POST "${ISSUER}/token" \
+  --header 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'grant_type=client_credentials' \
+  --data-urlencode "client_id=${CLIENT_ID}" \
+  --data-urlencode 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
+  --data-urlencode "client_assertion=${WORKLOAD_TOKEN}" \
+  --data-urlencode "audience=${TOKEN_AUDIENCE}"
+'''
+
+[tasks."token:obo"]
+description = "Exchange a subject token"
+env = { _.file = ".env" }
+run = '''
+: "${CLIENT_ID:?set CLIENT_ID}"
+: "${WORKLOAD_NAME:?set WORKLOAD_NAME}"
+: "${TOKEN_AUDIENCE:?set TOKEN_AUDIENCE}"
+WORKLOAD_TOKEN="$(kubectl create token "${WORKLOAD_NAME}" --audience "${ISSUER}")"
+curl --fail-with-body \
+  --request POST "${ISSUER}/token" \
+  --header 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+  --data-urlencode "client_id=${CLIENT_ID}" \
+  --data-urlencode 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
+  --data-urlencode "client_assertion=${WORKLOAD_TOKEN}" \
+  --data-urlencode "audience=${TOKEN_AUDIENCE}" \
+  --data-urlencode "subject_token=${WORKLOAD_TOKEN}" \
+  --data-urlencode 'subject_token_type=urn:ietf:params:oauth:token-type:access_token' \
+  --data-urlencode 'requested_token_type=urn:ietf:params:oauth:token-type:access_token'
+'''
 
 [tasks."actions:update"]
 description = "Upgrade github actions to latest version satisfying their version tag"
