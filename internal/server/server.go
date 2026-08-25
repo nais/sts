@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nais/sts/internal/api"
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/prometheus/client_golang/prometheus"
@@ -39,10 +40,21 @@ func Run(ctx context.Context, cfg config.Config) error {
 		_ = publicListener.Close()
 		return fmt.Errorf("listen on internal address %q: %w", cfg.InternalBindAddress, err)
 	}
-	router, err := publicRouter(cfg.Issuer, registrations)
+
+	e := &op.Endpoints{
+		Token:   op.NewEndpoint("/token"),
+		JwksURI: op.NewEndpoint("/jwks"),
+	}
+	s, err := oauth.NewAuthServer(cfg.Issuer, e, registrations)
 	if err != nil {
 		return err
 	}
+	router := api.SetupEndpoints(cfg, s, e)
+
+	/*router, err := publicRouter(cfg.Issuer, registrations)
+	if err != nil {
+		return err
+	}*/
 
 	publicServer := newHTTPServer(router)
 	internalServer := newHTTPServer(internalRouter(newRegistry()))
@@ -92,7 +104,7 @@ func publicRouter(issuer string, registrations *oauth.RegistrationStore) (http.H
 		Token:   op.NewEndpoint("/token"),
 		JwksURI: op.NewEndpoint("/jwks"),
 	}
-	s, err := oauth.NewServer(issuer, e, registrations)
+	s, err := oauth.NewHandler(issuer, e, registrations)
 	if err != nil {
 		return nil, err
 	}

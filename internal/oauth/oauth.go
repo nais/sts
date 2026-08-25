@@ -16,7 +16,15 @@ type server struct {
 	verifier      *tokenVerifier
 }
 
-func NewServer(issuer string, endpoints *op.Endpoints, registrations *RegistrationStore) (http.Handler, error) {
+func NewHandler(issuer string, endpoints *op.Endpoints, registrations *RegistrationStore) (http.Handler, error) {
+	as, err := NewAuthServer(issuer, endpoints, registrations)
+	if err != nil {
+		return nil, err
+	}
+	return op.RegisterServer(as, *endpoints), nil
+}
+
+func NewAuthServer(issuer string, endpoints *op.Endpoints, registrations *RegistrationStore) (op.Server, error) {
 	verifier := newTokenVerifier()
 	provider, err := op.NewProvider(
 		&op.Config{AuthMethodPrivateKeyJWT: true},
@@ -34,7 +42,7 @@ func NewServer(issuer string, endpoints *op.Endpoints, registrations *Registrati
 		registrations: registrations,
 		verifier:      verifier,
 	}
-	return op.RegisterServer(s, *endpoints), nil
+	return s, nil
 }
 
 func (s *server) ClientCredentialsExchange(ctx context.Context, request *op.ClientRequest[oidc.ClientCredentialsRequest]) (*op.Response, error) {
