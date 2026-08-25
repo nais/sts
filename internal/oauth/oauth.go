@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
@@ -14,14 +13,6 @@ type server struct {
 	issuer        string
 	registrations *RegistrationStore
 	verifier      *tokenVerifier
-}
-
-func NewHandler(issuer string, endpoints *op.Endpoints, registrations *RegistrationStore) (http.Handler, error) {
-	as, err := NewAuthServer(issuer, endpoints, registrations)
-	if err != nil {
-		return nil, err
-	}
-	return op.RegisterServer(as, *endpoints), nil
 }
 
 func NewAuthServer(issuer string, endpoints *op.Endpoints, registrations *RegistrationStore) (op.Server, error) {

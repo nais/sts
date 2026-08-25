@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -15,22 +14,15 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/nais/sts/internal/api"
 	"github.com/nais/sts/internal/config"
-	"github.com/nais/sts/internal/oauth"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/zitadel/oidc/v3/pkg/oidc"
-	"github.com/zitadel/oidc/v3/pkg/op"
 	"golang.org/x/sync/errgroup"
 )
 
 const shutdownTimeout = 5 * time.Second
 
 func Run(ctx context.Context, cfg config.Config) error {
-	registrations, err := oauth.LoadRegistrationStore(cfg.RegistrationsFile)
-	if err != nil {
-		return err
-	}
 	publicListener, err := net.Listen("tcp", cfg.BindAddress)
 	if err != nil {
 		return fmt.Errorf("listen on public address %q: %w", cfg.BindAddress, err)
@@ -41,20 +33,10 @@ func Run(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("listen on internal address %q: %w", cfg.InternalBindAddress, err)
 	}
 
-	e := &op.Endpoints{
-		Token:   op.NewEndpoint("/token"),
-		JwksURI: op.NewEndpoint("/jwks"),
-	}
-	s, err := oauth.NewAuthServer(cfg.Issuer, e, registrations)
+	router, err := api.SetupAuthServerHandler(cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("setting up auth server; %w", err)
 	}
-	router := api.SetupEndpoints(cfg, s, e)
-
-	/*router, err := publicRouter(cfg.Issuer, registrations)
-	if err != nil {
-		return err
-	}*/
 
 	publicServer := newHTTPServer(router)
 	internalServer := newHTTPServer(internalRouter(newRegistry()))
@@ -98,61 +80,10 @@ func newHTTPServer(handler http.Handler) *http.Server {
 	}
 }
 
-func publicRouter(issuer string, registrations *oauth.RegistrationStore) (http.Handler, error) {
-	router := chi.NewRouter()
-	e := &op.Endpoints{
-		Token:   op.NewEndpoint("/token"),
-		JwksURI: op.NewEndpoint("/jwks"),
-	}
-	s, err := oauth.NewHandler(issuer, e, registrations)
-	if err != nil {
-		return nil, err
-	}
-	router.Use(contextMiddleware(issuer))
-	router.HandleFunc(oidc.DiscoveryEndpoint, discoveryHandler(e))
-	router.Mount("/", s)
-	return router, nil
-}
-
-func contextMiddleware(issuer string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r = r.WithContext(op.ContextWithIssuer(r.Context(), issuer))
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func discoveryHandler(endpoints *op.Endpoints) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		issuer := op.IssuerFromContext(r.Context())
-		op.Discover(w, &oidc.DiscoveryConfiguration{
-			Issuer:        issuer,
-			TokenEndpoint: endpoints.Token.Absolute(issuer),
-			JwksURI:       endpoints.JwksURI.Absolute(issuer),
-			GrantTypesSupported: []oidc.GrantType{
-				oidc.GrantTypeClientCredentials,
-				oidc.GrantTypeTokenExchange,
-			},
-			TokenEndpointAuthMethodsSupported: []oidc.AuthMethod{
-				oidc.AuthMethodPrivateKeyJWT,
-			},
-			TokenEndpointAuthSigningAlgValuesSupported: []string{"RS256"},
-		})
-	}
-}
-
 func internalRouter(registry *prometheus.Registry) http.Handler {
 	router := chi.NewRouter()
-	router.Get("/healthz", healthHandler)
-	router.Get("/readyz", healthHandler)
 	router.Get("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP)
 	return router
-}
-
-func healthHandler(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, "ok\n")
 }
 
 func newRegistry() *prometheus.Registry {
