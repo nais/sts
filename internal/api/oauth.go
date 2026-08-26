@@ -113,21 +113,6 @@ func (s *apiServer) tokenExchangeHandler(r *http.Request, client op.Client) (*op
 	if err != nil {
 		return nil, err
 	}
-	if request.SubjectToken == "" {
-		return nil, oidc.ErrInvalidRequest().WithDescription("subject_token missing")
-
-	}
-	if request.SubjectTokenType == "" {
-		return nil, oidc.ErrInvalidRequest().WithDescription("subject_token_type missing")
-
-	}
-	if !request.SubjectTokenType.IsSupported() {
-		return nil, oidc.ErrInvalidRequest().WithDescription("subject_token_type is not supported")
-
-	}
-	if request.RequestedTokenType != "" && !request.RequestedTokenType.IsSupported() {
-		return nil, oidc.ErrInvalidRequest().WithDescription("requested_token_type is not supported")
-	}
 	resp, err := s.server.TokenExchange(r.Context(), &op.ClientRequest[oidc.TokenExchangeRequest]{
 		Request: &op.Request[oidc.TokenExchangeRequest]{
 			Method:   r.Method,

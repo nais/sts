@@ -13,15 +13,16 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-type tokenVerifier struct {
+// TODO: caching of jwks, rewrite
+type TokenVerifier struct {
 	httpClient *http.Client
 }
 
-func newTokenVerifier() *tokenVerifier {
-	return &tokenVerifier{httpClient: &http.Client{Timeout: 5 * time.Second}}
+func NewTokenVerifier() *TokenVerifier {
+	return &TokenVerifier{httpClient: &http.Client{Timeout: 5 * time.Second}}
 }
 
-func (v *tokenVerifier) verify(ctx context.Context, raw, issuer string) (*oidc.TokenClaims, error) {
+func (v *TokenVerifier) Verify(ctx context.Context, raw, issuer string) (*oidc.TokenClaims, error) {
 	claims := new(oidc.TokenClaims)
 	payload, err := oidc.ParseToken(raw, claims)
 	if err != nil {

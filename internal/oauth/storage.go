@@ -25,7 +25,7 @@ var (
 type Storage struct {
 	unsupportedStorage
 	registrations *RegistrationStore
-	verifier      *tokenVerifier
+	verifier      *TokenVerifier
 	signingKey    signingKey
 }
 
@@ -41,7 +41,7 @@ type publicKey struct{ signingKey }
 // The whitelist server never calls these methods.
 type unsupportedStorage struct{}
 
-func newStorage(registrations *RegistrationStore, verifier *tokenVerifier) *Storage {
+func newStorage(registrations *RegistrationStore, verifier *TokenVerifier) *Storage {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	return &Storage{
 		registrations: registrations,
@@ -144,7 +144,7 @@ func (s *Storage) VerifyExchangeSubjectToken(ctx context.Context, token string, 
 	if !ok {
 		return "", "", nil, fmt.Errorf("subject token issuer is not registered")
 	}
-	claims, err := s.verifier.verify(ctx, token, unverified.Issuer)
+	claims, err := s.verifier.Verify(ctx, token, unverified.Issuer)
 	if err != nil {
 		return "", "", nil, err
 	}
