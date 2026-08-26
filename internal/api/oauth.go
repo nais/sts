@@ -26,9 +26,9 @@ func discoveryEndpoint(endpoints *op.Endpoints) func(http.ResponseWriter, *http.
 	}
 }
 
-func jwksEndpoint() http.HandlerFunc {
+func (s *apiServer) jwksEndpoint() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// TODO: implement
+		respond(s.server.Keys(r.Context()))(w, r)
 	}
 }
 

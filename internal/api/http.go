@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -25,20 +26,16 @@ var Tracer = otel.Tracer("github.com/nais/sts/internal/api")
 type apiServer struct {
 	router  *chi.Mux
 	decoder httphelper.Decoder
-	server  op.Server
+	server  *oauth.AuthorizationServer
 }
 
-func SetupAuthServerHandler(config config.Config) (http.Handler, error) {
-	registrations, err := oauth.LoadRegistrationStore(config.RegistrationsFile)
-	if err != nil {
-		return nil, err
-	}
-
+func SetupAuthServerHandler(ctx context.Context, cfg config.Config) (http.Handler, error) {
 	e := &op.Endpoints{
 		Token:   op.NewEndpoint("/token"),
 		JwksURI: op.NewEndpoint("/jwks"),
 	}
-	s, err := oauth.NewAuthServer(config.Issuer, e, registrations)
+
+	s, err := oauth.NewAuthorizationServer(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -52,12 +49,12 @@ func SetupAuthServerHandler(config config.Config) (http.Handler, error) {
 		server:  s,
 	}
 
-	ws.router.Use(contextMiddleware(config.Issuer))
+	ws.router.Use(contextMiddleware(cfg.Issuer))
 	ws.router.HandleFunc(healthEndpoint, respondSuccess(op.Status{Status: "ok"}))
 	ws.router.HandleFunc(readinessEndpoint, respondSuccess(op.Status{Status: "ok"}))
 	ws.router.HandleFunc(oidc.DiscoveryEndpoint, discoveryEndpoint(e))
 	ws.traceRoute(e.Token, ws.tokenEndpoint())
-	ws.traceRoute(e.JwksURI, jwksEndpoint())
+	ws.traceRoute(e.JwksURI, ws.jwksEndpoint())
 
 	return ws, nil
 }

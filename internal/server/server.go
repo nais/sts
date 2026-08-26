@@ -33,7 +33,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("listen on internal address %q: %w", cfg.InternalBindAddress, err)
 	}
 
-	router, err := api.SetupAuthServerHandler(cfg)
+	router, err := api.SetupAuthServerHandler(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("setting up auth server; %w", err)
 	}

@@ -74,7 +74,6 @@ run = "go test -cover ./..."
 description = "Create local configuration files"
 run = '''
 test -e .env || cp .env.example .env
-test -e registrations.yaml || cp registrations.yaml.example registrations.yaml
 '''
 
 [tasks.local]
@@ -97,7 +96,7 @@ curl --fail-with-body \
   --data-urlencode "client_id=${CLIENT_ID}" \
   --data-urlencode 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
   --data-urlencode "client_assertion=${WORKLOAD_TOKEN}" \
-  --data-urlencode "audience=${TOKEN_AUDIENCE}"
+  --data-urlencode "scope=${TOKEN_AUDIENCE}"
 '''
 
 [tasks."token:obo"]
