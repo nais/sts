@@ -16,13 +16,11 @@ import (
 )
 
 type OAuthClient struct {
+	ID                string
 	WorkloadIssuer    string   `yaml:"workloadIssuer"`
 	WorkloadSubject   string   `yaml:"workloadSubject"`
 	AllowedAudiences  []string `yaml:"allowedAudiences"`
 	AccessControlList AccessControlList
-
-	// TODO: temporary
-	Client
 }
 
 type TrustedIssuer struct {
@@ -60,18 +58,13 @@ func NewAuthorizationServer(ctx context.Context, cfg config.Config) (*Authorizat
 		return nil, fmt.Errorf("discover metadata from issuer %q: %w", issuer, err)
 	}
 
-	clients := map[ClientID]OAuthClient{
+	clients := map[ClientID]*OAuthClient{
 		"tenant:cluster:namespace:workload": {
+			ID:                "tenant:cluster:namespace:workload",
 			WorkloadIssuer:    issuer,
 			WorkloadSubject:   subject,
 			AllowedAudiences:  []string{"http://some-api.nais.example"},
 			AccessControlList: AccessControlList{},
-			Client: Client{
-				id:               "tenant:cluster:namespace:workload",
-				WorkloadIssuer:   issuer,
-				WorkloadSubject:  subject,
-				AllowedAudiences: []string{"http://some-api.nais.example"},
-			},
 		},
 	}
 
@@ -126,11 +119,23 @@ func NewAuthorizationServer(ctx context.Context, cfg config.Config) (*Authorizat
 type AuthorizationResult struct {
 	Target             Target
 	SubjectTokenClaims *AccessTokenClaims
+	Client             *OAuthClient
 }
 
-func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request TokenRequest, client *OAuthClient) (*AuthorizationResult, error) {
+func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request TokenRequest) (*AuthorizationResult, error) {
 	if err := request.Validate(); err != nil {
 		return nil, err
+	}
+
+	client, ok := a.ClientStore.Clients[ClientID(request.GetClientAuthCredentials().ClientID)]
+	if !ok {
+		return nil, oidc.ErrInvalidClient()
+	}
+	// TODO: select correct issuer for verification
+	// TODO: audience should be configurable
+	authClaims, err := a.ClientAuthIssuers[0].Verify(ctx, request.GetClientAuthCredentials().ClientAssertion)
+	if err != nil || authClaims.Subject != client.WorkloadSubject || len(authClaims.Audience) != 1 || authClaims.Audience[0] != a.Issuer {
+		return nil, oidc.ErrInvalidClient().WithDescription("client assertion is invalid")
 	}
 
 	target, err := request.Target()
@@ -155,38 +160,19 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	return &AuthorizationResult{
 		Target:             target,
 		SubjectTokenClaims: claims,
+		Client:             client,
 	}, nil
 }
 
-// TODO: move validation to the request as for tokenexchangerequest etc..
-func (a *AuthorizationServer) VerifyClient(ctx context.Context, request *op.Request[op.ClientCredentials]) (*OAuthClient, error) {
-	credentials := request.Data
-	if credentials.ClientID == "" || credentials.ClientAssertion == "" ||
-		credentials.ClientAssertionType != oidc.ClientAssertionTypeJWTAssertion || credentials.ClientSecret != "" {
-		return nil, oidc.ErrInvalidClient().WithDescription("workload identity client assertion required")
-	}
-	client, ok := a.ClientStore.Clients[ClientID(credentials.ClientID)]
-	if !ok {
-		return nil, oidc.ErrInvalidClient()
-	}
-	// TODO: select correct issuer for verification
-	// TODO: audience should be configurable
-	claims, err := a.ClientAuthIssuers[0].Verify(ctx, credentials.ClientAssertion)
-	if err != nil || claims.Subject != client.WorkloadSubject || len(claims.Audience) != 1 || claims.Audience[0] != a.Issuer {
-		return nil, oidc.ErrInvalidClient().WithDescription("client assertion is invalid")
-	}
-	return &client, nil
-}
-
-func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, request *ClientCredentialsRequest, client *OAuthClient) (*op.Response, error) {
-	result, err := a.AuthorizeRequest(ctx, request, client)
+func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, request *ClientCredentialsRequest) (*op.Response, error) {
+	result, err := a.AuthorizeRequest(ctx, request)
 	if err != nil {
 		return nil, err
 	}
 
 	accessToken, err := CreateClientCredentialsAccessToken(
 		a.Issuer,
-		client.GetID(),
+		result.Client.ID,
 		result.Target.AsAudience(),
 		nil,
 		1*time.Hour,
@@ -206,8 +192,8 @@ func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, req
 	}), nil
 }
 
-func (a *AuthorizationServer) TokenExchange(ctx context.Context, request *TokenExchangeRequest, client *OAuthClient) (*op.Response, error) {
-	result, err := a.AuthorizeRequest(ctx, request, client)
+func (a *AuthorizationServer) TokenExchange(ctx context.Context, request *TokenExchangeRequest) (*op.Response, error) {
+	result, err := a.AuthorizeRequest(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +201,7 @@ func (a *AuthorizationServer) TokenExchange(ctx context.Context, request *TokenE
 	accessToken, err := CreateTokenExchangeAccessToken(
 		a.Issuer,
 		result.SubjectTokenClaims.Subject,
-		client.GetID(),
+		result.Client.ID,
 		request.Audience,
 		nil,
 		1*time.Hour,

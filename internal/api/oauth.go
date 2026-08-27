@@ -40,17 +40,11 @@ func (s *apiServer) tokenEndpoint() http.HandlerFunc {
 			return
 		}
 
-		client, err := s.verifyClient(r)
-		if err != nil {
-			op.WriteError(w, r, err, nil)
-			return
-		}
-
 		switch grantType := oidc.GrantType(r.Form.Get("grant_type")); grantType {
 		case oidc.GrantTypeClientCredentials:
-			respond(s.clientCredentialsHandler(r, client))(w, r)
+			respond(s.clientCredentialsHandler(r))(w, r)
 		case oidc.GrantTypeTokenExchange:
-			respond(s.tokenExchangeHandler(r, client))(w, r)
+			respond(s.tokenExchangeHandler(r))(w, r)
 		case "":
 			respond(nil, oidc.ErrInvalidRequest().WithDescription("grant_type missing"))(w, r)
 		default:
@@ -64,47 +58,24 @@ func (s *apiServer) tokenEndpoint() http.HandlerFunc {
 	}
 }
 
-func (s *apiServer) verifyClient(r *http.Request) (*oauth.OAuthClient, error) {
-	if err := r.ParseForm(); err != nil {
-		return nil, oidc.ErrInvalidRequest().WithDescription("error parsing form").WithParent(err)
-	}
-
-	cc := new(op.ClientCredentials)
-	if err := s.decoder.Decode(cc, r.Form); err != nil {
-		return nil, oidc.ErrInvalidRequest().WithDescription("error decoding form").WithParent(err)
-	}
-
-	if cc.ClientAssertion == "" || cc.ClientAssertionType != oidc.ClientAssertionTypeJWTAssertion {
-		return nil, oidc.ErrInvalidRequest().WithDescription("client_assertion must be provided and be of type %s", oidc.ClientAssertionTypeJWTAssertion)
-	}
-
-	return s.server.VerifyClient(r.Context(), &op.Request[op.ClientCredentials]{
-		Method: r.Method,
-		URL:    r.URL,
-		Header: r.Header,
-		Form:   r.Form,
-		Data:   cc,
-	})
-}
-
-func (s *apiServer) clientCredentialsHandler(r *http.Request, client *oauth.OAuthClient) (*op.Response, error) {
+func (s *apiServer) clientCredentialsHandler(r *http.Request) (*op.Response, error) {
 	request, err := decodeRequest[oauth.ClientCredentialsRequest](s.decoder, r, true)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.server.ClientCredentialsExchange(r.Context(), request, client)
+	resp, err := s.server.ClientCredentialsExchange(r.Context(), request)
 	if err != nil {
 		return nil, err
 	}
 	return resp, nil
 }
 
-func (s *apiServer) tokenExchangeHandler(r *http.Request, client *oauth.OAuthClient) (*op.Response, error) {
+func (s *apiServer) tokenExchangeHandler(r *http.Request) (*op.Response, error) {
 	request, err := decodeRequest[oauth.TokenExchangeRequest](s.decoder, r, true)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.server.TokenExchange(r.Context(), request, client)
+	resp, err := s.server.TokenExchange(r.Context(), request)
 	if err != nil {
 		return nil, err
 	}

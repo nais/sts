@@ -17,7 +17,7 @@ type AccessControlListEntry struct {
 type ClientID string
 
 type ClientStore struct {
-	Clients map[ClientID]OAuthClient
+	Clients map[ClientID]*OAuthClient
 }
 
 type KeyStore struct {
