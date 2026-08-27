@@ -116,7 +116,7 @@ curl --fail-with-body \
   --data-urlencode "client_assertion=${WORKLOAD_TOKEN}" \
   --data-urlencode "audience=${TOKEN_AUDIENCE}" \
   --data-urlencode "subject_token=${WORKLOAD_TOKEN}" \
-  --data-urlencode 'subject_token_type=urn:ietf:params:oauth:token-type:access_token' \
+  --data-urlencode 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \
   --data-urlencode 'requested_token_type=urn:ietf:params:oauth:token-type:access_token'
 '''
 

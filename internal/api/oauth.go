@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/nais/sts/internal/oauth"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 )
@@ -63,7 +64,7 @@ func (s *apiServer) tokenEndpoint() http.HandlerFunc {
 	}
 }
 
-func (s *apiServer) verifyClient(r *http.Request) (op.Client, error) {
+func (s *apiServer) verifyClient(r *http.Request) (*oauth.OAuthClient, error) {
 	if err := r.ParseForm(); err != nil {
 		return nil, oidc.ErrInvalidRequest().WithDescription("error parsing form").WithParent(err)
 	}
@@ -86,44 +87,24 @@ func (s *apiServer) verifyClient(r *http.Request) (op.Client, error) {
 	})
 }
 
-func (s *apiServer) clientCredentialsHandler(r *http.Request, client op.Client) (*op.Response, error) {
-	request, err := decodeRequest[oidc.ClientCredentialsRequest](s.decoder, r, true)
+func (s *apiServer) clientCredentialsHandler(r *http.Request, client *oauth.OAuthClient) (*op.Response, error) {
+	request, err := decodeRequest[oauth.ClientCredentialsRequest](s.decoder, r, true)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.server.ClientCredentialsExchange(r.Context(), &op.ClientRequest[oidc.ClientCredentialsRequest]{
-		Request: &op.Request[oidc.ClientCredentialsRequest]{
-			Method:   r.Method,
-			URL:      r.URL,
-			Header:   r.Header,
-			Form:     r.Form,
-			PostForm: r.PostForm,
-			Data:     request,
-		},
-		Client: client,
-	})
+	resp, err := s.server.ClientCredentialsExchange(r.Context(), request, client)
 	if err != nil {
 		return nil, err
 	}
 	return resp, nil
 }
 
-func (s *apiServer) tokenExchangeHandler(r *http.Request, client op.Client) (*op.Response, error) {
-	request, err := decodeRequest[oidc.TokenExchangeRequest](s.decoder, r, true)
+func (s *apiServer) tokenExchangeHandler(r *http.Request, client *oauth.OAuthClient) (*op.Response, error) {
+	request, err := decodeRequest[oauth.TokenExchangeRequest](s.decoder, r, true)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.server.TokenExchange(r.Context(), &op.ClientRequest[oidc.TokenExchangeRequest]{
-		Request: &op.Request[oidc.TokenExchangeRequest]{
-			Method:   r.Method,
-			URL:      r.URL,
-			Header:   r.Header,
-			Form:     r.Form,
-			PostForm: r.PostForm,
-			Data:     request,
-		},
-		Client: client,
-	})
+	resp, err := s.server.TokenExchange(r.Context(), request, client)
 	if err != nil {
 		return nil, err
 	}

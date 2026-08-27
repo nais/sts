@@ -6,7 +6,6 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"net/http"
-	"slices"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -35,27 +34,6 @@ type TrustedIssuer struct {
 func (t *TrustedIssuer) Verify(ctx context.Context, token string) (*AccessTokenClaims, error) {
 	return t.verifier.Verify(ctx, token, t.Issuer)
 }
-
-type KeyStore struct {
-	jose.JSONWebKeySet
-}
-
-type KeyID string
-
-type AccessControlList struct {
-	Allowed []AccessControlListEntry
-}
-
-type AccessControlListEntry struct {
-	OAuthClient
-	Roles []string
-}
-
-type ClientStore struct {
-	Clients map[ClientID]OAuthClient
-}
-
-type ClientID string
 
 type AuthorizationServer struct {
 	ClientAuthIssuers    []TrustedIssuer
@@ -145,39 +123,43 @@ func NewAuthorizationServer(ctx context.Context, cfg config.Config) (*Authorizat
 	}, nil
 }
 
-type TokenExchangeRequest struct {
-	oidc.TokenExchangeRequest
+type AuthorizationResult struct {
+	Target             Target
+	SubjectTokenClaims *AccessTokenClaims
 }
 
-func (t *TokenExchangeRequest) GrantType() oidc.GrantType {
-	return t.TokenExchangeRequest.GrantType
-}
-
-type ClientCredentialsRequest struct {
-	oidc.ClientCredentialsRequest
-}
-
-func (t *ClientCredentialsRequest) GrantType() oidc.GrantType {
-	return t.ClientCredentialsRequest.GrantType
-}
-
-func (a *AuthorizationServer) AuthorizeClient(_ context.Context, request oidc.TokenRequest, client OAuthClient) error {
-	switch r := request.(type) {
-	case *ClientCredentialsRequest:
-		if !slices.Contains(client.AllowedAudiences, r.Scope[0]) {
-			return oidc.ErrInvalidTarget().WithDescription("requested scope is not allowed for this client")
-		}
-	case *TokenExchangeRequest:
-		if !slices.Contains(client.AllowedAudiences, r.Audience[0]) {
-			return oidc.ErrInvalidTarget().WithDescription("requested audience is not allowed for this client")
-		}
-	default:
-		return oidc.ErrInvalidRequest().WithDescription("unsupported grant type")
+func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request TokenRequest, client *OAuthClient) (*AuthorizationResult, error) {
+	if err := request.Validate(); err != nil {
+		return nil, err
 	}
-	return nil
+
+	target, err := request.Target()
+	if err != nil {
+		return nil, err
+	}
+
+	var claims *AccessTokenClaims
+	if te, ok := request.(*TokenExchangeRequest); ok {
+		// TODO: choose correct issuer for validation
+		claims, err = a.TokenExchangeIssuers[0].Verify(ctx, te.SubjectToken)
+		if err != nil {
+			return nil, oidc.ErrInvalidClient().WithDescription("subject token is invalid")
+		}
+
+	}
+
+	if err = a.ClientStore.AuthorizeTarget(client, target); err != nil {
+		return nil, err
+	}
+
+	return &AuthorizationResult{
+		Target:             target,
+		SubjectTokenClaims: claims,
+	}, nil
 }
 
-func (a *AuthorizationServer) VerifyClient(ctx context.Context, request *op.Request[op.ClientCredentials]) (op.Client, error) {
+// TODO: move validation to the request as for tokenexchangerequest etc..
+func (a *AuthorizationServer) VerifyClient(ctx context.Context, request *op.Request[op.ClientCredentials]) (*OAuthClient, error) {
 	credentials := request.Data
 	if credentials.ClientID == "" || credentials.ClientAssertion == "" ||
 		credentials.ClientAssertionType != oidc.ClientAssertionTypeJWTAssertion || credentials.ClientSecret != "" {
@@ -196,15 +178,16 @@ func (a *AuthorizationServer) VerifyClient(ctx context.Context, request *op.Requ
 	return &client, nil
 }
 
-func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, request *op.ClientRequest[oidc.ClientCredentialsRequest]) (*op.Response, error) {
-	client, ok := request.Client.(*OAuthClient)
-	if !ok || len(request.Data.Scope) != 1 || !client.allowsAudience(request.Data.Scope[0]) {
-		return nil, oidc.ErrInvalidTarget().WithDescription("requested scope is not allowed for this client")
+func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, request *ClientCredentialsRequest, client *OAuthClient) (*op.Response, error) {
+	result, err := a.AuthorizeRequest(ctx, request, client)
+	if err != nil {
+		return nil, err
 	}
+
 	accessToken, err := CreateClientCredentialsAccessToken(
 		a.Issuer,
 		client.GetID(),
-		oidc.Audience(request.Data.Scope),
+		result.Target.AsAudience(),
 		nil,
 		1*time.Hour,
 	)
@@ -223,47 +206,20 @@ func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, req
 	}), nil
 }
 
-func (a *AuthorizationServer) TokenExchange(ctx context.Context, request *op.ClientRequest[oidc.TokenExchangeRequest]) (*op.Response, error) {
-	if request.Data.ActorToken != "" || request.Data.ActorTokenType != "" {
-		return nil, oidc.ErrInvalidRequest().WithDescription("actor_token is not supported")
-	}
-	if request.Data.SubjectToken == "" {
-		return nil, oidc.ErrInvalidRequest().WithDescription("subject_token missing")
-	}
-	if request.Data.SubjectTokenType == "" {
-		return nil, oidc.ErrInvalidRequest().WithDescription("subject_token_type missing")
-	}
-	if !request.Data.SubjectTokenType.IsSupported() {
-		return nil, oidc.ErrInvalidRequest().WithDescription("subject_token_type is not supported")
-	}
-	if request.Data.RequestedTokenType != oidc.AccessTokenType {
-		return nil, oidc.ErrInvalidRequest().WithDescription("only access tokens can be requested")
-	}
-	if len(request.Data.Audience) != 1 {
-		return nil, oidc.ErrInvalidTarget().WithDescription("requested audience is not allowed for this client")
-	}
-
-	// TODO: replace with verifier to Verify subject token, create JwtTokenRequest and call CreateAccessToken to create the new access token
-	// remember to check acl aswell
-	client, ok := request.Client.(*OAuthClient)
-	if !ok || len(request.Data.Audience) != 1 || !client.allowsAudience(request.Data.Audience[0]) {
-		return nil, oidc.ErrInvalidTarget().WithDescription("requested audience is not allowed for this client")
-	}
-
-	// TODO: choose correct issuer for validation
-	subjectTokenClaims, err := a.TokenExchangeIssuers[0].Verify(ctx, request.Data.SubjectToken)
+func (a *AuthorizationServer) TokenExchange(ctx context.Context, request *TokenExchangeRequest, client *OAuthClient) (*op.Response, error) {
+	result, err := a.AuthorizeRequest(ctx, request, client)
 	if err != nil {
-		return nil, oidc.ErrInvalidClient().WithDescription("subject token is invalid")
+		return nil, err
 	}
 
 	accessToken, err := CreateTokenExchangeAccessToken(
 		a.Issuer,
-		subjectTokenClaims.Subject,
+		result.SubjectTokenClaims.Subject,
 		client.GetID(),
-		request.Data.Audience,
+		request.Audience,
 		nil,
 		1*time.Hour,
-		subjectTokenClaims.Claims,
+		result.SubjectTokenClaims.Claims,
 	)
 	if err != nil {
 		return nil, err
