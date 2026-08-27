@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"encoding/json"
+	"maps"
 	"time"
 	"uuid"
 
@@ -10,7 +11,7 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-type AccessTokenClaims struct {
+type STSTokenClaims struct {
 	Issuer     string            `json:"iss,omitempty"`
 	Subject    string            `json:"sub,omitempty"`
 	Audience   oidc.Audience     `json:"aud,omitempty"`
@@ -20,8 +21,11 @@ type AccessTokenClaims struct {
 	Expiration oidc.Time         `json:"exp,omitempty"`
 	IssuedAt   oidc.Time         `json:"iat,omitempty"`
 	NotBefore  oidc.Time         `json:"nbf,omitempty"`
+}
 
-	SubjectTokenClaims map[string]any `json:"-"`
+type AccessTokenClaims struct {
+	oidc.TokenClaims
+	Claims map[string]json.RawMessage `json:"-"`
 }
 
 func (a *AccessTokenClaims) ExpiresIn() time.Duration {
@@ -29,23 +33,17 @@ func (a *AccessTokenClaims) ExpiresIn() time.Duration {
 }
 
 func (a *AccessTokenClaims) Sign(signer jose.Signer) (string, error) {
-	// TODO: tests for merging/overriding with nested values, objects, arrays
-	claims := a.SubjectTokenClaims
-	if claims == nil {
-		claims = make(map[string]any)
-	}
+	return crypto.Sign(a.Claims, signer)
+}
 
-	atClaims, err := json.Marshal(a)
-	if err != nil {
-		return "", err
-	}
+var _ json.Unmarshaler = (*AccessTokenClaims)(nil)
 
-	err = json.Unmarshal(atClaims, &claims)
-	if err != nil {
-		return "", err
+func (a *AccessTokenClaims) UnmarshalJSON(data []byte) error {
+	type tokenClaims oidc.TokenClaims
+	if err := json.Unmarshal(data, (*tokenClaims)(&a.TokenClaims)); err != nil {
+		return err
 	}
-
-	return crypto.Sign(claims, signer)
+	return json.Unmarshal(data, &a.Claims)
 }
 
 func CreateAccessToken(
@@ -53,7 +51,7 @@ func CreateAccessToken(
 	audience oidc.Audience,
 	actor *oidc.ActorClaims,
 	expiresIn time.Duration,
-	privateClaims map[string]any,
+	subjectTokenClaims map[string]json.RawMessage,
 ) (*AccessTokenClaims, error) {
 	jti := uuid.New().String()
 	now := time.Now()
@@ -61,18 +59,41 @@ func CreateAccessToken(
 	iat := oidc.FromTime(now)
 	nbf := iat
 
+	stsTokenClaims := oidc.TokenClaims{
+		Issuer:     issuer,
+		Subject:    subject,
+		Audience:   audience,
+		ClientID:   clientID,
+		JWTID:      jti,
+		Actor:      actor,
+		Expiration: exp,
+		IssuedAt:   iat,
+		NotBefore:  nbf,
+	}
+
+	claims, err := mergeClaims(subjectTokenClaims, stsTokenClaims)
+	if err != nil {
+		return nil, err
+	}
+
 	return &AccessTokenClaims{
-		Issuer:             issuer,
-		Subject:            subject,
-		Audience:           audience,
-		ClientID:           clientID,
-		JWTID:              jti,
-		Actor:              actor,
-		Expiration:         exp,
-		IssuedAt:           iat,
-		NotBefore:          nbf,
-		SubjectTokenClaims: privateClaims,
+		TokenClaims: stsTokenClaims,
+		Claims:      claims,
 	}, nil
+}
+
+func mergeClaims(base map[string]json.RawMessage, authoritative any) (map[string]json.RawMessage, error) {
+	claims := make(map[string]json.RawMessage, len(base))
+	maps.Copy(claims, base)
+
+	data, err := json.Marshal(authoritative)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(data, &claims); err != nil {
+		return nil, err
+	}
+	return claims, nil
 }
 
 func CreateClientCredentialsAccessToken(
@@ -87,13 +108,13 @@ func CreateClientCredentialsAccessToken(
 }
 
 func CreateTokenExchangeAccessToken(
-	issuer, clientID string,
+	issuer, subject, clientID string,
 	audience oidc.Audience,
 	actor *oidc.ActorClaims,
 	expiresIn time.Duration,
-	privateClaims map[string]any,
+	subjectTokenClaims map[string]json.RawMessage,
 ) (*AccessTokenClaims, error) {
 	return CreateAccessToken(
-		issuer, "", clientID, audience, actor, expiresIn, privateClaims,
+		issuer, subject, clientID, audience, actor, expiresIn, subjectTokenClaims,
 	)
 }

@@ -32,8 +32,7 @@ type TrustedIssuer struct {
 	verifier *TokenVerifier
 }
 
-// TODO: use AccessTokenClaims to get all claims
-func (t *TrustedIssuer) Verify(ctx context.Context, token string) (*oidc.TokenClaims, error) {
+func (t *TrustedIssuer) Verify(ctx context.Context, token string) (*AccessTokenClaims, error) {
 	return t.verifier.Verify(ctx, token, t.Issuer)
 }
 
@@ -189,6 +188,7 @@ func (a *AuthorizationServer) VerifyClient(ctx context.Context, request *op.Requ
 		return nil, oidc.ErrInvalidClient()
 	}
 	// TODO: select correct issuer for verification
+	// TODO: audience should be configurable
 	claims, err := a.ClientAuthIssuers[0].Verify(ctx, credentials.ClientAssertion)
 	if err != nil || claims.Subject != client.WorkloadSubject || len(claims.Audience) != 1 || claims.Audience[0] != a.Issuer {
 		return nil, oidc.ErrInvalidClient().WithDescription("client assertion is invalid")
@@ -201,11 +201,6 @@ func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, req
 	if !ok || len(request.Data.Scope) != 1 || !client.allowsAudience(request.Data.Scope[0]) {
 		return nil, oidc.ErrInvalidTarget().WithDescription("requested scope is not allowed for this client")
 	}
-	tokenRequest := &oidc.JWTTokenRequest{
-		Subject: client.GetID(),
-		Scopes:  request.Data.Scope,
-	}
-
 	accessToken, err := CreateClientCredentialsAccessToken(
 		a.Issuer,
 		client.GetID(),
@@ -225,7 +220,6 @@ func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, req
 		AccessToken: signed,
 		TokenType:   oidc.BearerToken,
 		ExpiresIn:   uint64(accessToken.ExpiresIn().Seconds()),
-		Scope:       tokenRequest.GetScopes(),
 	}), nil
 }
 
@@ -251,8 +245,41 @@ func (a *AuthorizationServer) TokenExchange(ctx context.Context, request *op.Cli
 
 	// TODO: replace with verifier to Verify subject token, create JwtTokenRequest and call CreateAccessToken to create the new access token
 	// remember to check acl aswell
-	// return s.legacy.TokenExchange(ctx, request)
-	return op.NewResponse(nil), nil
+	client, ok := request.Client.(*OAuthClient)
+	if !ok || len(request.Data.Audience) != 1 || !client.allowsAudience(request.Data.Audience[0]) {
+		return nil, oidc.ErrInvalidTarget().WithDescription("requested audience is not allowed for this client")
+	}
+
+	// TODO: choose correct issuer for validation
+	subjectTokenClaims, err := a.TokenExchangeIssuers[0].Verify(ctx, request.Data.SubjectToken)
+	if err != nil {
+		return nil, oidc.ErrInvalidClient().WithDescription("subject token is invalid")
+	}
+
+	accessToken, err := CreateTokenExchangeAccessToken(
+		a.Issuer,
+		subjectTokenClaims.Subject,
+		client.GetID(),
+		request.Data.Audience,
+		nil,
+		1*time.Hour,
+		subjectTokenClaims.Claims,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	signed, err := accessToken.Sign(a.Signer)
+	if err != nil {
+		return nil, err
+	}
+
+	return op.NewResponse(&oidc.TokenExchangeResponse{
+		AccessToken:     signed,
+		IssuedTokenType: oidc.AccessTokenType,
+		TokenType:       oidc.BearerToken,
+		ExpiresIn:       uint64(accessToken.ExpiresIn().Seconds()),
+	}), nil
 
 }
 
