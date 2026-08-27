@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/go-jose/go-jose/v4"
 	"github.com/nais/sts/internal/config"
@@ -63,7 +64,7 @@ type AuthorizationServer struct {
 	Issuer               string
 	KeyStore             KeyStore
 	TokenExchangeIssuers []TrustedIssuer
-	TokenProvider        op.TokenCreator
+	Signer               jose.Signer
 }
 
 func NewAuthorizationServer(ctx context.Context, cfg config.Config) (*AuthorizationServer, error) {
@@ -113,6 +114,15 @@ func NewAuthorizationServer(ctx context.Context, cfg config.Config) (*Authorizat
 		},
 	}
 
+	alg := jose.RS256 // TODO: consider stronger algorithm
+	signer, err := jose.NewSigner(jose.SigningKey{
+		Algorithm: alg,
+		Key:       key,
+	}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating signer: %w", err)
+	}
+
 	return &AuthorizationServer{
 		ClientAuthIssuers: clientAuthIssuers,
 		ClientStore: ClientStore{
@@ -125,15 +135,14 @@ func NewAuthorizationServer(ctx context.Context, cfg config.Config) (*Authorizat
 					{
 						Key:       key,
 						KeyID:     "key1",
-						Algorithm: string(jose.RS256),
+						Algorithm: string(alg),
 						Use:       "sig",
 					},
 				},
 			},
 		},
 		TokenExchangeIssuers: tokenExchangeIssuers,
-		// TODO: fix me
-		TokenProvider: nil,
+		Signer:               signer,
 	}, nil
 }
 
@@ -196,15 +205,26 @@ func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, req
 		Subject: client.GetID(),
 		Scopes:  request.Data.Scope,
 	}
-	accessToken, _, validity, err := op.CreateAccessToken(ctx, tokenRequest, client.AccessTokenType(), a.TokenProvider, client, "")
+
+	accessToken, err := CreateClientCredentialsAccessToken(
+		a.Issuer,
+		client.GetID(),
+		oidc.Audience(request.Data.Scope),
+		nil,
+		1*time.Hour,
+	)
+	if err != nil {
+		return nil, err
+	}
+	signed, err := accessToken.Sign(a.Signer)
 	if err != nil {
 		return nil, err
 	}
 
 	return op.NewResponse(&oidc.AccessTokenResponse{
-		AccessToken: accessToken,
+		AccessToken: signed,
 		TokenType:   oidc.BearerToken,
-		ExpiresIn:   uint64(validity.Seconds()),
+		ExpiresIn:   uint64(accessToken.ExpiresIn().Seconds()),
 		Scope:       tokenRequest.GetScopes(),
 	}), nil
 }
