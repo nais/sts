@@ -150,7 +150,7 @@ type TokenExchangeRequest struct {
 }
 
 func (t *TokenExchangeRequest) GrantType() oidc.GrantType {
-	return t.GrantType()
+	return t.TokenExchangeRequest.GrantType
 }
 
 type ClientCredentialsRequest struct {
@@ -158,7 +158,7 @@ type ClientCredentialsRequest struct {
 }
 
 func (t *ClientCredentialsRequest) GrantType() oidc.GrantType {
-	return t.GrantType()
+	return t.ClientCredentialsRequest.GrantType
 }
 
 func (a *AuthorizationServer) AuthorizeClient(_ context.Context, request oidc.TokenRequest, client OAuthClient) error {
