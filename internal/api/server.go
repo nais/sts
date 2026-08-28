@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nais/sts/internal/config"
+	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -26,11 +28,13 @@ func StartServer(ctx context.Context, cfg config.Config) error {
 	if err != nil {
 		return fmt.Errorf("listen on public address %q: %w", cfg.BindAddress, err)
 	}
+	defer ioconvenience.CloseWithLog(publicListener, slog.Default())
+
 	internalListener, err := net.Listen("tcp", cfg.InternalBindAddress)
 	if err != nil {
-		_ = publicListener.Close()
 		return fmt.Errorf("listen on internal address %q: %w", cfg.InternalBindAddress, err)
 	}
+	defer ioconvenience.CloseWithLog(internalListener, slog.Default())
 
 	router, err := authorizationServerRouter(ctx, cfg)
 	if err != nil {
