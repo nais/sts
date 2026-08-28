@@ -1,4 +1,4 @@
-package server
+package api
 
 import (
 	"context"
@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/nais/sts/internal/api"
 	"github.com/nais/sts/internal/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -22,7 +21,7 @@ import (
 
 const shutdownTimeout = 5 * time.Second
 
-func Run(ctx context.Context, cfg config.Config) error {
+func StartServer(ctx context.Context, cfg config.Config) error {
 	publicListener, err := net.Listen("tcp", cfg.BindAddress)
 	if err != nil {
 		return fmt.Errorf("listen on public address %q: %w", cfg.BindAddress, err)
@@ -33,13 +32,13 @@ func Run(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("listen on internal address %q: %w", cfg.InternalBindAddress, err)
 	}
 
-	router, err := api.SetupAuthServerHandler(ctx, cfg)
+	router, err := authorizationServerRouter(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("setting up auth server; %w", err)
 	}
 
-	publicServer := newHTTPServer(router)
-	internalServer := newHTTPServer(internalRouter(newRegistry()))
+	publicServer := httpServer(router)
+	internalServer := httpServer(internalRouter(prometheusRegistry()))
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -70,7 +69,7 @@ func shutdown(ctx context.Context, name string, server *http.Server) error {
 	return nil
 }
 
-func newHTTPServer(handler http.Handler) *http.Server {
+func httpServer(handler http.Handler) *http.Server {
 	return &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -86,7 +85,7 @@ func internalRouter(registry *prometheus.Registry) http.Handler {
 	return router
 }
 
-func newRegistry() *prometheus.Registry {
+func prometheusRegistry() *prometheus.Registry {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	return registry

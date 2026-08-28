@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/nais/sts/internal/api"
 	"github.com/nais/sts/internal/config"
-	"github.com/nais/sts/internal/server"
 )
 
 func Run(ctx context.Context) error {
@@ -19,5 +19,5 @@ func Run(ctx context.Context) error {
 		Level: cfg.LogLevel,
 	})))
 
-	return server.Run(ctx, cfg)
+	return api.StartServer(ctx, cfg)
 }
