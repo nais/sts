@@ -19,7 +19,7 @@ func TestLoadWith(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.BindAddress != "127.0.0.1:9000" || got.InternalBindAddress != "127.0.0.1:9001" || got.Issuer != "https://sts.example" || got.LogLevel != slog.LevelDebug || got.RegistrationsFile != "testdata/registrations.yaml" {
+	if got.BindAddress != "127.0.0.1:9000" || got.InternalBindAddress != "127.0.0.1:9001" || got.Issuer != "https://sts.example" || got.LogLevel != slog.LevelDebug {
 		t.Fatalf("unexpected config: %#v", got)
 	}
 }
@@ -29,7 +29,12 @@ func TestLoadWithDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Config{BindAddress: ":8080", InternalBindAddress: ":8081", Issuer: "http://localhost:8080", LogLevel: slog.LevelInfo, RegistrationsFile: "registrations.yaml"}
+	want := Config{
+		BindAddress:         ":8080",
+		InternalBindAddress: ":8081",
+		Issuer:              "http://localhost:8080",
+		LogLevel:            slog.LevelInfo,
+	}
 	if got != want {
 		t.Fatalf("LoadWith() = %#v, want %#v", got, want)
 	}
@@ -43,7 +48,6 @@ func TestLoadWithValidation(t *testing.T) {
 		"relative issuer":        {"ISSUER": "/issuer"},
 		"http issuer":            {"ISSUER": "http://sts.example"},
 		"invalid log level":      {"LOG_LEVEL": "trace"},
-		"empty registrations":    {"REGISTRATIONS_FILE": ""},
 	}
 	for name, values := range tests {
 		t.Run(name, func(t *testing.T) {

@@ -15,14 +15,6 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
-type OAuthClient struct {
-	ID                string
-	WorkloadIssuer    string   `yaml:"workloadIssuer"`
-	WorkloadSubject   string   `yaml:"workloadSubject"`
-	AllowedAudiences  []string `yaml:"allowedAudiences"`
-	AccessControlList AccessControlList
-}
-
 type TrustedIssuer struct {
 	Issuer   string
 	JwksURI  string

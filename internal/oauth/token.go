@@ -23,6 +23,8 @@ type STSTokenClaims struct {
 	NotBefore  oidc.Time         `json:"nbf,omitempty"`
 }
 
+var _ json.Unmarshaler = (*AccessTokenClaims)(nil)
+
 type AccessTokenClaims struct {
 	oidc.TokenClaims
 	Claims map[string]json.RawMessage `json:"-"`
@@ -35,8 +37,6 @@ func (a *AccessTokenClaims) ExpiresIn() time.Duration {
 func (a *AccessTokenClaims) Sign(signer jose.Signer) (string, error) {
 	return crypto.Sign(a.Claims, signer)
 }
-
-var _ json.Unmarshaler = (*AccessTokenClaims)(nil)
 
 func (a *AccessTokenClaims) UnmarshalJSON(data []byte) error {
 	type tokenClaims oidc.TokenClaims
