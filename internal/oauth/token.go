@@ -39,6 +39,7 @@ func (a *AccessTokenClaims) Sign(signer jose.Signer) (string, error) {
 }
 
 func (a *AccessTokenClaims) UnmarshalJSON(data []byte) error {
+	// Use a distinct type without UnmarshalJSON to avoid recursive unmarshalling.
 	type tokenClaims oidc.TokenClaims
 	if err := json.Unmarshal(data, (*tokenClaims)(&a.TokenClaims)); err != nil {
 		return err

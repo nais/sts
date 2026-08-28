@@ -60,11 +60,11 @@ func newVerifier(ctx context.Context, issuer string, client *http.Client) (*veri
 		return nil, fmt.Errorf("discover metadata from issuer %q: %w", issuer, err)
 	}
 	if metadata.Issuer != issuer {
-		return nil, fmt.Errorf("issuer %q does not match issuer: %q in wellknown metadata", issuer, metadata.Issuer)
+		return nil, fmt.Errorf("configured issuer does not match issuer in discovery document: got %q, want %q", metadata.Issuer, issuer)
 	}
 	algorithms := asymmetricAlgorithms(metadata.IDTokenSigningAlgValuesSupported)
 	if len(algorithms) == 0 {
-		return nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms")
+		return nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms: %s", algorithms)
 	}
 	keyset := rp.NewRemoteKeySet(client, metadata.JwksURI)
 	return &verifier{
@@ -90,9 +90,11 @@ func (v *verifier) verify(ctx context.Context, rawToken string, payload []byte, 
 	if err := oidc.CheckSubject(claims); err != nil {
 		return nil, err
 	}
-	nowWithOffset := time.Now().Add(SkewTime).Round(time.Second)
-	if !claims.NotBefore.AsTime().IsZero() && claims.NotBefore.AsTime().After(nowWithOffset) {
-		return nil, fmt.Errorf("nbf not valid: (nbf: %v, now with offset: %v)", claims.NotBefore, nowWithOffset)
+	if !claims.NotBefore.AsTime().IsZero() {
+		nowWithOffset := time.Now().Add(SkewTime).Round(time.Second)
+		if claims.NotBefore.AsTime().After(nowWithOffset) {
+			return nil, fmt.Errorf("nbf is in the future: (nbf: %v, now with offset: %v)", claims.NotBefore, nowWithOffset)
+		}
 	}
 	return claims, nil
 }
