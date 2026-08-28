@@ -7,52 +7,66 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zitadel/oidc/v3/pkg/client"
+	oauthclient "github.com/zitadel/oidc/v3/pkg/client"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-// TODO: caching of jwks, rewrite
+const SkewTime = time.Minute
+
 type TokenVerifier struct {
-	httpClient *http.Client
+	issuer       string
+	jwksURI      string
+	client       *http.Client
+	keyset       oidc.KeySet
+	requiredAlgs []string
 }
 
-func NewTokenVerifier() *TokenVerifier {
-	return &TokenVerifier{httpClient: &http.Client{Timeout: 5 * time.Second}}
-}
-
-func (v *TokenVerifier) Verify(ctx context.Context, raw, issuer string) (*AccessTokenClaims, error) {
-	claims := new(AccessTokenClaims)
-	payload, err := oidc.ParseToken(raw, claims)
+func NewTokenVerifier(ctx context.Context, issuer string) (*TokenVerifier, error) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	metadata, err := oauthclient.Discover(ctx, issuer, client)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("discover metadata from issuer %q: %w", issuer, err)
 	}
-	if claims.Issuer != issuer {
-		return nil, oidc.ErrIssuerInvalid
+	if metadata.Issuer != issuer {
+		return nil, fmt.Errorf("issuer %q does not match issuer: %q in wellknown metadata", issuer, metadata.Issuer)
 	}
-
-	configuration, err := client.Discover(ctx, issuer, v.httpClient)
-	if err != nil {
-		return nil, err
-	}
-	algorithms := asymmetricAlgorithms(configuration.IDTokenSigningAlgValuesSupported)
+	algorithms := asymmetricAlgorithms(metadata.IDTokenSigningAlgValuesSupported)
 	if len(algorithms) == 0 {
 		return nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms")
 	}
-	if err := oidc.CheckSignature(ctx, raw, payload, claims, algorithms, rp.NewRemoteKeySet(v.httpClient, configuration.JwksURI)); err != nil {
+	keyset := rp.NewRemoteKeySet(client, metadata.JwksURI)
+	return &TokenVerifier{
+		issuer: issuer,
+		client: client,
+		keyset: keyset,
+	}, nil
+}
+
+func (t *TokenVerifier) Verify(ctx context.Context, rawToken string) (*AccessTokenClaims, error) {
+	claims := new(AccessTokenClaims)
+	payload, err := oidc.ParseToken(rawToken, claims)
+	if err != nil {
 		return nil, err
 	}
-	if err := oidc.CheckExpiration(claims, 0); err != nil {
+	if claims.Issuer != t.issuer {
+		return nil, oidc.ErrIssuerInvalid
+	}
+	if err := oidc.CheckSignature(ctx, rawToken, payload, claims, t.requiredAlgs, t.keyset); err != nil {
 		return nil, err
 	}
-	if err := oidc.CheckIssuedAt(claims, 0, 0); err != nil {
+	if err := oidc.CheckExpiration(claims, SkewTime); err != nil {
+		return nil, err
+	}
+	if err := oidc.CheckIssuedAt(claims, 0, SkewTime); err != nil {
 		return nil, err
 	}
 	if err := oidc.CheckSubject(claims); err != nil {
 		return nil, err
 	}
-	if !claims.NotBefore.AsTime().IsZero() && time.Now().Before(claims.NotBefore.AsTime()) {
-		return nil, fmt.Errorf("token is not valid yet")
+	nowWithOffset := time.Now().Add(SkewTime).Round(time.Second)
+	if !claims.NotBefore.AsTime().IsZero() && claims.NotBefore.AsTime().After(nowWithOffset) {
+		return nil, fmt.Errorf("nbf not valid: (nbf: %v, now with offset: %v)", claims.NotBefore, nowWithOffset)
 	}
 	return claims, nil
 }
