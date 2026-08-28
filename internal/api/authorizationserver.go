@@ -7,16 +7,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nais/sts/internal/config"
-	http2 "github.com/nais/sts/internal/http"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/riandyrn/otelchi"
-	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
 const (
-	healthEndpoint    = "/healthz"
-	readinessEndpoint = "/ready"
+	healthEndpoint         = "/healthz"
+	readinessEndpoint      = "/ready"
+	oauthDiscoveryEndpoint = "/.well-known/oauth-authorization-server"
 )
 
 func authorizationServerRouter(ctx context.Context, cfg config.Config) (http.Handler, error) {
@@ -40,9 +39,12 @@ func authorizationServerRouter(ctx context.Context, cfg config.Config) (http.Han
 		}),
 	))
 	router.Use(contextMiddleware(cfg.Issuer))
-	router.HandleFunc(healthEndpoint, http2.RespondSuccess(op.Status{Status: "ok"}))
-	router.HandleFunc(readinessEndpoint, http2.RespondSuccess(op.Status{Status: "ok"}))
-	router.HandleFunc(oidc.DiscoveryEndpoint, oauth.DiscoveryEndpoint(e))
+	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`ok`))
+	})
+	router.HandleFunc(healthEndpoint, okHandler)
+	router.HandleFunc(readinessEndpoint, okHandler)
+	router.HandleFunc(oauthDiscoveryEndpoint, oauth.DiscoveryEndpoint(e))
 	router.HandleFunc(e.Token.Relative(), s.TokenEndpoint())
 	router.HandleFunc(e.JwksURI.Relative(), s.JwksEndpoint())
 

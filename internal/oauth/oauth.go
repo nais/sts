@@ -12,7 +12,6 @@ import (
 	"github.com/nais/sts/internal/config"
 	rp "github.com/zitadel/oidc/v3/pkg/client"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
-	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
 type TrustedIssuer struct {
@@ -156,7 +155,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	}, nil
 }
 
-func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, request *ClientCredentialsRequest) (*op.Response, error) {
+func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, request *ClientCredentialsRequest) (*Response, error) {
 	result, err := a.AuthorizeRequest(ctx, request)
 	if err != nil {
 		return nil, err
@@ -177,14 +176,16 @@ func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, req
 		return nil, err
 	}
 
-	return op.NewResponse(&oidc.AccessTokenResponse{
-		AccessToken: signed,
-		TokenType:   oidc.BearerToken,
-		ExpiresIn:   uint64(accessToken.ExpiresIn().Seconds()),
-	}), nil
+	return &Response{
+		Data: &oidc.AccessTokenResponse{
+			AccessToken: signed,
+			TokenType:   oidc.BearerToken,
+			ExpiresIn:   uint64(accessToken.ExpiresIn().Seconds()),
+		},
+	}, nil
 }
 
-func (a *AuthorizationServer) TokenExchange(ctx context.Context, request *TokenExchangeRequest) (*op.Response, error) {
+func (a *AuthorizationServer) TokenExchange(ctx context.Context, request *TokenExchangeRequest) (*Response, error) {
 	result, err := a.AuthorizeRequest(ctx, request)
 	if err != nil {
 		return nil, err
@@ -208,20 +209,23 @@ func (a *AuthorizationServer) TokenExchange(ctx context.Context, request *TokenE
 		return nil, err
 	}
 
-	return op.NewResponse(&oidc.TokenExchangeResponse{
-		AccessToken:     signed,
-		IssuedTokenType: oidc.AccessTokenType,
-		TokenType:       oidc.BearerToken,
-		ExpiresIn:       uint64(accessToken.ExpiresIn().Seconds()),
-	}), nil
-
+	return &Response{
+		Data: &oidc.TokenExchangeResponse{
+			AccessToken:     signed,
+			IssuedTokenType: oidc.AccessTokenType,
+			TokenType:       oidc.BearerToken,
+			ExpiresIn:       uint64(accessToken.ExpiresIn().Seconds()),
+		},
+	}, nil
 }
 
-func (a *AuthorizationServer) Keys(ctx context.Context) (*op.Response, error) {
+func (a *AuthorizationServer) Keys(ctx context.Context) (*Response, error) {
 	keys := a.KeyStore.Keys
 	publicKeys := make([]jose.JSONWebKey, len(keys))
 	for i, key := range keys {
 		publicKeys[i] = key.Public()
 	}
-	return op.NewResponse(&jose.JSONWebKeySet{Keys: publicKeys}), nil
+	return &Response{
+		Data: &jose.JSONWebKeySet{Keys: publicKeys},
+	}, nil
 }

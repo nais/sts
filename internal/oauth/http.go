@@ -2,9 +2,10 @@ package oauth
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"reflect"
 
-	http2 "github.com/nais/sts/internal/http"
 	httphelper "github.com/zitadel/oidc/v3/pkg/http"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
@@ -20,29 +21,39 @@ func init() {
 	Decoder = decoder
 }
 
-func DiscoveryEndpoint(endpoints *op.Endpoints) func(http.ResponseWriter, *http.Request) {
+func DiscoveryEndpoint(endpoints *op.Endpoints) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		issuer := op.IssuerFromContext(r.Context())
-		op.Discover(w, &oidc.DiscoveryConfiguration{
-			Issuer:        issuer,
-			TokenEndpoint: endpoints.Token.Absolute(issuer),
-			JwksURI:       endpoints.JwksURI.Absolute(issuer),
-			GrantTypesSupported: []oidc.GrantType{
-				oidc.GrantTypeClientCredentials,
-				oidc.GrantTypeTokenExchange,
+		respond(w, r, &Response{
+			Data: &oidc.DiscoveryConfiguration{
+				Issuer:        issuer,
+				TokenEndpoint: endpoints.Token.Absolute(issuer),
+				JwksURI:       endpoints.JwksURI.Absolute(issuer),
+				GrantTypesSupported: []oidc.GrantType{
+					oidc.GrantTypeClientCredentials,
+					oidc.GrantTypeTokenExchange,
+				},
+				TokenEndpointAuthMethodsSupported: []oidc.AuthMethod{
+					oidc.AuthMethodPrivateKeyJWT,
+				},
+				TokenEndpointAuthSigningAlgValuesSupported: []string{"RS256"},
 			},
-			TokenEndpointAuthMethodsSupported: []oidc.AuthMethod{
-				oidc.AuthMethodPrivateKeyJWT,
-			},
-			TokenEndpointAuthSigningAlgValuesSupported: []string{"RS256"},
-		})
+		}, nil)
 	}
 }
 
 func (a *AuthorizationServer) JwksEndpoint() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		data, err := a.Keys(r.Context())
-		http2.Respond(w, r, data, err)
+		contentType := "application/jwk-set+json"
+		if r.Header.Get("Accept") == "application/json" {
+			contentType = "application/json"
+		}
+
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Add("Vary", "Accept")
+
+		resp, err := a.Keys(r.Context())
+		respond(w, r, resp, err)
 	}
 }
 
@@ -53,14 +64,14 @@ func (a *AuthorizationServer) TokenEndpoint() http.HandlerFunc {
 			return
 		}
 
-		var data any
+		var resp *Response
 		var err error
 
 		switch grantType := oidc.GrantType(r.Form.Get("grant_type")); grantType {
 		case oidc.GrantTypeClientCredentials:
-			data, err = a.clientCredentialsHandler(r)
+			resp, err = a.clientCredentialsHandler(r)
 		case oidc.GrantTypeTokenExchange:
-			data, err = a.tokenExchangeHandler(r)
+			resp, err = a.tokenExchangeHandler(r)
 		case "":
 			err = oidc.ErrInvalidRequest().WithDescription("grant_type missing")
 		default:
@@ -69,11 +80,11 @@ func (a *AuthorizationServer) TokenEndpoint() http.HandlerFunc {
 				http.StatusBadRequest,
 			)
 		}
-		http2.Respond(w, r, data, err)
+		respond(w, r, resp, err)
 	}
 }
 
-func (a *AuthorizationServer) handleGrant[R any](r *http.Request, authorizationHandler func(context.Context, *R) (*op.Response, error)) (*op.Response, error) {
+func (a *AuthorizationServer) handleGrant[R any](r *http.Request, authorizationHandler func(context.Context, *R) (*Response, error)) (*Response, error) {
 	request, err := decodeRequest[R](Decoder, r, true)
 	if err != nil {
 		return nil, err
@@ -81,12 +92,36 @@ func (a *AuthorizationServer) handleGrant[R any](r *http.Request, authorizationH
 	return authorizationHandler(r.Context(), request)
 }
 
-func (a *AuthorizationServer) clientCredentialsHandler(r *http.Request) (*op.Response, error) {
-	return a.handleGrant(r, a.ClientCredentialsExchange)
+func (a *AuthorizationServer) clientCredentialsHandler(r *http.Request) (*Response, error) {
+	return a.handleGrant[ClientCredentialsRequest](r, a.ClientCredentialsExchange)
 }
 
-func (a *AuthorizationServer) tokenExchangeHandler(r *http.Request) (*op.Response, error) {
-	return a.handleGrant(r, a.TokenExchange)
+func (a *AuthorizationServer) tokenExchangeHandler(r *http.Request) (*Response, error) {
+	return a.handleGrant[TokenExchangeRequest](r, a.TokenExchange)
+}
+
+type Response struct {
+	Data any
+}
+
+func respond(w http.ResponseWriter, r *http.Request, resp *Response, err error) {
+	if err != nil {
+		op.WriteError(w, r, err, nil)
+		return
+	}
+
+	if resp.Data == nil || (reflect.ValueOf(resp.Data).Kind() == reflect.Pointer && reflect.ValueOf(resp.Data).IsNil()) {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if h := w.Header().Get("content-type"); h == "" {
+		w.Header().Set("content-type", "application/json")
+	}
+
+	if err := json.NewEncoder(w).Encode(resp.Data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func decodeRequest[R any](decoder httphelper.Decoder, r *http.Request, postOnly bool) (*R, error) {
