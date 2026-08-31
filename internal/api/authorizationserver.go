@@ -16,12 +16,14 @@ const (
 	healthEndpoint         = "/healthz"
 	readinessEndpoint      = "/ready"
 	oauthDiscoveryEndpoint = "/.well-known/oauth-authorization-server"
+	tokenEndpoint          = "/token"
+	jwksEndpoint           = "/jwks"
 )
 
 func authorizationServerRouter(ctx context.Context, cfg config.Config) (http.Handler, error) {
 	e := &op.Endpoints{
-		Token:   op.NewEndpoint("/token"),
-		JwksURI: op.NewEndpoint("/jwks"),
+		Token:   op.NewEndpoint(tokenEndpoint),
+		JwksURI: op.NewEndpoint(jwksEndpoint),
 	}
 
 	s, err := oauth.NewAuthorizationServer(ctx, cfg)

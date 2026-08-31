@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -43,6 +44,16 @@ func StartServer(ctx context.Context, cfg config.Config) error {
 
 	publicServer := httpServer(router)
 	internalServer := httpServer(internalRouter(prometheusRegistry()))
+	slog.Info("servers listening",
+		"public_port", publicListener.Addr().(*net.TCPAddr).Port,
+		"internal_port", internalListener.Addr().(*net.TCPAddr).Port,
+	)
+	issuer := strings.TrimRight(cfg.Issuer, "/")
+	slog.Info("server endpoints",
+		"discovery_url", issuer+oauthDiscoveryEndpoint,
+		"token_url", issuer+tokenEndpoint,
+		"jwks_url", issuer+jwksEndpoint,
+	)
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()

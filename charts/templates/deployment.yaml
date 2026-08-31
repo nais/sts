@@ -38,6 +38,8 @@ spec:
           env:
             - name: ISSUER
               value: {{ printf "https://%s" .Values.ingress.host | quote }}
+            - name: LOG_FORMAT
+              value: json
           ports:
             - name: http
               containerPort: 8080

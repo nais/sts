@@ -16,6 +16,7 @@ type Config struct {
 	InternalBindAddress string     `env:"INTERNAL_BIND_ADDRESS, default=:8081"`
 	Issuer              string     `env:"ISSUER, default=http://localhost:8080"`
 	LogLevel            slog.Level `env:"LOG_LEVEL, default=info"`
+	LogFormat           string     `env:"LOG_FORMAT, default=text"`
 }
 
 func Load(ctx context.Context) (Config, error) {
@@ -46,6 +47,9 @@ func (c Config) validate() error {
 	}
 	if issuer.Scheme != "https" && (issuer.Scheme != "http" || !isLoopback(issuer.Hostname())) {
 		return fmt.Errorf("issuer must use https, except for localhost or loopback http URLs")
+	}
+	if c.LogFormat != "text" && c.LogFormat != "json" {
+		return fmt.Errorf("log format must be text or json")
 	}
 	return nil
 }
