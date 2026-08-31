@@ -14,16 +14,47 @@ import (
 
 const SkewTime = time.Minute
 
+type Issuer string
+
 type TokenVerifier struct {
+	verifiers map[Issuer]*verifier
+}
+
+type verifier struct {
 	issuer       string
-	jwksURI      string
-	client       *http.Client
 	keyset       oidc.KeySet
 	requiredAlgs []string
 }
 
-func NewTokenVerifier(ctx context.Context, issuer string) (*TokenVerifier, error) {
+func NewTokenVerifier(ctx context.Context, issuers ...Issuer) (*TokenVerifier, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
+	ret := &TokenVerifier{
+		verifiers: make(map[Issuer]*verifier),
+	}
+	for _, issuer := range issuers {
+		v, err := newVerifier(ctx, string(issuer), client)
+		if err != nil {
+			return nil, err
+		}
+		ret.verifiers[issuer] = v
+	}
+	return ret, nil
+}
+
+func (t *TokenVerifier) Verify(ctx context.Context, rawToken string) (*AccessTokenClaims, error) {
+	claims := new(AccessTokenClaims)
+	payload, err := oidc.ParseToken(rawToken, claims)
+	if err != nil {
+		return nil, err
+	}
+	v, ok := t.verifiers[Issuer(claims.Issuer)]
+	if !ok {
+		return nil, fmt.Errorf("issuer %q not supported", claims.Issuer)
+	}
+	return v.verify(ctx, rawToken, payload, claims)
+}
+
+func newVerifier(ctx context.Context, issuer string, client *http.Client) (*verifier, error) {
 	metadata, err := oauthclient.Discover(ctx, issuer, client)
 	if err != nil {
 		return nil, fmt.Errorf("discover metadata from issuer %q: %w", issuer, err)
@@ -36,23 +67,18 @@ func NewTokenVerifier(ctx context.Context, issuer string) (*TokenVerifier, error
 		return nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms")
 	}
 	keyset := rp.NewRemoteKeySet(client, metadata.JwksURI)
-	return &TokenVerifier{
-		issuer: issuer,
-		client: client,
-		keyset: keyset,
+	return &verifier{
+		issuer:       issuer,
+		keyset:       keyset,
+		requiredAlgs: algorithms,
 	}, nil
 }
 
-func (t *TokenVerifier) Verify(ctx context.Context, rawToken string) (*AccessTokenClaims, error) {
-	claims := new(AccessTokenClaims)
-	payload, err := oidc.ParseToken(rawToken, claims)
-	if err != nil {
-		return nil, err
-	}
-	if claims.Issuer != t.issuer {
+func (v *verifier) verify(ctx context.Context, rawToken string, payload []byte, claims *AccessTokenClaims) (*AccessTokenClaims, error) {
+	if claims.Issuer != v.issuer {
 		return nil, oidc.ErrIssuerInvalid
 	}
-	if err := oidc.CheckSignature(ctx, rawToken, payload, claims, t.requiredAlgs, t.keyset); err != nil {
+	if err := oidc.CheckSignature(ctx, rawToken, payload, claims, v.requiredAlgs, v.keyset); err != nil {
 		return nil, err
 	}
 	if err := oidc.CheckExpiration(claims, SkewTime); err != nil {

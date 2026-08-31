@@ -13,12 +13,12 @@ import (
 )
 
 type AuthorizationServer struct {
-	ClientAuthVerifiers    []TokenVerifier
-	ClientStore            ClientStore
-	Issuer                 string
-	KeyStore               KeyStore
-	TokenExchangeVerifiers []TokenVerifier
-	Signer                 jose.Signer
+	ClientAuthVerifier    *TokenVerifier
+	ClientStore           ClientStore
+	Issuer                string
+	KeyStore              KeyStore
+	TokenExchangeVerifier *TokenVerifier
+	Signer                jose.Signer
 }
 
 func NewAuthorizationServer(ctx context.Context, cfg config.Config) (*AuthorizationServer, error) {
@@ -41,12 +41,14 @@ func NewAuthorizationServer(ctx context.Context, cfg config.Config) (*Authorizat
 			AccessControlList: AccessControlList{},
 		},
 	}
-	clientAuthVerifier1, err := NewTokenVerifier(ctx, issuer)
+	clientAuthVerifier, err := NewTokenVerifier(ctx, issuer)
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}
-	clientAuthVerifiers := []TokenVerifier{*clientAuthVerifier1}
-	tokenExchangeVerifiers := []TokenVerifier{*clientAuthVerifier1}
+	tokenExchangeVerifier, err := NewTokenVerifier(ctx, issuer)
+	if err != nil {
+		return nil, fmt.Errorf("creating token exchange verifier: %w", err)
+	}
 
 	alg := jose.RS256 // TODO: consider stronger algorithm
 	signer, err := jose.NewSigner(jose.SigningKey{
@@ -58,7 +60,7 @@ func NewAuthorizationServer(ctx context.Context, cfg config.Config) (*Authorizat
 	}
 
 	return &AuthorizationServer{
-		ClientAuthVerifiers: clientAuthVerifiers,
+		ClientAuthVerifier: clientAuthVerifier,
 		ClientStore: ClientStore{
 			Clients: clients,
 		},
@@ -75,8 +77,8 @@ func NewAuthorizationServer(ctx context.Context, cfg config.Config) (*Authorizat
 				},
 			},
 		},
-		TokenExchangeVerifiers: tokenExchangeVerifiers,
-		Signer:                 signer,
+		TokenExchangeVerifier: tokenExchangeVerifier,
+		Signer:                signer,
 	}, nil
 }
 
@@ -95,9 +97,8 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	if !ok {
 		return nil, oidc.ErrInvalidClient()
 	}
-	// TODO: select correct issuer for verification
 	// TODO: audience should be configurable
-	authClaims, err := a.ClientAuthVerifiers[0].Verify(ctx, request.GetClientAuthCredentials().ClientAssertion)
+	authClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion)
 	if err != nil || authClaims.Subject != client.WorkloadSubject || len(authClaims.Audience) != 1 || authClaims.Audience[0] != a.Issuer {
 		return nil, oidc.ErrInvalidClient().WithDescription("client assertion is invalid")
 	}
@@ -109,8 +110,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 
 	var claims *AccessTokenClaims
 	if te, ok := request.(*TokenExchangeRequest); ok {
-		// TODO: choose correct issuer for validation
-		claims, err = a.TokenExchangeVerifiers[0].Verify(ctx, te.SubjectToken)
+		claims, err = a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken)
 		if err != nil {
 			return nil, oidc.ErrInvalidClient().WithDescription("subject token is invalid")
 		}
