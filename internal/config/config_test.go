@@ -36,6 +36,7 @@ func TestLoadWithDefaults(t *testing.T) {
 		Issuer:              "http://localhost:8080",
 		LogLevel:            slog.LevelInfo,
 		LogFormat:           "text",
+		ExpectedAudience:    "nais",
 	}
 	if got != want {
 		t.Fatalf("LoadWith() = %#v, want %#v", got, want)

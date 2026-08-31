@@ -41,7 +41,9 @@ func NewTokenVerifier(ctx context.Context, issuers ...Issuer) (*TokenVerifier, e
 	return ret, nil
 }
 
-func (t *TokenVerifier) Verify(ctx context.Context, rawToken string) (*AccessTokenClaims, error) {
+type VerifyFn func(claims *AccessTokenClaims) error
+
+func (t *TokenVerifier) Verify(ctx context.Context, rawToken string, fns ...VerifyFn) (*AccessTokenClaims, error) {
 	claims := new(AccessTokenClaims)
 	payload, err := oidc.ParseToken(rawToken, claims)
 	if err != nil {
@@ -51,7 +53,18 @@ func (t *TokenVerifier) Verify(ctx context.Context, rawToken string) (*AccessTok
 	if !ok {
 		return nil, fmt.Errorf("issuer %q not supported", claims.Issuer)
 	}
-	return v.verify(ctx, rawToken, payload, claims)
+
+	verifiedClaims, err := v.verify(ctx, rawToken, payload, claims)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, fn := range fns {
+		if err := fn(verifiedClaims); err != nil {
+			return nil, err
+		}
+	}
+	return verifiedClaims, nil
 }
 
 func newVerifier(ctx context.Context, issuer string, client *http.Client) (*verifier, error) {

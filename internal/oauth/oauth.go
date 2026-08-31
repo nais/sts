@@ -15,6 +15,7 @@ import (
 type AuthorizationServer struct {
 	ClientAuthVerifier    *TokenVerifier
 	ClientStore           ClientStore
+	ExpectedAudience      string
 	Issuer                string
 	KeyStore              KeyStore
 	TokenExchangeVerifier *TokenVerifier
@@ -64,7 +65,8 @@ func NewAuthorizationServer(ctx context.Context, cfg config.Config) (*Authorizat
 		ClientStore: ClientStore{
 			Clients: clients,
 		},
-		Issuer: cfg.Issuer,
+		ExpectedAudience: cfg.ExpectedAudience,
+		Issuer:           cfg.Issuer,
 		KeyStore: KeyStore{
 			JSONWebKeySet: jose.JSONWebKeySet{
 				Keys: []jose.JSONWebKey{
@@ -97,10 +99,21 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	if !ok {
 		return nil, oidc.ErrInvalidClient()
 	}
-	// TODO: audience should be configurable
-	authClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion)
-	if err != nil || authClaims.Subject != client.WorkloadSubject || len(authClaims.Audience) != 1 || authClaims.Audience[0] != a.Issuer {
-		return nil, oidc.ErrInvalidClient().WithDescription("client assertion is invalid")
+
+	_, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion, func(claims *AccessTokenClaims) error {
+		if claims.Subject != client.WorkloadSubject {
+			return oidc.ErrInvalidClient().WithDescription("subject is invalid: got %q, want %q", claims.Subject, client.WorkloadSubject)
+		}
+		if len(claims.Audience) != 1 {
+			return oidc.ErrInvalidClient().WithDescription("audience is invalid: got %d audiences, want 1", len(claims.Audience))
+		}
+		if claims.Audience[0] != a.ExpectedAudience {
+			return oidc.ErrInvalidClient().WithDescription("audience is invalid: got %q, want %q", claims.Audience[0], a.ExpectedAudience)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, oidc.ErrInvalidClient().WithDescription("client assertion is invalid: %+v", err)
 	}
 
 	target, err := request.Target()
@@ -114,7 +127,6 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		if err != nil {
 			return nil, oidc.ErrInvalidClient().WithDescription("subject token is invalid")
 		}
-
 	}
 
 	if err = a.ClientStore.AuthorizeTarget(client, target); err != nil {

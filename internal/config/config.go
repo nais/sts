@@ -17,6 +17,7 @@ type Config struct {
 	Issuer              string     `env:"ISSUER, default=http://localhost:8080"`
 	LogLevel            slog.Level `env:"LOG_LEVEL, default=info"`
 	LogFormat           string     `env:"LOG_FORMAT, default=text"`
+	ExpectedAudience    string     `env:"EXPECTED_AUDIENCE, default=nais"`
 }
 
 func Load(ctx context.Context) (Config, error) {
