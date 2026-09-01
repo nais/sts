@@ -33,8 +33,7 @@ func (s *ClientStore) GetClient(ctx context.Context, id oauth.ClientID) (*oauth.
 }
 
 // TODO: implement
-func (s *ClientStore) AuthorizeTarget(clientID oauth.ClientID, target oauth.ClientID) error {
-
+func (s *ClientStore) AuthorizeTarget(clientID oauth.ClientID, target oauth.Target) error {
 	return nil
 }
 

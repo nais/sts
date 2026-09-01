@@ -10,7 +10,7 @@ type ClientID string
 
 type ClientStore interface {
 	GetClient(context.Context, ClientID) (*OAuthClient, error)
-	AuthorizeTarget(clientID ClientID, target ClientID) error
+	AuthorizeTarget(clientID ClientID, target Target) error
 }
 
 type KeyStore interface {

@@ -91,7 +91,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		}
 	}
 
-	if err = a.ClientStore.AuthorizeTarget(ClientID(client.ID), ClientID(target.GetValue())); err != nil {
+	if err = a.ClientStore.AuthorizeTarget(ClientID(client.ID), target); err != nil {
 		return nil, err
 	}
 
