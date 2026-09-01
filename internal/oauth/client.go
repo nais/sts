@@ -5,6 +5,6 @@ import (
 )
 
 // TODO: fix to match db model
-type OAuthClient struct {
+type Client struct {
 	sqlgen.KubernetesClient
 }

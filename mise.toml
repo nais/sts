@@ -90,8 +90,11 @@ run = "sqlc generate"
 
 [tasks.setup]
 description = "Create local configuration files"
+depends = ["database:up"]
 run = '''
 test -e .env || cp .env.example .env
+set -euo pipefail
+go run cmd/setup_local_env/main.go
 '''
 
 [tasks.local]
@@ -114,7 +117,7 @@ run = '''
 : "${CLIENT_ID:?set CLIENT_ID}"
 : "${WORKLOAD_NAME:?set WORKLOAD_NAME}"
 : "${TOKEN_AUDIENCE:?set TOKEN_AUDIENCE}"
-WORKLOAD_TOKEN="$(kubectl create token "${WORKLOAD_NAME}" --audience "${ISSUER}")"
+WORKLOAD_TOKEN="$(kubectl create token "${WORKLOAD_NAME}" --audience nais)"
 curl --fail-with-body \
   --request POST "${ISSUER}/token" \
   --header 'Content-Type: application/x-www-form-urlencoded' \
@@ -132,7 +135,7 @@ run = '''
 : "${CLIENT_ID:?set CLIENT_ID}"
 : "${WORKLOAD_NAME:?set WORKLOAD_NAME}"
 : "${TOKEN_AUDIENCE:?set TOKEN_AUDIENCE}"
-WORKLOAD_TOKEN="$(kubectl create token "${WORKLOAD_NAME}" --audience "${ISSUER}")"
+WORKLOAD_TOKEN="$(kubectl create token "${WORKLOAD_NAME}" --audience nais)"
 curl --fail-with-body \
   --request POST "${ISSUER}/token" \
   --header 'Content-Type: application/x-www-form-urlencoded' \

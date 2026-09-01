@@ -9,11 +9,12 @@ import (
 type ClientID string
 
 type ClientStore interface {
-	GetClient(context.Context, ClientID) (*OAuthClient, error)
-	AuthorizeTarget(clientID ClientID, target Target) error
+	Get(ctx context.Context, id ClientID) (*Client, error)
+	Save(ctx context.Context, client *Client) error
+	AuthorizeTarget(ctx context.Context, clientID ClientID, target Target) error
 }
 
 type KeyStore interface {
-	Signer(context.Context) (jose.Signer, error)
-	PublicKeys(context.Context) (*jose.JSONWebKeySet, error)
+	Signer(ctx context.Context) (jose.Signer, error)
+	PublicKeys(ctx context.Context) (*jose.JSONWebKeySet, error)
 }

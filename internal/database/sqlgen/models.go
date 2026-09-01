@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+type AuthorizationPolicy struct {
+	OwnerClientID    string
+	ConsumerClientID string
+	Roles            []string
+}
+
 type KubernetesClient struct {
 	ID            string
 	Environment   string

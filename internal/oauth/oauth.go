@@ -2,15 +2,12 @@ package oauth
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/nais/sts/internal/config"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
-
-var ErrClientNotFound = errors.New("client not found")
 
 const developmentWorkloadIssuer = "https://container.googleapis.com/v1/projects/nais-dev-cdea/locations/europe-north1/clusters/nais-dev"
 
@@ -46,7 +43,7 @@ func NewAuthorizationServer(ctx context.Context, cfg config.Config, clientStore 
 type AuthorizationResult struct {
 	Target             Target
 	SubjectTokenClaims *AccessTokenClaims
-	Client             *OAuthClient
+	Client             *Client
 }
 
 func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request TokenRequest) (*AuthorizationResult, error) {
@@ -54,16 +51,14 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		return nil, err
 	}
 
-	client, err := a.ClientStore.GetClient(ctx, ClientID(request.GetClientAuthCredentials().ClientID))
-	if errors.Is(err, ErrClientNotFound) {
-		return nil, oidc.ErrInvalidClient()
-	}
+	client, err := a.ClientStore.Get(ctx, ClientID(request.GetClientAuthCredentials().ClientID))
 	if err != nil {
-		return nil, fmt.Errorf("get client: %w", err)
+		return nil, err
 	}
 
 	_, err = a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion, func(claims *AccessTokenClaims) error {
 		if claims.Subject != client.ID {
+			// TODO: correct this check
 			return oidc.ErrInvalidClient().WithDescription("subject is invalid: got %q, want %q", claims.Subject, client.ID)
 		}
 		if len(claims.Audience) != 1 {
@@ -91,7 +86,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		}
 	}
 
-	if err = a.ClientStore.AuthorizeTarget(ClientID(client.ID), target); err != nil {
+	if err = a.ClientStore.AuthorizeTarget(ctx, ClientID(client.ID), target); err != nil {
 		return nil, err
 	}
 

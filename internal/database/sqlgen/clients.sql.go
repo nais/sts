@@ -7,6 +7,25 @@ import (
 	"context"
 )
 
+const getAuthorizationPolicy = `-- name: GetAuthorizationPolicy :one
+SELECT owner_client_id, consumer_client_id, roles
+FROM authorization_policies
+WHERE owner_client_id = $1
+  AND consumer_client_id = $2
+`
+
+type GetAuthorizationPolicyParams struct {
+	OwnerClientID    string
+	ConsumerClientID string
+}
+
+func (q *Queries) GetAuthorizationPolicy(ctx context.Context, arg GetAuthorizationPolicyParams) (AuthorizationPolicy, error) {
+	row := q.db.QueryRow(ctx, getAuthorizationPolicy, arg.OwnerClientID, arg.ConsumerClientID)
+	var i AuthorizationPolicy
+	err := row.Scan(&i.OwnerClientID, &i.ConsumerClientID, &i.Roles)
+	return i, err
+}
+
 const getKubernetesClient = `-- name: GetKubernetesClient :one
 SELECT id, environment, namespace, workload, issuers, allowed_scopes, created_at, updated_at
 FROM kubernetes_clients
@@ -31,8 +50,8 @@ func (q *Queries) GetKubernetesClient(ctx context.Context, clientID string) (Kub
 
 const upsertAuthorizationPolicy = `-- name: UpsertAuthorizationPolicy :exec
 INSERT INTO authorization_policies (owner_client_id, consumer_client_id, roles)
-VALUES ($1, $2, $3::TEXT[])
-ON CONFLICT (owner_client_id, consumer_client_id) DO UPDATE SET roles = EXCLUDED.roles
+VALUES ($1, $2, $3::TEXT[]) ON CONFLICT (owner_client_id, consumer_client_id) DO
+UPDATE SET roles = EXCLUDED.roles
 `
 
 type UpsertAuthorizationPolicyParams struct {
@@ -47,29 +66,21 @@ func (q *Queries) UpsertAuthorizationPolicy(ctx context.Context, arg UpsertAutho
 }
 
 const upsertKubernetesClient = `-- name: UpsertKubernetesClient :exec
-
-INSERT INTO kubernetes_clients (id, environment, namespace, workload, issuers)
-VALUES ($1, $2, $3, $4, $5::TEXT[])
-ON CONFLICT (id) DO UPDATE SET issuers  = EXCLUDED.issuers,
-                               updated_at       = NOW()
+INSERT INTO kubernetes_clients (id, environment, namespace, workload, issuers, allowed_scopes)
+VALUES ($1, $2, $3, $4, $5::TEXT[], $6::TEXT[]) ON CONFLICT (id) DO
+UPDATE SET issuers = EXCLUDED.issuers,
+    updated_at = NOW()
 `
 
 type UpsertKubernetesClientParams struct {
-	ID          string
-	Environment string
-	Namespace   string
-	Workload    string
-	Issuers     []string
+	ID            string
+	Environment   string
+	Namespace     string
+	Workload      string
+	Issuers       []string
+	AllowedScopes []string
 }
 
-// - name: ListClientAccess :many
-// SELECT sqlc.embed(clients), client_access.roles
-// FROM client_access
-//
-//	JOIN clients ON clients.id = client_access.target_id
-//
-// WHERE client_access.client_id = $1
-// ORDER BY clients.id;
 func (q *Queries) UpsertKubernetesClient(ctx context.Context, arg UpsertKubernetesClientParams) error {
 	_, err := q.db.Exec(ctx, upsertKubernetesClient,
 		arg.ID,
@@ -77,6 +88,7 @@ func (q *Queries) UpsertKubernetesClient(ctx context.Context, arg UpsertKubernet
 		arg.Namespace,
 		arg.Workload,
 		arg.Issuers,
+		arg.AllowedScopes,
 	)
 	return err
 }

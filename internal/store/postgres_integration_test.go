@@ -5,7 +5,6 @@ package store
 import (
 	"context"
 	"crypto/rsa"
-	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -14,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
-	"github.com/nais/sts/internal/oauth"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
@@ -24,7 +22,7 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 
 	container, err := postgres.Run(
 		ctx,
-		"postgres:16-alpine",
+		"postgres:18",
 		postgres.WithDatabase("sts"),
 		postgres.WithUsername("postgres"),
 		postgres.WithPassword("postgres"),
@@ -51,50 +49,43 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// TODO: remove or rewrite when adding real integration tests
 func TestPostgresClientStore(t *testing.T) {
 	ctx := t.Context()
 	pool := newTestPool(t)
 	queries := sqlgen.New(pool)
 
-	for _, id := range []string{"caller", "target"} {
-		if err := queries.UpsertClient(ctx, sqlgen.UpsertClientParams{
-			ID:              id,
-			WorkloadIssuer:  "https://issuer.example",
-			WorkloadSubject: "system:serviceaccount:default:" + id,
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := queries.UpsertClientAccess(ctx, sqlgen.UpsertClientAccessParams{
-		oauth.ClientID: "caller",
-		TargetID:       "target",
-		Roles:          []string{"reader"},
+	if err := queries.UpsertKubernetesClient(ctx, sqlgen.UpsertKubernetesClientParams{
+		ID:            "caller",
+		Environment:   "dev",
+		Namespace:     "default",
+		Workload:      "caller",
+		Issuers:       []string{"https://issuer.example"},
+		AllowedScopes: []string{"api://target/.default"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	store := NewClientStore(pool)
 
-	client, err := store.GetClient(ctx, "caller")
+	client, err := store.Get(ctx, "caller")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if client.WorkloadSubject != "system:serviceaccount:default:caller" {
-		t.Errorf("workload subject = %q", client.WorkloadSubject)
+	if client.Environment != "dev" {
+		t.Errorf("environment = %q, want dev", client.Environment)
 	}
-	if len(client.AccessControlList.Allowed) != 1 {
-		t.Fatalf("access control entries = %d, want 1", len(client.AccessControlList.Allowed))
+	if client.Namespace != "default" {
+		t.Errorf("namespace = %q, want default", client.Namespace)
 	}
-	entry := client.AccessControlList.Allowed[0]
-	if entry.ID != "target" {
-		t.Errorf("target = %q, want target", entry.ID)
+	if client.Workload != "caller" {
+		t.Errorf("workload = %q, want caller", client.Workload)
 	}
-	if len(entry.Roles) != 1 || entry.Roles[0] != "reader" {
-		t.Errorf("roles = %v, want [reader]", entry.Roles)
+	if len(client.Issuers) != 1 || client.Issuers[0] != "https://issuer.example" {
+		t.Errorf("issuers = %v, want [https://issuer.example]", client.Issuers)
 	}
-
-	if _, err := store.GetClient(ctx, "unknown"); !errors.Is(err, oauth.ErrClientNotFound) {
-		t.Errorf("unknown client error = %v, want ErrClientNotFound", err)
+	if len(client.AllowedScopes) != 1 || client.AllowedScopes[0] != "api://target/.default" {
+		t.Errorf("allowed scopes = %v, want [api://target/.default]", client.AllowedScopes)
 	}
 }
 

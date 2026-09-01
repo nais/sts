@@ -15,10 +15,10 @@ CREATE TABLE kubernetes_clients
 -- Which client may request tokens for which target client, and with which roles.
 CREATE TABLE authorization_policies
 (
-    owner_client_id    TEXT NOT NULL REFERENCES clients (id) ON DELETE CASCADE,
+    owner_client_id    TEXT NOT NULL REFERENCES kubernetes_clients (id) ON DELETE CASCADE,
     consumer_client_id TEXT NOT NULL,
     roles              TEXT[] NOT NULL DEFAULT '{}',
-    PRIMARY KEY (client_id, consumer_client_id)
+    PRIMARY KEY (owner_client_id, consumer_client_id)
 );
 
 -- Private key material is stored as unencrypted PKCS#8 DER for now.
