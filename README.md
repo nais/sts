@@ -21,12 +21,14 @@ Install the pinned tools and run the checks with [mise](https://mise.jdx.dev/):
 mise run setup
 mise install
 mise run test
+mise run test:integration
 mise run check
 ```
 
 Start the service locally:
 
 ```shell
+mise run database:up
 mise run local
 ```
 

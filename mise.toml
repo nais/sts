@@ -12,6 +12,7 @@ golangci-lint = "2.13.1"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.7.0"
 "go:honnef.co/go/tools/cmd/staticcheck" = "0.8.1"
 "go:mvdan.cc/gofumpt" = "0.11.0"
+"go:github.com/sqlc-dev/sqlc/cmd/sqlc" = "1.31.1"
 
 [tasks.check]
 description = "Run all static checks"
@@ -24,6 +25,7 @@ depends = [
   "check:staticcheck",
   "check:govulncheck",
   "check:helm-lint",
+  "check:sqlc",
 ]
 
 [tasks."check:golangci-lint"]
@@ -58,6 +60,10 @@ run = "govulncheck ./..."
 description = "Lint helm chart"
 run = "helm lint --strict ./charts"
 
+[tasks."check:sqlc"]
+description = "Check SQL queries and schema"
+run = "sqlc vet"
+
 [tasks.fmt]
 description = "Format all code"
 depends = ["fmt:go"]
@@ -70,6 +76,18 @@ run = "gofumpt -w ./"
 description = "Run tests"
 run = "go test -cover ./..."
 
+[tasks."test:integration"]
+description = "Run PostgreSQL integration tests"
+run = "go test -tags=integration_test ./..."
+
+[tasks.generate]
+description = "Generate source files"
+depends = ["generate:sqlc"]
+
+[tasks."generate:sqlc"]
+description = "Generate SQL functions and models"
+run = "sqlc generate"
+
 [tasks.setup]
 description = "Create local configuration files"
 run = '''
@@ -80,6 +98,14 @@ test -e .env || cp .env.example .env
 description = "Run the service locally"
 run = "go run ./cmd/sts"
 env = { _.file = ".env" }
+
+[tasks."database:up"]
+description = "Start the local PostgreSQL database"
+run = "docker compose up -d postgres"
+
+[tasks."database:down"]
+description = "Stop the local PostgreSQL database"
+run = "docker compose down"
 
 [tasks."token:m2m"]
 description = "Get a client credentials token"

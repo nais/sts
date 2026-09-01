@@ -13,6 +13,7 @@ import (
 
 type Config struct {
 	BindAddress         string     `env:"BIND_ADDRESS, default=:8080"`
+	DatabaseURL         string     `env:"DATABASE_URL, required"`
 	InternalBindAddress string     `env:"INTERNAL_BIND_ADDRESS, default=:8081"`
 	Issuer              string     `env:"ISSUER, default=http://localhost:8080"`
 	LogLevel            slog.Level `env:"LOG_LEVEL, default=info"`
@@ -38,6 +39,9 @@ func loadWith(ctx context.Context, lookuper envconfig.Lookuper) (Config, error) 
 func (c Config) validate() error {
 	if c.BindAddress == "" || c.InternalBindAddress == "" {
 		return fmt.Errorf("bind addresses must not be empty")
+	}
+	if c.DatabaseURL == "" {
+		return fmt.Errorf("database URL must not be empty")
 	}
 	if c.Issuer == "" {
 		return fmt.Errorf("issuer must not be empty")

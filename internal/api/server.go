@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/prometheus/client_golang/prometheus"
@@ -24,7 +25,9 @@ import (
 
 const shutdownTimeout = 5 * time.Second
 
-func StartServer(ctx context.Context, cfg config.Config) error {
+const readinessTimeout = 2 * time.Second
+
+func StartServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error {
 	publicListener, err := net.Listen("tcp", cfg.BindAddress)
 	if err != nil {
 		return fmt.Errorf("listen on public address %q: %w", cfg.BindAddress, err)
@@ -37,13 +40,13 @@ func StartServer(ctx context.Context, cfg config.Config) error {
 	}
 	defer ioconvenience.CloseWithLog(internalListener, slog.Default())
 
-	router, err := authorizationServerRouter(ctx, cfg)
+	router, err := authorizationServerRouter(ctx, cfg, pool)
 	if err != nil {
 		return fmt.Errorf("setting up auth server; %w", err)
 	}
 
 	publicServer := httpServer(router)
-	internalServer := httpServer(internalRouter(prometheusRegistry()))
+	internalServer := httpServer(internalRouter(prometheusRegistry(), pool))
 	slog.Info("servers listening",
 		"public_port", publicListener.Addr().(*net.TCPAddr).Port,
 		"internal_port", internalListener.Addr().(*net.TCPAddr).Port,
@@ -94,10 +97,29 @@ func httpServer(handler http.Handler) *http.Server {
 	}
 }
 
-func internalRouter(registry *prometheus.Registry) http.Handler {
+func internalRouter(registry *prometheus.Registry, pool *pgxpool.Pool) http.Handler {
 	router := chi.NewRouter()
+	router.HandleFunc(healthEndpoint, healthHandler)
+	router.HandleFunc(readinessEndpoint, readinessHandler(pool))
 	router.Get("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP)
 	return router
+}
+
+func healthHandler(w http.ResponseWriter, _ *http.Request) {
+	_, _ = w.Write([]byte("ok"))
+}
+
+func readinessHandler(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Fail fast, so an exhausted pool does not block the probe until its own timeout.
+		ctx, cancel := context.WithTimeout(r.Context(), readinessTimeout)
+		defer cancel()
+		if err := pool.Ping(ctx); err != nil {
+			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		healthHandler(w, r)
+	}
 }
 
 func prometheusRegistry() *prometheus.Registry {

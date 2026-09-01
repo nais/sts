@@ -1,5 +1,8 @@
 tenantName: example
 
+# TODO: the service requires DATABASE_URL, but nothing provides it yet.
+# Wire it from the Secret of a CNPG-provisioned database before deploying.
+
 image:
   repository: europe-north1-docker.pkg.dev/nais-io/nais/images/sts
   pullPolicy: IfNotPresent

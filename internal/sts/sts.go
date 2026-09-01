@@ -7,6 +7,7 @@ import (
 
 	"github.com/nais/sts/internal/api"
 	"github.com/nais/sts/internal/config"
+	"github.com/nais/sts/internal/database"
 )
 
 func Run(ctx context.Context) error {
@@ -29,5 +30,11 @@ func Run(ctx context.Context) error {
 		"log_format", cfg.LogFormat,
 	)
 
-	return api.StartServer(ctx, cfg)
+	pool, err := database.NewPool(ctx, cfg.DatabaseURL, slog.Default())
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	return api.StartServer(ctx, cfg, pool)
 }

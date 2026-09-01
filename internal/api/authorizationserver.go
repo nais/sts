@@ -3,30 +3,40 @@ package api
 import (
 	"context"
 	"net/http"
-	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/oauth"
+	"github.com/nais/sts/internal/store"
 	"github.com/riandyrn/otelchi"
 	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
 const (
 	healthEndpoint         = "/healthz"
-	readinessEndpoint      = "/ready"
+	readinessEndpoint      = "/readyz"
 	oauthDiscoveryEndpoint = "/.well-known/oauth-authorization-server"
 	tokenEndpoint          = "/token"
 	jwksEndpoint           = "/jwks"
 )
 
-func authorizationServerRouter(ctx context.Context, cfg config.Config) (http.Handler, error) {
+// signingKeyCacheTTL keeps token signing off the database on every request.
+const signingKeyCacheTTL = time.Minute
+
+func authorizationServerRouter(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) (http.Handler, error) {
 	e := &op.Endpoints{
 		Token:   op.NewEndpoint(tokenEndpoint),
 		JwksURI: op.NewEndpoint(jwksEndpoint),
 	}
 
-	s, err := oauth.NewAuthorizationServer(ctx, cfg)
+	clientStore := store.NewClientStore(pool)
+	keyStore := store.NewPostgresKeyStore(pool, signingKeyCacheTTL)
+	if err := keyStore.EnsureSigningKey(ctx); err != nil {
+		return nil, err
+	}
+	s, err := oauth.NewAuthorizationServer(ctx, cfg, clientStore, keyStore)
 	if err != nil {
 		return nil, err
 	}
@@ -36,16 +46,8 @@ func authorizationServerRouter(ctx context.Context, cfg config.Config) (http.Han
 		"nais-sts",
 		otelchi.WithChiRoutes(router),
 		otelchi.WithRequestMethodInSpanName(true),
-		otelchi.WithFilter(func(r *http.Request) bool {
-			return !strings.EqualFold(r.URL.Path, healthEndpoint) && !strings.EqualFold(r.URL.Path, readinessEndpoint)
-		}),
 	))
 	router.Use(contextMiddleware(cfg.Issuer))
-	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`ok`))
-	})
-	router.HandleFunc(healthEndpoint, okHandler)
-	router.HandleFunc(readinessEndpoint, okHandler)
 	router.HandleFunc(oauthDiscoveryEndpoint, oauth.DiscoveryEndpoint(e))
 	router.HandleFunc(e.Token.Relative(), s.TokenEndpoint())
 	router.HandleFunc(e.JwksURI.Relative(), s.JwksEndpoint())

@@ -1,5 +1,4 @@
 /sts
 *.tgz
 .env
-/registrations.yaml
 /.idea/

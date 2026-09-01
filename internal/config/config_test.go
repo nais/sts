@@ -11,27 +11,30 @@ import (
 func TestLoadWith(t *testing.T) {
 	got, err := loadWith(context.Background(), envconfig.MapLookuper(map[string]string{
 		"BIND_ADDRESS":          "127.0.0.1:9000",
+		"DATABASE_URL":          "postgres://sts:secret@database:5432/sts",
 		"INTERNAL_BIND_ADDRESS": "127.0.0.1:9001",
 		"ISSUER":                "https://sts.example",
 		"LOG_LEVEL":             "debug",
 		"LOG_FORMAT":            "json",
-		"REGISTRATIONS_FILE":    "testdata/registrations.yaml",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.BindAddress != "127.0.0.1:9000" || got.InternalBindAddress != "127.0.0.1:9001" || got.Issuer != "https://sts.example" || got.LogLevel != slog.LevelDebug || got.LogFormat != "json" {
+	if got.BindAddress != "127.0.0.1:9000" || got.DatabaseURL != "postgres://sts:secret@database:5432/sts" || got.InternalBindAddress != "127.0.0.1:9001" || got.Issuer != "https://sts.example" || got.LogLevel != slog.LevelDebug || got.LogFormat != "json" {
 		t.Fatalf("unexpected config: %#v", got)
 	}
 }
 
 func TestLoadWithDefaults(t *testing.T) {
-	got, err := loadWith(context.Background(), envconfig.MapLookuper(nil))
+	got, err := loadWith(context.Background(), envconfig.MapLookuper(map[string]string{
+		"DATABASE_URL": "postgres://postgres:postgres@localhost:5432/sts?sslmode=disable",
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := Config{
 		BindAddress:         ":8080",
+		DatabaseURL:         "postgres://postgres:postgres@localhost:5432/sts?sslmode=disable",
 		InternalBindAddress: ":8081",
 		Issuer:              "http://localhost:8080",
 		LogLevel:            slog.LevelInfo,
@@ -46,6 +49,7 @@ func TestLoadWithDefaults(t *testing.T) {
 func TestLoadWithValidation(t *testing.T) {
 	tests := map[string]map[string]string{
 		"empty public address":   {"BIND_ADDRESS": ""},
+		"empty database URL":     {"DATABASE_URL": ""},
 		"empty internal address": {"INTERNAL_BIND_ADDRESS": ""},
 		"empty issuer":           {"ISSUER": ""},
 		"relative issuer":        {"ISSUER": "/issuer"},
@@ -55,6 +59,9 @@ func TestLoadWithValidation(t *testing.T) {
 	}
 	for name, values := range tests {
 		t.Run(name, func(t *testing.T) {
+			if _, ok := values["DATABASE_URL"]; !ok {
+				values["DATABASE_URL"] = "postgres://postgres:postgres@localhost:5432/sts?sslmode=disable"
+			}
 			if _, err := loadWith(context.Background(), envconfig.MapLookuper(values)); err == nil {
 				t.Fatal("LoadWith() returned nil error")
 			}
@@ -64,7 +71,10 @@ func TestLoadWithValidation(t *testing.T) {
 
 func TestLoadWithHTTPIssuerAllowsLoopback(t *testing.T) {
 	for _, issuer := range []string{"http://localhost:8080", "http://127.0.0.1:8080", "http://[::1]:8080"} {
-		if _, err := loadWith(context.Background(), envconfig.MapLookuper(map[string]string{"ISSUER": issuer})); err != nil {
+		if _, err := loadWith(context.Background(), envconfig.MapLookuper(map[string]string{
+			"DATABASE_URL": "postgres://postgres:postgres@localhost:5432/sts?sslmode=disable",
+			"ISSUER":       issuer,
+		})); err != nil {
 			t.Errorf("LoadWith(%q): %v", issuer, err)
 		}
 	}

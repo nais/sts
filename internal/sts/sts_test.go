@@ -11,6 +11,7 @@ func TestRunConfiguresJSONLogger(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(previousLogger) })
 	t.Setenv("LOG_FORMAT", "json")
 	t.Setenv("BIND_ADDRESS", "invalid")
+	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/sts?sslmode=disable")
 
 	if err := Run(context.Background()); err == nil {
 		t.Fatal("Run() returned nil error")

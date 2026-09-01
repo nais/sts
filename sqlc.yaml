@@ -1,0 +1,32 @@
+version: "2"
+rules:
+  - name: "always-order-by"
+    rule: |
+      query.cmd == "many" && !query.sql.contains("ORDER BY")
+    message: |
+      SELECT statements must have an ORDER BY clause
+sql:
+  - name: "STS SQL"
+    engine: "postgresql"
+    schema: "internal/database/migrations"
+    queries: "internal/database/queries"
+    rules:
+      - "always-order-by"
+    gen:
+      go:
+        package: "sqlgen"
+        out: "internal/database/sqlgen"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        omit_sqlc_version: true
+        emit_empty_slices: true
+        omit_unused_structs: true
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              type: "time.Time"
+              pointer: true
