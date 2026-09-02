@@ -1,7 +1,6 @@
 package oauth
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"reflect"
@@ -66,12 +65,13 @@ func (a *AuthorizationServer) TokenEndpoint() http.HandlerFunc {
 
 		var resp *Response
 		var err error
+		var request TokenRequest
 
 		switch grantType := oidc.GrantType(r.Form.Get("grant_type")); grantType {
 		case oidc.GrantTypeClientCredentials:
-			resp, err = a.clientCredentialsHandler(r)
+			request, err = decodeRequest[ClientCredentialsRequest](Decoder, r, true)
 		case oidc.GrantTypeTokenExchange:
-			resp, err = a.tokenExchangeHandler(r)
+			request, err = decodeRequest[TokenExchangeRequest](Decoder, r, true)
 		case "":
 			err = oidc.ErrInvalidRequest().WithDescription("grant_type missing")
 		default:
@@ -80,24 +80,11 @@ func (a *AuthorizationServer) TokenEndpoint() http.HandlerFunc {
 				http.StatusBadRequest,
 			)
 		}
+		if err == nil {
+			resp, err = a.GrantHandler(r.Context(), request)
+		}
 		respond(w, r, resp, err)
 	}
-}
-
-func (a *AuthorizationServer) handleGrant[R any](r *http.Request, authorizationHandler func(context.Context, *R) (*Response, error)) (*Response, error) {
-	request, err := decodeRequest[R](Decoder, r, true)
-	if err != nil {
-		return nil, err
-	}
-	return authorizationHandler(r.Context(), request)
-}
-
-func (a *AuthorizationServer) clientCredentialsHandler(r *http.Request) (*Response, error) {
-	return a.handleGrant[ClientCredentialsRequest](r, a.ClientCredentialsExchange)
-}
-
-func (a *AuthorizationServer) tokenExchangeHandler(r *http.Request) (*Response, error) {
-	return a.handleGrant[TokenExchangeRequest](r, a.TokenExchange)
 }
 
 type Response struct {
@@ -124,8 +111,8 @@ func respond(w http.ResponseWriter, r *http.Request, resp *Response, err error) 
 	}
 }
 
-func decodeRequest[R any](decoder httphelper.Decoder, r *http.Request, postOnly bool) (*R, error) {
-	dst := new(R)
+func decodeRequest[T any](decoder httphelper.Decoder, r *http.Request, postOnly bool) (*T, error) {
+	dst := new(T)
 	if err := r.ParseForm(); err != nil {
 		return nil, oidc.ErrInvalidRequest().WithDescription("error parsing form").WithParent(err)
 	}

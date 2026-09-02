@@ -107,7 +107,11 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	}
 
 	var claims *AccessTokenClaims
-	if te, ok := request.(*TokenExchangeRequest); ok {
+	if request.GrantType() == oidc.GrantTypeTokenExchange {
+		te, ok := request.(*TokenExchangeRequest)
+		if !ok {
+			return nil, oidc.ErrInvalidRequest().WithDescription("could not parse request as TokenExchangeRequest")
+		}
 		claims, err = a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken)
 		if err != nil {
 			return nil, oidc.ErrInvalidClient().WithDescription("subject token is invalid")
@@ -128,28 +132,13 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	}, nil
 }
 
-func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, request *ClientCredentialsRequest) (*Response, error) {
+func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenRequest) (*Response, error) {
 	result, err := a.AuthorizeRequest(ctx, request)
 	if err != nil {
 		return nil, err
 	}
 
-	data, err := a.createTokenResponse(ctx, result)
-	if err != nil {
-		return nil, err
-	}
-	return &Response{
-		Data: data,
-	}, nil
-}
-
-func (a *AuthorizationServer) TokenExchange(ctx context.Context, request *TokenExchangeRequest) (*Response, error) {
-	result, err := a.AuthorizeRequest(ctx, request)
-	if err != nil {
-		return nil, err
-	}
-
-	data, err := a.createTokenResponse(ctx, result)
+	data, err := a.CreateTokenResponse(ctx, result)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +157,7 @@ func (a *AuthorizationServer) Keys(ctx context.Context) (*Response, error) {
 	}, nil
 }
 
-func (a *AuthorizationServer) createTokenResponse(ctx context.Context, result *AuthorizationResult) (*AccessTokenResponse, error) {
+func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *AuthorizationResult) (*AccessTokenResponse, error) {
 	// TODO: figure out what to set in actor
 	subject := result.Client.ID
 	var claims map[string]json.RawMessage
