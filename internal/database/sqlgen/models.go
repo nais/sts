@@ -17,7 +17,7 @@ type KubernetesClient struct {
 	Environment   string
 	Namespace     string
 	Workload      string
-	Issuers       []string
+	Issuer        string
 	AllowedScopes []string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time

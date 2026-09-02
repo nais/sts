@@ -108,77 +108,106 @@ env = { _.file = ".env" }
 [tasks."token:m2m"]
 description = "Get a client credentials token"
 usage = '''
-arg "<environment>" help="The environment to use for the token request" default="env1"
-arg "<namespace>" help="The namespace to use for the token request" default="namespace1"
-arg "<workload>" help="The workload to use for the token request" default="workload1"
-arg "<target_workload>" help="The target workload to use for the token request" default="workload2"
+flag "-e --environment <environment>" help="The environment to use for the token request" default="env1"
+flag "-n --namespace <namespace>" help="The namespace to use for the token request" default="namespace1"
+flag "-w --workload <workload>" help="The workload to use for the token request" default="workload1"
+flag "-t --target_workload <target_workload>" help="The target workload to use for the token request" default="workload2"
 '''
 env = { _.file = ".env" }
 run = '''
 set -euo pipefail
 ENV={{ usage.environment }}
-WORKLOAD_TOKEN=$(curl -s --fail-with-body \
+if ! WORKLOAD_RESPONSE=$(curl -sS --fail-with-body \
   "http://localhost:3004/${ENV}/token" \
   -d 'grant_type=client_credentials' \
   -d "client_secret=yolo" \
   -d "ns={{ usage.namespace }}" \
   -d "workload={{ usage.workload }}" \
-  -d "client_id=default_client" | jq -r '.access_token')
+  -d "client_id=default_client"); then
+  printf '%s\n' "${WORKLOAD_RESPONSE}" >&2
+  exit 1
+fi
+WORKLOAD_TOKEN=$(jq -r '.access_token' <<< "${WORKLOAD_RESPONSE}")
 echo "Authenticating with token:"
 echo ${WORKLOAD_TOKEN} | step crypto jwt inspect --insecure | jq -r .
-TOKEN_RESPONSE=$(curl -s \
+if ! TOKEN_RESPONSE=$(curl -sS --fail-with-body \
    "${ISSUER}/token" \
   -d 'grant_type=client_credentials' \
   -d 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
   -d "client_assertion=${WORKLOAD_TOKEN}" \
-  -d "scope=${ENV}:{{usage.namespace}}:{{ usage.target_workload }}")
+  -d "scope=${ENV}:{{usage.namespace}}:{{ usage.target_workload }}"); then
+  printf '%s\n' "${TOKEN_RESPONSE}" >&2
+  exit 1
+fi
 
-echo "Received token response:"
-echo ${TOKEN_RESPONSE}
 echo ${TOKEN_RESPONSE} | jq -r '.access_token' | step crypto jwt inspect --insecure | jq -r .
 '''
 
 [tasks."token:obo"]
 description = "Exchange a subject token"
 usage = '''
-arg "<client>" help="The client_id to use for the token request"
-arg "<target>" help="The target client_id to use for the token request"
+flag "-e --environment <environment>" help="The environment to use for the token request" default="env1"
+flag "-n --namespace <namespace>" help="The namespace to use for the token request" default="namespace1"
+flag "-w --workload <workload>" help="The workload to use for the token request" default="workload1"
+flag "-t --target_workload <target_workload>" help="The target workload to use for the token request" default="workload2"
 '''
 env = { _.file = ".env" }
 run = '''
-REDIRECT_URI="http://localhost:3004/debugger/debugger/callback"
-AUTHORIZATION_CODE=$(curl -s --fail-with-body --get --output /dev/null --write-out '%{redirect_url}' \
+set -euo pipefail
+ENV={{ usage.environment }}
+TARGET_AUDIENCE=${ENV}:{{usage.namespace}}:{{ usage.target_workload }}
+REDIRECT_URI="https://unused.example/callback"
+if ! AUTHORIZATION_RESPONSE=$(curl -sS --fail-with-body --get --write-out '%{redirect_url}' \
   "http://localhost:3004/subject1/authorize" \
-  -d 'client_id=debugger' \
-  -d 'scope=openid somescope' \
+  -d 'client_id=default_client' \
+  -d 'scope=openid%20somescope' \
   -d 'response_type=code' \
   -d 'response_mode=query' \
   -d 'state=1234' \
   -d 'nonce=5678' \
-  -d "redirect_uri=${REDIRECT_URI}" | jq -rR 'capture("[?&]code=(?<code>[^&]+)").code')
-CLIENT_ID={{ usage.client }}
-WORKLOAD_TOKEN=$(curl -s --fail-with-body \
-  "http://localhost:3004/env1/token" \
+  -d "redirect_uri=${REDIRECT_URI}"); then
+  printf '%s\n' "${AUTHORIZATION_RESPONSE}" >&2
+  exit 1
+fi
+AUTHORIZATION_CODE=$(jq -rR 'capture("[?&]code=(?<code>[^&]+)").code' <<< "${AUTHORIZATION_RESPONSE}")
+if ! WORKLOAD_RESPONSE=$(curl -sS --fail-with-body \
+  "http://localhost:3004/${ENV}/token" \
   -d 'grant_type=client_credentials' \
   -d "client_secret=yolo" \
-  -d "client_id=${CLIENT_ID}" | jq -r '.access_token')
-SUBJECT_TOKEN=$(curl -s --fail-with-body \
+  -d "ns={{ usage.namespace }}" \
+  -d "workload={{ usage.workload }}" \
+  -d "client_id=default_client"); then
+  printf '%s\n' "${WORKLOAD_RESPONSE}" >&2
+  exit 1
+fi
+WORKLOAD_TOKEN=$(jq -r '.access_token' <<< "${WORKLOAD_RESPONSE}")
+echo "Authenticating with token:"
+echo ${WORKLOAD_TOKEN} | step crypto jwt inspect --insecure | jq -r .
+if ! SUBJECT_RESPONSE=$(curl -sS --fail-with-body \
   "http://localhost:3004/subject1/token" \
   -d 'grant_type=authorization_code' \
   -d "code=${AUTHORIZATION_CODE}" \
   -d "client_secret=yolo" \
-  -d 'client_id=debugger' \
-  -d "redirect_uri=${REDIRECT_URI}" | jq -r '.access_token')
-curl -s --fail-with-body \
+  -d 'client_id=default_client' \
+  -d "redirect_uri=${REDIRECT_URI}"); then
+  printf '%s\n' "${SUBJECT_RESPONSE}" >&2
+  exit 1
+fi
+SUBJECT_TOKEN=$(jq -r '.access_token' <<< "${SUBJECT_RESPONSE}")
+if ! TOKEN_RESPONSE=$(curl -sS --fail-with-body \
   "${ISSUER}/token" \
   -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
-  -d "client_id=${CLIENT_ID}" \
   -d 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
   -d "client_assertion=${WORKLOAD_TOKEN}" \
-  -d "audience={{ usage.target }}" \
+  -d "audience=${TARGET_AUDIENCE}" \
   -d "subject_token=${SUBJECT_TOKEN}" \
   -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \
-  -d 'requested_token_type=urn:ietf:params:oauth:token-type:access_token' | jq -r '.access_token' | step crypto jwt inspect --insecure | jq -r .
+  -d 'requested_token_type=urn:ietf:params:oauth:token-type:access_token'); then
+  printf '%s\n' "${TOKEN_RESPONSE}" >&2
+  exit 1
+fi
+
+echo ${TOKEN_RESPONSE} | jq -r '.access_token' | step crypto jwt inspect --insecure | jq -r .
 '''
 
 [tasks."actions:update"]

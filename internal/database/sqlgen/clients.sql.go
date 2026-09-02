@@ -27,20 +27,28 @@ func (q *Queries) GetAuthorizationPolicy(ctx context.Context, arg GetAuthorizati
 }
 
 const getKubernetesClient = `-- name: GetKubernetesClient :one
-SELECT id, environment, namespace, workload, issuers, allowed_scopes, created_at, updated_at
+SELECT id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
 FROM kubernetes_clients
-WHERE id = $1
+WHERE issuer = $1
+  AND namespace = $2
+  AND workload = $3
 `
 
-func (q *Queries) GetKubernetesClient(ctx context.Context, clientID string) (KubernetesClient, error) {
-	row := q.db.QueryRow(ctx, getKubernetesClient, clientID)
+type GetKubernetesClientParams struct {
+	Issuer    string
+	Namespace string
+	Workload  string
+}
+
+func (q *Queries) GetKubernetesClient(ctx context.Context, arg GetKubernetesClientParams) (KubernetesClient, error) {
+	row := q.db.QueryRow(ctx, getKubernetesClient, arg.Issuer, arg.Namespace, arg.Workload)
 	var i KubernetesClient
 	err := row.Scan(
 		&i.ID,
 		&i.Environment,
 		&i.Namespace,
 		&i.Workload,
-		&i.Issuers,
+		&i.Issuer,
 		&i.AllowedScopes,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -66,9 +74,9 @@ func (q *Queries) UpsertAuthorizationPolicy(ctx context.Context, arg UpsertAutho
 }
 
 const upsertKubernetesClient = `-- name: UpsertKubernetesClient :exec
-INSERT INTO kubernetes_clients (id, environment, namespace, workload, issuers, allowed_scopes)
-VALUES ($1, $2, $3, $4, $5::TEXT[], $6::TEXT[]) ON CONFLICT (id) DO
-UPDATE SET issuers = EXCLUDED.issuers,
+INSERT INTO kubernetes_clients (id, environment, namespace, workload, issuer, allowed_scopes)
+VALUES ($1, $2, $3, $4, $5, $6::TEXT[]) ON CONFLICT (id) DO
+UPDATE SET allowed_scopes = EXCLUDED.allowed_scopes,
     updated_at = NOW()
 `
 
@@ -77,7 +85,7 @@ type UpsertKubernetesClientParams struct {
 	Environment   string
 	Namespace     string
 	Workload      string
-	Issuers       []string
+	Issuer        string
 	AllowedScopes []string
 }
 
@@ -87,7 +95,7 @@ func (q *Queries) UpsertKubernetesClient(ctx context.Context, arg UpsertKubernet
 		arg.Environment,
 		arg.Namespace,
 		arg.Workload,
-		arg.Issuers,
+		arg.Issuer,
 		arg.AllowedScopes,
 	)
 	return err

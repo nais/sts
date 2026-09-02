@@ -52,7 +52,7 @@ func run(ctx context.Context) error {
 			Environment:   "env1",
 			Namespace:     "namespace1",
 			Workload:      "workload1",
-			Issuers:       []string{""},
+			Issuer:        "http://localhost:3004/env1",
 			AllowedScopes: []string{"env1:namespace1:workload2"},
 		},
 		{
@@ -60,7 +60,7 @@ func run(ctx context.Context) error {
 			Environment:   "env1",
 			Namespace:     "namespace1",
 			Workload:      "workload2",
-			Issuers:       []string{""},
+			Issuer:        "http://localhost:3004/env1",
 			AllowedScopes: []string{},
 		},
 	}

@@ -1,7 +1,9 @@
 -- name: GetKubernetesClient :one
 SELECT *
 FROM kubernetes_clients
-WHERE id = @client_id;
+WHERE issuer = @issuer
+  AND namespace = @namespace
+  AND workload = @workload;
 
 -- name: GetAuthorizationPolicy :one
 SELECT *
@@ -10,9 +12,9 @@ WHERE owner_client_id = @owner_client_id
   AND consumer_client_id = @consumer_client_id;
 
 -- name: UpsertKubernetesClient :exec
-INSERT INTO kubernetes_clients (id, environment, namespace, workload, issuers, allowed_scopes)
-VALUES (@id, @environment, @namespace, @workload, @issuers::TEXT[], @allowed_scopes::TEXT[]) ON CONFLICT (id) DO
-UPDATE SET issuers = EXCLUDED.issuers,
+INSERT INTO kubernetes_clients (id, environment, namespace, workload, issuer, allowed_scopes)
+VALUES (@id, @environment, @namespace, @workload, @issuer, @allowed_scopes::TEXT[]) ON CONFLICT (id) DO
+UPDATE SET allowed_scopes = EXCLUDED.allowed_scopes,
     updated_at = NOW();
 
 -- name: UpsertAuthorizationPolicy :exec

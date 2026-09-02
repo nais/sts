@@ -9,7 +9,7 @@ import (
 type ClientID string
 
 type ClientStore interface {
-	Get(ctx context.Context, id ClientID) (*Client, error)
+	Get(ctx context.Context, clientAuthClaims *AccessTokenClaims) (*Client, error)
 	Save(ctx context.Context, client *Client) error
 	AuthorizeTarget(ctx context.Context, clientID ClientID, target Target) error
 }

@@ -5,11 +5,11 @@ CREATE TABLE kubernetes_clients
     environment    TEXT        NOT NULL,
     namespace      TEXT        NOT NULL,
     workload       TEXT        NOT NULL,
-    issuers        TEXT[]      NOT NULL,
+    issuer         TEXT        NOT NULL,
     allowed_scopes TEXT[]      NOT NULL,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (workload, namespace, environment)
+    UNIQUE (workload, namespace, issuer)
 );
 
 -- Which client may request tokens for which target client, and with which roles.

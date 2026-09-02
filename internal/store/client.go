@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -22,8 +23,29 @@ func NewClientStore(pool *pgxpool.Pool) *Client {
 
 var _ oauth.ClientStore = (*Client)(nil)
 
-func (s *Client) Get(ctx context.Context, id oauth.ClientID) (*oauth.Client, error) {
-	row, err := s.queries.GetKubernetesClient(ctx, string(id))
+func (s *Client) Get(ctx context.Context, clientAuthClaims *oauth.AccessTokenClaims) (*oauth.Client, error) {
+	raw, ok := clientAuthClaims.Claims["kubernetes.io"]
+	if !ok {
+		return nil, oidc.ErrInvalidClient().WithDescription("missing kubernetes.io claims")
+	}
+
+	type kubernetes struct {
+		Namespace      string `json:"namespace"`
+		ServiceAccount struct {
+			Name string `json:"name"`
+		} `json:"serviceaccount"`
+	}
+	var kc kubernetes
+	err := json.Unmarshal(raw, &kc)
+	if err != nil {
+		return nil, oidc.ErrInvalidClient().WithDescription("invalid kubernetes.io claims: %+v", err)
+	}
+
+	row, err := s.queries.GetKubernetesClient(ctx, sqlgen.GetKubernetesClientParams{
+		Issuer:    clientAuthClaims.Issuer,
+		Namespace: kc.Namespace,
+		Workload:  kc.ServiceAccount.Name,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, oidc.ErrInvalidClient().WithDescription("client not found")
 	}
@@ -39,7 +61,7 @@ func (s *Client) Save(ctx context.Context, client *oauth.Client) error {
 		Environment:   client.Environment,
 		Namespace:     client.Namespace,
 		Workload:      client.Workload,
-		Issuers:       client.Issuers,
+		Issuer:        client.Issuer,
 		AllowedScopes: client.AllowedScopes,
 	})
 }

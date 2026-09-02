@@ -68,7 +68,7 @@ func TestPostgresClientStore(t *testing.T) {
 
 	store := NewClientStore(pool)
 
-	client, err := store.Get(ctx, "caller")
+	client, err := store.Get(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}

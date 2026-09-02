@@ -9,7 +9,7 @@ import (
 type Querier interface {
 	GetActiveSigningKey(ctx context.Context) (SigningKey, error)
 	GetAuthorizationPolicy(ctx context.Context, arg GetAuthorizationPolicyParams) (AuthorizationPolicy, error)
-	GetKubernetesClient(ctx context.Context, clientID string) (KubernetesClient, error)
+	GetKubernetesClient(ctx context.Context, arg GetKubernetesClientParams) (KubernetesClient, error)
 	InsertSigningKey(ctx context.Context, arg InsertSigningKeyParams) error
 	ListValidSigningKeys(ctx context.Context) ([]SigningKey, error)
 	UpsertAuthorizationPolicy(ctx context.Context, arg UpsertAuthorizationPolicyParams) error

@@ -79,16 +79,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		return nil, err
 	}
 
-	client, err := a.ClientStore.Get(ctx, ClientID(request.GetClientAuthCredentials().ClientID))
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion, func(claims *AccessTokenClaims) error {
-		if claims.Subject != client.ID {
-			// TODO: correct this check
-			return oidc.ErrInvalidClient().WithDescription("subject is invalid: got %q, want %q", claims.Subject, client.ID)
-		}
+	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion, func(claims *AccessTokenClaims) error {
 		if len(claims.Audience) != 1 {
 			return oidc.ErrInvalidClient().WithDescription("audience is invalid: got %d audiences, want 1", len(claims.Audience))
 		}
@@ -104,6 +95,11 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	target, err := request.Target()
 	if err != nil {
 		return nil, err
+	}
+
+	client, err := a.ClientStore.Get(ctx, clientAuthClaims)
+	if err != nil {
+		return nil, oidc.ErrInvalidClient().WithDescription("client not found: %+v", err)
 	}
 
 	var claims *AccessTokenClaims
