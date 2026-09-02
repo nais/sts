@@ -3,8 +3,10 @@ package config
 import (
 	"context"
 	"log/slog"
+	"reflect"
 	"testing"
 
+	"github.com/nais/sts/internal/oauth"
 	"github.com/sethvargo/go-envconfig"
 )
 
@@ -14,20 +16,29 @@ func TestLoadWith(t *testing.T) {
 		"DATABASE_URL":          "postgres://sts:secret@database:5432/sts",
 		"INTERNAL_BIND_ADDRESS": "127.0.0.1:9001",
 		"ISSUER":                "https://sts.example",
+		"CLIENT_AUTH_ISSUERS":   "https://env1.example",
+		"SUBJECT_TOKEN_ISSUERS": "https://subject.example",
 		"LOG_LEVEL":             "debug",
 		"LOG_FORMAT":            "json",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.BindAddress != "127.0.0.1:9000" || got.DatabaseURL != "postgres://sts:secret@database:5432/sts" || got.InternalBindAddress != "127.0.0.1:9001" || got.Issuer != "https://sts.example" || got.LogLevel != slog.LevelDebug || got.LogFormat != "json" {
+	if got.BindAddress != "127.0.0.1:9000" ||
+		got.DatabaseURL != "postgres://sts:secret@database:5432/sts" ||
+		got.InternalBindAddress != "127.0.0.1:9001" ||
+		got.AuthorizationServerConfig.Issuer != "https://sts.example" ||
+		got.LogLevel != slog.LevelDebug ||
+		got.LogFormat != "json" {
 		t.Fatalf("unexpected config: %#v", got)
 	}
 }
 
 func TestLoadWithDefaults(t *testing.T) {
 	got, err := loadWith(context.Background(), envconfig.MapLookuper(map[string]string{
-		"DATABASE_URL": "postgres://postgres:postgres@localhost:5432/sts?sslmode=disable",
+		"DATABASE_URL":          "postgres://postgres:postgres@localhost:5432/sts?sslmode=disable",
+		"CLIENT_AUTH_ISSUERS":   "https://env1.example",
+		"SUBJECT_TOKEN_ISSUERS": "https://subject.example",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -36,12 +47,16 @@ func TestLoadWithDefaults(t *testing.T) {
 		BindAddress:         ":8080",
 		DatabaseURL:         "postgres://postgres:postgres@localhost:5432/sts?sslmode=disable",
 		InternalBindAddress: ":8081",
-		Issuer:              "http://localhost:8080",
 		LogLevel:            slog.LevelInfo,
 		LogFormat:           "text",
-		ExpectedAudience:    "nais",
+		AuthorizationServerConfig: oauth.AuthorizationServerConfig{
+			Issuer:              "http://localhost:8080",
+			ExpectedAudience:    "nais",
+			ClientAuthIssuers:   []oauth.Issuer{"https://env1.example"},
+			SubjectTokenIssuers: []oauth.Issuer{"https://subject.example"},
+		},
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("LoadWith() = %#v, want %#v", got, want)
 	}
 }
@@ -59,10 +74,15 @@ func TestLoadWithValidation(t *testing.T) {
 	}
 	for name, values := range tests {
 		t.Run(name, func(t *testing.T) {
-			if _, ok := values["DATABASE_URL"]; !ok {
-				values["DATABASE_URL"] = "postgres://postgres:postgres@localhost:5432/sts?sslmode=disable"
+			env := map[string]string{
+				"DATABASE_URL":          "postgres://postgres:postgres@localhost:5432/sts?sslmode=disable",
+				"CLIENT_AUTH_ISSUERS":   "https://env1.example",
+				"SUBJECT_TOKEN_ISSUERS": "https://subject.example",
 			}
-			if _, err := loadWith(context.Background(), envconfig.MapLookuper(values)); err == nil {
+			for key, value := range values {
+				env[key] = value
+			}
+			if _, err := loadWith(context.Background(), envconfig.MapLookuper(env)); err == nil {
 				t.Fatal("LoadWith() returned nil error")
 			}
 		})
@@ -72,8 +92,10 @@ func TestLoadWithValidation(t *testing.T) {
 func TestLoadWithHTTPIssuerAllowsLoopback(t *testing.T) {
 	for _, issuer := range []string{"http://localhost:8080", "http://127.0.0.1:8080", "http://[::1]:8080"} {
 		if _, err := loadWith(context.Background(), envconfig.MapLookuper(map[string]string{
-			"DATABASE_URL": "postgres://postgres:postgres@localhost:5432/sts?sslmode=disable",
-			"ISSUER":       issuer,
+			"DATABASE_URL":          "postgres://postgres:postgres@localhost:5432/sts?sslmode=disable",
+			"ISSUER":                issuer,
+			"CLIENT_AUTH_ISSUERS":   "https://env1.example",
+			"SUBJECT_TOKEN_ISSUERS": "https://subject.example",
 		})); err != nil {
 			t.Errorf("LoadWith(%q): %v", issuer, err)
 		}

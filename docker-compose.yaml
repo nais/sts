@@ -30,7 +30,7 @@ services:
     environment:
       JSON_CONFIG: |
         {
-          "interactiveLogin": true,
+          "interactiveLogin": false,
           "tokenCallbacks": [
             {
               "issuerId": "env1",
@@ -40,7 +40,21 @@ services:
                   "requestParam": "grant_type",
                   "match": "client_credentials",
                   "claims": {
-                    "sub": "${clientId}",
+                    "sub": "$${client_id}",
+                    "aud": ["nais"]
+                  }
+                }
+              ]
+            },
+            {
+              "issuerId": "env2",
+              "tokenExpiry": 3600,
+              "requestMappings": [
+                {
+                  "requestParam": "grant_type",
+                  "match": "client_credentials",
+                  "claims": {
+                    "sub": "$${client_id}",
                     "aud": ["nais"]
                   }
                 }

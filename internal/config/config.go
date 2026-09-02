@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net"
-	"net/url"
-	"strings"
 
 	"github.com/nais/sts/internal/oauth"
 	"github.com/sethvargo/go-envconfig"
@@ -43,23 +40,8 @@ func (c Config) validate() error {
 	if c.DatabaseURL == "" {
 		return fmt.Errorf("database URL must not be empty")
 	}
-	if c.AuthorizationServerConfig.Issuer == "" {
-		return fmt.Errorf("issuer must not be empty")
-	}
-	issuer, err := url.Parse(c.AuthorizationServerConfig.Issuer)
-	if err != nil || !issuer.IsAbs() || issuer.Host == "" {
-		return fmt.Errorf("issuer must be an absolute URL")
-	}
-	if issuer.Scheme != "https" && (issuer.Scheme != "http" || !isLoopback(issuer.Hostname())) {
-		return fmt.Errorf("issuer must use https, except for localhost or loopback http URLs")
-	}
 	if c.LogFormat != "text" && c.LogFormat != "json" {
 		return fmt.Errorf("log format must be text or json")
 	}
-	println(fmt.Sprintf("Client auth issuers: %v", c.AuthorizationServerConfig))
-	return nil
-}
-
-func isLoopback(host string) bool {
-	return strings.EqualFold(host, "localhost") || net.ParseIP(host).IsLoopback()
+	return c.AuthorizationServerConfig.Validate()
 }

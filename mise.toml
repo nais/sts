@@ -2,9 +2,11 @@
 pin = true
 
 [tools]
-go = "1.27.0"
+go = "1.27.1"
 helm = "4.2.4"
 yq = "4.53.6"
+jq = "1.8.2"
+step = "0.30.6"
 golangci-lint = "2.13.1"
 "go:github.com/securego/gosec/v2/cmd/gosec" = "2.29.0"
 "go:github.com/sethvargo/ratchet" = "0.12.0"
@@ -89,7 +91,7 @@ description = "Generate SQL functions and models"
 run = "sqlc generate"
 
 [tasks.setup]
-description = "Create local configuration files"
+description = "Setup local environment"
 run = '''
 test -e .env || cp .env.example .env
 set -euo pipefail
@@ -108,46 +110,60 @@ description = "Get a client credentials token"
 env = { _.file = ".env" }
 run = '''
 : "${CLIENT_ID:?set CLIENT_ID}"
-: "${WORKLOAD_NAME:?set WORKLOAD_NAME}"
 : "${TOKEN_AUDIENCE:?set TOKEN_AUDIENCE}"
 
 WORKLOAD_TOKEN=$(curl -s --fail-with-body \
-  --request POST "http://localhost:3004/env1/token" \
-  --header 'Content-Type: application/x-www-form-urlencoded' \
-  --data-urlencode 'grant_type=client_credentials' \
-  --data-urlencode "client_secret=yolo" \
-  --data-urlencode "client_id=${CLIENT_ID}" | jq -r '.access_token')
-echo $WORKLOAD_TOKEN
+  "http://localhost:3004/env1/token" \
+  -d 'grant_type=client_credentials' \
+  -d "client_secret=yolo" \
+  -d "client_id=${CLIENT_ID}" | jq -r '.access_token')
 curl -s --fail-with-body \
-  --request POST "${ISSUER}/token" \
-  --header 'Content-Type: application/x-www-form-urlencoded' \
-  --data-urlencode 'grant_type=client_credentials' \
-  --data-urlencode "client_id=${CLIENT_ID}" \
-  --data-urlencode 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
-  --data-urlencode "client_assertion=${WORKLOAD_TOKEN}" \
-  --data-urlencode "scope=${TOKEN_AUDIENCE}"
+   "${ISSUER}/token" \
+  -d 'grant_type=client_credentials' \
+  -d "client_id=${CLIENT_ID}" \
+  -d 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
+  -d "client_assertion=${WORKLOAD_TOKEN}" \
+  -d "scope=${TOKEN_AUDIENCE}" | jq -r '.access_token' | step crypto jwt inspect --insecure | jq -r .
 '''
-
 
 [tasks."token:obo"]
 description = "Exchange a subject token"
 env = { _.file = ".env" }
 run = '''
 : "${CLIENT_ID:?set CLIENT_ID}"
-: "${WORKLOAD_NAME:?set WORKLOAD_NAME}"
 : "${TOKEN_AUDIENCE:?set TOKEN_AUDIENCE}"
-WORKLOAD_TOKEN="$(kubectl create token "${WORKLOAD_NAME}" --audience nais)"
-curl --fail-with-body \
-  --request POST "${ISSUER}/token" \
-  --header 'Content-Type: application/x-www-form-urlencoded' \
-  --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
-  --data-urlencode "client_id=${CLIENT_ID}" \
-  --data-urlencode 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
-  --data-urlencode "client_assertion=${WORKLOAD_TOKEN}" \
-  --data-urlencode "audience=${TOKEN_AUDIENCE}" \
-  --data-urlencode "subject_token=${WORKLOAD_TOKEN}" \
-  --data-urlencode 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \
-  --data-urlencode 'requested_token_type=urn:ietf:params:oauth:token-type:access_token'
+REDIRECT_URI="http://localhost:3004/debugger/debugger/callback"
+AUTHORIZATION_CODE=$(curl -s --fail-with-body --get --output /dev/null --write-out '%{redirect_url}' \
+  "http://localhost:3004/subject1/authorize" \
+  -d 'client_id=debugger' \
+  -d 'scope=openid somescope' \
+  -d 'response_type=code' \
+  -d 'response_mode=query' \
+  -d 'state=1234' \
+  -d 'nonce=5678' \
+  -d "redirect_uri=${REDIRECT_URI}" | jq -rR 'capture("[?&]code=(?<code>[^&]+)").code')
+WORKLOAD_TOKEN=$(curl -s --fail-with-body \
+  "http://localhost:3004/env1/token" \
+  -d 'grant_type=client_credentials' \
+  -d "client_secret=yolo" \
+  -d "client_id=${CLIENT_ID}" | jq -r '.access_token')
+SUBJECT_TOKEN=$(curl -s --fail-with-body \
+  "http://localhost:3004/subject1/token" \
+  -d 'grant_type=authorization_code' \
+  -d "code=${AUTHORIZATION_CODE}" \
+  -d "client_secret=yolo" \
+  -d 'client_id=debugger' \
+  -d "redirect_uri=${REDIRECT_URI}" | jq -r '.access_token')
+curl -s --fail-with-body \
+  "${ISSUER}/token" \
+  -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+  -d "client_id=${CLIENT_ID}" \
+  -d 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
+  -d "client_assertion=${WORKLOAD_TOKEN}" \
+  -d "audience=${TOKEN_AUDIENCE}" \
+  -d "subject_token=${SUBJECT_TOKEN}" \
+  -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \
+  -d 'requested_token_type=urn:ietf:params:oauth:token-type:access_token' | jq -r '.access_token' | step crypto jwt inspect --insecure | jq -r .
 '''
 
 [tasks."actions:update"]

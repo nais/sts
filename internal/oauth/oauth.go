@@ -3,26 +3,50 @@ package oauth
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-const developmentWorkloadIssuer = "https://container.googleapis.com/v1/projects/nais-dev-cdea/locations/europe-north1/clusters/nais-dev"
-
 type AuthorizationServer struct {
 	ClientAuthVerifier    *TokenVerifier
 	ClientStore           ClientStore
-	ExpectedAudience      string
-	Issuer                string
 	KeyStore              KeyStore
 	TokenExchangeVerifier *TokenVerifier
+	AuthorizationServerConfig
 }
 
 type AuthorizationServerConfig struct {
-	Issuer            string   `env:"ISSUER, default=http://localhost:8080"`
-	ExpectedAudience  string   `env:"EXPECTED_AUDIENCE, default=nais"`
-	ClientAuthIssuers []Issuer `env:"CLIENT_AUTH_ISSUERS, required"`
+	Issuer              string   `env:"ISSUER, default=http://localhost:8080"`
+	ExpectedAudience    string   `env:"EXPECTED_AUDIENCE, default=nais"`
+	ClientAuthIssuers   []Issuer `env:"CLIENT_AUTH_ISSUERS, required"`
+	SubjectTokenIssuers []Issuer `env:"SUBJECT_TOKEN_ISSUERS, required"`
+}
+
+func (c AuthorizationServerConfig) Validate() error {
+	if c.Issuer == "" {
+		return fmt.Errorf("issuer must not be empty")
+	}
+	issuer, err := url.Parse(c.Issuer)
+	if err != nil || !issuer.IsAbs() || issuer.Host == "" {
+		return fmt.Errorf("issuer must be an absolute URL")
+	}
+	isLoopback := func(host string) bool {
+		return strings.EqualFold(host, "localhost") || net.ParseIP(host).IsLoopback()
+	}
+	if issuer.Scheme != "https" && (issuer.Scheme != "http" || !isLoopback(issuer.Hostname())) {
+		return fmt.Errorf("issuer must use https, except for localhost or loopback http URLs")
+	}
+	if len(c.ClientAuthIssuers) == 0 {
+		return fmt.Errorf("client auth issuers must not be empty")
+	}
+	if len(c.SubjectTokenIssuers) == 0 {
+		return fmt.Errorf("subject token issuers must not be empty")
+	}
+	return nil
 }
 
 func NewAuthorizationServer(ctx context.Context, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore) (*AuthorizationServer, error) {
@@ -30,18 +54,17 @@ func NewAuthorizationServer(ctx context.Context, cfg AuthorizationServerConfig, 
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}
-	tokenExchangeVerifier, err := NewTokenVerifier(ctx, developmentWorkloadIssuer)
+	tokenExchangeVerifier, err := NewTokenVerifier(ctx, cfg.SubjectTokenIssuers...)
 	if err != nil {
 		return nil, fmt.Errorf("creating token exchange verifier: %w", err)
 	}
 
 	return &AuthorizationServer{
-		ClientAuthVerifier:    clientAuthVerifier,
-		ClientStore:           clientStore,
-		ExpectedAudience:      cfg.ExpectedAudience,
-		Issuer:                cfg.Issuer,
-		KeyStore:              keyStore,
-		TokenExchangeVerifier: tokenExchangeVerifier,
+		ClientAuthVerifier:        clientAuthVerifier,
+		ClientStore:               clientStore,
+		KeyStore:                  keyStore,
+		TokenExchangeVerifier:     tokenExchangeVerifier,
+		AuthorizationServerConfig: cfg,
 	}, nil
 }
 
