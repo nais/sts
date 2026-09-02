@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -20,10 +21,11 @@ type AuthorizationServer struct {
 }
 
 type AuthorizationServerConfig struct {
-	Issuer              string   `env:"ISSUER, default=http://localhost:8080"`
-	ExpectedAudience    string   `env:"EXPECTED_AUDIENCE, default=nais"`
-	ClientAuthIssuers   []Issuer `env:"CLIENT_AUTH_ISSUERS, required"`
-	SubjectTokenIssuers []Issuer `env:"SUBJECT_TOKEN_ISSUERS, required"`
+	Issuer              string        `env:"ISSUER, default=http://localhost:8080"`
+	ExpectedAudience    string        `env:"EXPECTED_AUDIENCE, default=nais"`
+	ClientAuthIssuers   []Issuer      `env:"CLIENT_AUTH_ISSUERS, required"`
+	SubjectTokenIssuers []Issuer      `env:"SUBJECT_TOKEN_ISSUERS, required"`
+	TokenExpiry         time.Duration `env:"TOKEN_EXPIRY, default=1h"`
 }
 
 func (c AuthorizationServerConfig) Validate() error {
@@ -70,6 +72,7 @@ func NewAuthorizationServer(ctx context.Context, cfg AuthorizationServerConfig, 
 
 type AuthorizationResult struct {
 	Target             Target
+	GrantType          oidc.GrantType
 	SubjectTokenClaims *AccessTokenClaims
 	Client             *Client
 	Roles              Roles
@@ -121,6 +124,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		SubjectTokenClaims: claims,
 		Client:             client,
 		Roles:              roles,
+		GrantType:          request.GrantType(),
 	}, nil
 }
 
@@ -130,32 +134,12 @@ func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, req
 		return nil, err
 	}
 
-	accessToken, err := CreateClientCredentialsAccessToken(
-		a.Issuer,
-		result.Client.ID,
-		result.Target.AsAudience(),
-		nil,
-		1*time.Hour,
-		result.Roles,
-	)
+	data, err := a.createTokenResponse(ctx, result)
 	if err != nil {
 		return nil, err
 	}
-	signer, err := a.KeyStore.Signer(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get signer: %w", err)
-	}
-	signed, err := accessToken.Sign(signer)
-	if err != nil {
-		return nil, err
-	}
-
 	return &Response{
-		Data: &oidc.AccessTokenResponse{
-			AccessToken: signed,
-			TokenType:   oidc.BearerToken,
-			ExpiresIn:   uint64(accessToken.ExpiresIn().Seconds()),
-		},
+		Data: data,
 	}, nil
 }
 
@@ -165,36 +149,12 @@ func (a *AuthorizationServer) TokenExchange(ctx context.Context, request *TokenE
 		return nil, err
 	}
 
-	accessToken, err := CreateTokenExchangeAccessToken(
-		a.Issuer,
-		result.SubjectTokenClaims.Subject,
-		result.Client.ID,
-		request.Audience,
-		nil,
-		1*time.Hour,
-		result.Roles,
-		result.SubjectTokenClaims.Claims,
-	)
+	data, err := a.createTokenResponse(ctx, result)
 	if err != nil {
 		return nil, err
 	}
-
-	signer, err := a.KeyStore.Signer(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get signer: %w", err)
-	}
-	signed, err := accessToken.Sign(signer)
-	if err != nil {
-		return nil, err
-	}
-
 	return &Response{
-		Data: &oidc.TokenExchangeResponse{
-			AccessToken:     signed,
-			IssuedTokenType: oidc.AccessTokenType,
-			TokenType:       oidc.BearerToken,
-			ExpiresIn:       uint64(accessToken.ExpiresIn().Seconds()),
-		},
+		Data: data,
 	}, nil
 }
 
@@ -206,4 +166,47 @@ func (a *AuthorizationServer) Keys(ctx context.Context) (*Response, error) {
 	return &Response{
 		Data: keys,
 	}, nil
+}
+
+func (a *AuthorizationServer) createTokenResponse(ctx context.Context, result *AuthorizationResult) (*AccessTokenResponse, error) {
+	// TODO: figure out what to set in actor
+	subject := result.Client.ID
+	var claims map[string]json.RawMessage
+
+	if result.SubjectTokenClaims != nil {
+		subject = result.SubjectTokenClaims.Subject
+		claims = result.SubjectTokenClaims.Claims
+	}
+	accessToken, err := CreateAccessToken(
+		a.Issuer,
+		subject,
+		result.Client.ID,
+		result.Target.AsAudience(),
+		nil,
+		a.TokenExpiry,
+		result.Roles,
+		claims,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	signer, err := a.KeyStore.Signer(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get signer: %w", err)
+	}
+	signed, err := accessToken.Sign(signer)
+	if err != nil {
+		return nil, err
+	}
+	ret := &AccessTokenResponse{
+		AccessToken: signed,
+		TokenType:   oidc.BearerToken,
+		ExpiresIn:   uint64(accessToken.ExpiresIn().Seconds()),
+	}
+
+	if result.GrantType == oidc.GrantTypeTokenExchange {
+		ret.IssuedTokenType = oidc.AccessTokenType
+	}
+	return ret, nil
 }

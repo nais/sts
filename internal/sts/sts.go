@@ -5,12 +5,15 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/joho/godotenv"
 	"github.com/nais/sts/internal/api"
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database"
 )
 
 func Run(ctx context.Context) error {
+	_ = godotenv.Load(".env")
+
 	cfg, err := config.Load(ctx)
 	if err != nil {
 		return err
