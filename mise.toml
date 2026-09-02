@@ -107,31 +107,45 @@ env = { _.file = ".env" }
 
 [tasks."token:m2m"]
 description = "Get a client credentials token"
+usage = '''
+arg "<environment>" help="The environment to use for the token request" default="env1"
+arg "<namespace>" help="The namespace to use for the token request" default="namespace1"
+arg "<workload>" help="The workload to use for the token request" default="workload1"
+arg "<target_workload>" help="The target workload to use for the token request" default="workload2"
+'''
 env = { _.file = ".env" }
 run = '''
-: "${CLIENT_ID:?set CLIENT_ID}"
-: "${TOKEN_AUDIENCE:?set TOKEN_AUDIENCE}"
-
+set -euo pipefail
+ENV={{ usage.environment }}
 WORKLOAD_TOKEN=$(curl -s --fail-with-body \
-  "http://localhost:3004/env1/token" \
+  "http://localhost:3004/${ENV}/token" \
   -d 'grant_type=client_credentials' \
   -d "client_secret=yolo" \
-  -d "client_id=${CLIENT_ID}" | jq -r '.access_token')
-curl -s --fail-with-body \
+  -d "ns={{ usage.namespace }}" \
+  -d "workload={{ usage.workload }}" \
+  -d "client_id=default_client" | jq -r '.access_token')
+echo "Authenticating with token:"
+echo ${WORKLOAD_TOKEN} | step crypto jwt inspect --insecure | jq -r .
+TOKEN_RESPONSE=$(curl -s \
    "${ISSUER}/token" \
   -d 'grant_type=client_credentials' \
-  -d "client_id=${CLIENT_ID}" \
   -d 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
   -d "client_assertion=${WORKLOAD_TOKEN}" \
-  -d "scope=${TOKEN_AUDIENCE}" | jq -r '.access_token' | step crypto jwt inspect --insecure | jq -r .
+  -d "scope=${ENV}:{{usage.namespace}}:{{ usage.target_workload }}")
+
+echo "Received token response:"
+echo ${TOKEN_RESPONSE}
+echo ${TOKEN_RESPONSE} | jq -r '.access_token' | step crypto jwt inspect --insecure | jq -r .
 '''
 
 [tasks."token:obo"]
 description = "Exchange a subject token"
+usage = '''
+arg "<client>" help="The client_id to use for the token request"
+arg "<target>" help="The target client_id to use for the token request"
+'''
 env = { _.file = ".env" }
 run = '''
-: "${CLIENT_ID:?set CLIENT_ID}"
-: "${TOKEN_AUDIENCE:?set TOKEN_AUDIENCE}"
 REDIRECT_URI="http://localhost:3004/debugger/debugger/callback"
 AUTHORIZATION_CODE=$(curl -s --fail-with-body --get --output /dev/null --write-out '%{redirect_url}' \
   "http://localhost:3004/subject1/authorize" \
@@ -142,6 +156,7 @@ AUTHORIZATION_CODE=$(curl -s --fail-with-body --get --output /dev/null --write-o
   -d 'state=1234' \
   -d 'nonce=5678' \
   -d "redirect_uri=${REDIRECT_URI}" | jq -rR 'capture("[?&]code=(?<code>[^&]+)").code')
+CLIENT_ID={{ usage.client }}
 WORKLOAD_TOKEN=$(curl -s --fail-with-body \
   "http://localhost:3004/env1/token" \
   -d 'grant_type=client_credentials' \
@@ -160,7 +175,7 @@ curl -s --fail-with-body \
   -d "client_id=${CLIENT_ID}" \
   -d 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
   -d "client_assertion=${WORKLOAD_TOKEN}" \
-  -d "audience=${TOKEN_AUDIENCE}" \
+  -d "audience={{ usage.target }}" \
   -d "subject_token=${SUBJECT_TOKEN}" \
   -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \
   -d 'requested_token_type=urn:ietf:params:oauth:token-type:access_token' | jq -r '.access_token' | step crypto jwt inspect --insecure | jq -r .

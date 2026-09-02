@@ -48,19 +48,19 @@ func run(ctx context.Context) error {
 	cs := store.NewClientStore(pool)
 	clients := []*oauth.Client{
 		{
-			ID:            "tenant:cluster:namespace:workload",
-			Environment:   "local",
-			Namespace:     "namespace",
-			Workload:      "workload",
-			Issuers:       []string{"https://container.googleapis.com/v1/projects/nais-dev-cdea/locations/europe-north1/clusters/nais-dev"},
-			AllowedScopes: []string{"tenant:cluster:namespace:other-workload"},
+			ID:            "env1:namespace1:workload1",
+			Environment:   "env1",
+			Namespace:     "namespace1",
+			Workload:      "workload1",
+			Issuers:       []string{""},
+			AllowedScopes: []string{"env1:namespace1:workload2"},
 		},
 		{
-			ID:            "tenant:cluster:namespace:other-workload",
-			Environment:   "local",
-			Namespace:     "namespace",
-			Workload:      "other-workload",
-			Issuers:       []string{"https://container.googleapis.com/v1/projects/nais-dev-cdea/locations/europe-north1/clusters/nais-dev"},
+			ID:            "env1:namespace1:workload2",
+			Environment:   "env1",
+			Namespace:     "namespace1",
+			Workload:      "workload2",
+			Issuers:       []string{""},
 			AllowedScopes: []string{},
 		},
 	}
@@ -74,8 +74,8 @@ func run(ctx context.Context) error {
 
 	queries := sqlgen.New(pool)
 	if err := queries.UpsertAuthorizationPolicy(ctx, sqlgen.UpsertAuthorizationPolicyParams{
-		OwnerClientID:    "tenant:cluster:namespace:workload",
-		ConsumerClientID: "tenant:cluster:namespace:other-workload",
+		OwnerClientID:    "env1:namespace1:workload1",
+		ConsumerClientID: "env1:namespace1:workload2",
 		Roles:            []string{"reader"},
 	}); err != nil {
 		return err

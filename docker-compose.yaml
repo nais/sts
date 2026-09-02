@@ -28,41 +28,9 @@ services:
     ports:
       - "3004:8080"
     environment:
-      JSON_CONFIG: |
-        {
-          "interactiveLogin": false,
-          "tokenCallbacks": [
-            {
-              "issuerId": "env1",
-              "tokenExpiry": 3600,
-              "requestMappings": [
-                {
-                  "requestParam": "grant_type",
-                  "match": "client_credentials",
-                  "claims": {
-                    "sub": "$${client_id}",
-                    "aud": ["nais"]
-                  }
-                }
-              ]
-            },
-            {
-              "issuerId": "env2",
-              "tokenExpiry": 3600,
-              "requestMappings": [
-                {
-                  "requestParam": "grant_type",
-                  "match": "client_credentials",
-                  "claims": {
-                    "sub": "$${client_id}",
-                    "aud": ["nais"]
-                  }
-                }
-              ]
-            }
-          ]
-        }
-
+      JSON_CONFIG_PATH: /config/mock-oauth2-server.json
+    volumes:
+      - ./mock-oauth2-server.json:/config/mock-oauth2-server.json
 
 volumes:
   postgres-data:
