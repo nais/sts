@@ -25,7 +25,7 @@ func Run(ctx context.Context) error {
 	slog.Info("configuration loaded",
 		"bind_address", cfg.BindAddress,
 		"internal_bind_address", cfg.InternalBindAddress,
-		"issuer", cfg.Issuer,
+		"issuer", cfg.AuthorizationServerConfig.Issuer,
 		"log_level", cfg.LogLevel.String(),
 		"log_format", cfg.LogFormat,
 	)

@@ -51,7 +51,7 @@ func StartServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) err
 		"public_port", publicListener.Addr().(*net.TCPAddr).Port,
 		"internal_port", internalListener.Addr().(*net.TCPAddr).Port,
 	)
-	issuer := strings.TrimRight(cfg.Issuer, "/")
+	issuer := strings.TrimRight(cfg.AuthorizationServerConfig.Issuer, "/")
 	slog.Info("server endpoints",
 		"discovery_url", issuer+oauthDiscoveryEndpoint,
 		"token_url", issuer+tokenEndpoint,

@@ -8,17 +8,17 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/nais/sts/internal/oauth"
 	"github.com/sethvargo/go-envconfig"
 )
 
 type Config struct {
-	BindAddress         string     `env:"BIND_ADDRESS, default=:8080"`
-	DatabaseURL         string     `env:"DATABASE_URL, required"`
-	InternalBindAddress string     `env:"INTERNAL_BIND_ADDRESS, default=:8081"`
-	Issuer              string     `env:"ISSUER, default=http://localhost:8080"`
-	LogLevel            slog.Level `env:"LOG_LEVEL, default=info"`
-	LogFormat           string     `env:"LOG_FORMAT, default=text"`
-	ExpectedAudience    string     `env:"EXPECTED_AUDIENCE, default=nais"`
+	BindAddress               string     `env:"BIND_ADDRESS, default=:8080"`
+	DatabaseURL               string     `env:"DATABASE_URL, required"`
+	InternalBindAddress       string     `env:"INTERNAL_BIND_ADDRESS, default=:8081"`
+	LogLevel                  slog.Level `env:"LOG_LEVEL, default=info"`
+	LogFormat                 string     `env:"LOG_FORMAT, default=text"`
+	AuthorizationServerConfig oauth.AuthorizationServerConfig
 }
 
 func Load(ctx context.Context) (Config, error) {
@@ -43,10 +43,10 @@ func (c Config) validate() error {
 	if c.DatabaseURL == "" {
 		return fmt.Errorf("database URL must not be empty")
 	}
-	if c.Issuer == "" {
+	if c.AuthorizationServerConfig.Issuer == "" {
 		return fmt.Errorf("issuer must not be empty")
 	}
-	issuer, err := url.Parse(c.Issuer)
+	issuer, err := url.Parse(c.AuthorizationServerConfig.Issuer)
 	if err != nil || !issuer.IsAbs() || issuer.Host == "" {
 		return fmt.Errorf("issuer must be an absolute URL")
 	}
@@ -56,6 +56,7 @@ func (c Config) validate() error {
 	if c.LogFormat != "text" && c.LogFormat != "json" {
 		return fmt.Errorf("log format must be text or json")
 	}
+	println(fmt.Sprintf("Client auth issuers: %v", c.AuthorizationServerConfig))
 	return nil
 }
 

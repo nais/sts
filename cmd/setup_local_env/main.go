@@ -49,7 +49,7 @@ func run(ctx context.Context) error {
 	cs := store.NewClientStore(pool)
 	clients := []*oauth.Client{
 		{
-			ID:            "system:serviceaccount:trong:debug",
+			ID:            "tenant:cluster:namespace:workload",
 			Environment:   "local",
 			Namespace:     "namespace",
 			Workload:      "workload",
@@ -75,7 +75,7 @@ func run(ctx context.Context) error {
 
 	queries := sqlgen.New(pool)
 	if err := queries.UpsertAuthorizationPolicy(ctx, sqlgen.UpsertAuthorizationPolicyParams{
-		OwnerClientID:    "system:serviceaccount:trong:debug",
+		OwnerClientID:    "tenant:cluster:namespace:workload",
 		ConsumerClientID: "tenant:cluster:namespace:other-workload",
 		Roles:            []string{"reader"},
 	}); err != nil {

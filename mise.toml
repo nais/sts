@@ -90,25 +90,18 @@ run = "sqlc generate"
 
 [tasks.setup]
 description = "Create local configuration files"
-depends = ["database:up"]
 run = '''
 test -e .env || cp .env.example .env
 set -euo pipefail
+docker compose up -d
 go run cmd/setup_local_env/main.go
 '''
 
 [tasks.local]
 description = "Run the service locally"
+depends = ["setup"]
 run = "go run ./cmd/sts"
 env = { _.file = ".env" }
-
-[tasks."database:up"]
-description = "Start the local PostgreSQL database"
-run = "docker compose up -d postgres"
-
-[tasks."database:down"]
-description = "Stop the local PostgreSQL database"
-run = "docker compose down"
 
 [tasks."token:m2m"]
 description = "Get a client credentials token"
@@ -117,8 +110,15 @@ run = '''
 : "${CLIENT_ID:?set CLIENT_ID}"
 : "${WORKLOAD_NAME:?set WORKLOAD_NAME}"
 : "${TOKEN_AUDIENCE:?set TOKEN_AUDIENCE}"
-WORKLOAD_TOKEN="$(kubectl create token "${WORKLOAD_NAME}" --audience nais)"
-curl --fail-with-body \
+
+WORKLOAD_TOKEN=$(curl -s --fail-with-body \
+  --request POST "http://localhost:3004/env1/token" \
+  --header 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'grant_type=client_credentials' \
+  --data-urlencode "client_secret=yolo" \
+  --data-urlencode "client_id=${CLIENT_ID}" | jq -r '.access_token')
+echo $WORKLOAD_TOKEN
+curl -s --fail-with-body \
   --request POST "${ISSUER}/token" \
   --header 'Content-Type: application/x-www-form-urlencoded' \
   --data-urlencode 'grant_type=client_credentials' \
@@ -127,6 +127,7 @@ curl --fail-with-body \
   --data-urlencode "client_assertion=${WORKLOAD_TOKEN}" \
   --data-urlencode "scope=${TOKEN_AUDIENCE}"
 '''
+
 
 [tasks."token:obo"]
 description = "Exchange a subject token"

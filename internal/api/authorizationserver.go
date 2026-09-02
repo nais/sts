@@ -36,7 +36,7 @@ func authorizationServerRouter(ctx context.Context, cfg config.Config, pool *pgx
 	if err := keyStore.EnsureSigningKey(ctx); err != nil {
 		return nil, err
 	}
-	s, err := oauth.NewAuthorizationServer(ctx, cfg, clientStore, keyStore)
+	s, err := oauth.NewAuthorizationServer(ctx, cfg.AuthorizationServerConfig, clientStore, keyStore)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func authorizationServerRouter(ctx context.Context, cfg config.Config, pool *pgx
 		otelchi.WithChiRoutes(router),
 		otelchi.WithRequestMethodInSpanName(true),
 	))
-	router.Use(contextMiddleware(cfg.Issuer))
+	router.Use(contextMiddleware(cfg.AuthorizationServerConfig.Issuer))
 	router.HandleFunc(oauthDiscoveryEndpoint, oauth.DiscoveryEndpoint(e))
 	router.HandleFunc(e.Token.Relative(), s.TokenEndpoint())
 	router.HandleFunc(e.JwksURI.Relative(), s.JwksEndpoint())

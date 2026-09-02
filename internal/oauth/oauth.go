@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nais/sts/internal/config"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
@@ -20,8 +19,14 @@ type AuthorizationServer struct {
 	TokenExchangeVerifier *TokenVerifier
 }
 
-func NewAuthorizationServer(ctx context.Context, cfg config.Config, clientStore ClientStore, keyStore KeyStore) (*AuthorizationServer, error) {
-	clientAuthVerifier, err := NewTokenVerifier(ctx, developmentWorkloadIssuer)
+type AuthorizationServerConfig struct {
+	Issuer            string   `env:"ISSUER, default=http://localhost:8080"`
+	ExpectedAudience  string   `env:"EXPECTED_AUDIENCE, default=nais"`
+	ClientAuthIssuers []Issuer `env:"CLIENT_AUTH_ISSUERS, required"`
+}
+
+func NewAuthorizationServer(ctx context.Context, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore) (*AuthorizationServer, error) {
+	clientAuthVerifier, err := NewTokenVerifier(ctx, cfg.ClientAuthIssuers...)
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}
