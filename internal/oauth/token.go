@@ -12,15 +12,17 @@ import (
 )
 
 type STSTokenClaims struct {
-	Issuer     string            `json:"iss,omitempty"`
-	Subject    string            `json:"sub,omitempty"`
-	Audience   oidc.Audience     `json:"aud,omitempty"`
-	ClientID   string            `json:"client_id,omitempty"`
-	JWTID      string            `json:"jti,omitempty"`
-	Actor      *oidc.ActorClaims `json:"act,omitempty"`
-	Expiration oidc.Time         `json:"exp,omitempty"`
-	IssuedAt   oidc.Time         `json:"iat,omitempty"`
-	NotBefore  oidc.Time         `json:"nbf,omitempty"`
+	oidc.TokenClaims
+	ApplicationRoles Roles                      `json:"application_roles,omitempty"`
+	Claims           map[string]json.RawMessage `json:"-"`
+}
+
+func (s *STSTokenClaims) ExpiresIn() time.Duration {
+	return time.Until(s.Expiration.AsTime())
+}
+
+func (s *STSTokenClaims) Sign(signer jose.Signer) (string, error) {
+	return crypto.Sign(s.Claims, signer)
 }
 
 var _ json.Unmarshaler = (*AccessTokenClaims)(nil)
@@ -28,14 +30,6 @@ var _ json.Unmarshaler = (*AccessTokenClaims)(nil)
 type AccessTokenClaims struct {
 	oidc.TokenClaims
 	Claims map[string]json.RawMessage `json:"-"`
-}
-
-func (a *AccessTokenClaims) ExpiresIn() time.Duration {
-	return time.Until(a.Expiration.AsTime())
-}
-
-func (a *AccessTokenClaims) Sign(signer jose.Signer) (string, error) {
-	return crypto.Sign(a.Claims, signer)
 }
 
 func (a *AccessTokenClaims) UnmarshalJSON(data []byte) error {
@@ -52,35 +46,35 @@ func CreateAccessToken(
 	audience oidc.Audience,
 	actor *oidc.ActorClaims,
 	expiresIn time.Duration,
+	roles Roles,
 	subjectTokenClaims map[string]json.RawMessage,
-) (*AccessTokenClaims, error) {
+) (*STSTokenClaims, error) {
 	jti := uuid.New().String()
 	now := time.Now()
 	exp := oidc.FromTime(now.Add(expiresIn))
 	iat := oidc.FromTime(now)
 	nbf := iat
-
-	stsTokenClaims := oidc.TokenClaims{
-		Issuer:     issuer,
-		Subject:    subject,
-		Audience:   audience,
-		ClientID:   clientID,
-		JWTID:      jti,
-		Actor:      actor,
-		Expiration: exp,
-		IssuedAt:   iat,
-		NotBefore:  nbf,
+	// TODO: review the claims we want or need to set (act, urn:nais, etc.)
+	stsTokenClaims := STSTokenClaims{
+		Issuer:           issuer,
+		Subject:          subject,
+		Audience:         audience,
+		ClientID:         clientID,
+		JWTID:            jti,
+		Actor:            actor,
+		Expiration:       exp,
+		IssuedAt:         iat,
+		NotBefore:        nbf,
+		ApplicationRoles: roles,
 	}
 
 	claims, err := mergeClaims(subjectTokenClaims, stsTokenClaims)
 	if err != nil {
 		return nil, err
 	}
+	stsTokenClaims.Claims = claims
 
-	return &AccessTokenClaims{
-		TokenClaims: stsTokenClaims,
-		Claims:      claims,
-	}, nil
+	return &stsTokenClaims, nil
 }
 
 func mergeClaims(base map[string]json.RawMessage, authoritative any) (map[string]json.RawMessage, error) {
@@ -102,9 +96,10 @@ func CreateClientCredentialsAccessToken(
 	audience oidc.Audience,
 	actor *oidc.ActorClaims,
 	expiresIn time.Duration,
-) (*AccessTokenClaims, error) {
+	roles Roles,
+) (*STSTokenClaims, error) {
 	return CreateAccessToken(
-		issuer, clientID, clientID, audience, actor, expiresIn, nil,
+		issuer, clientID, clientID, audience, actor, expiresIn, roles, nil,
 	)
 }
 
@@ -113,9 +108,10 @@ func CreateTokenExchangeAccessToken(
 	audience oidc.Audience,
 	actor *oidc.ActorClaims,
 	expiresIn time.Duration,
+	roles Roles,
 	subjectTokenClaims map[string]json.RawMessage,
-) (*AccessTokenClaims, error) {
+) (*STSTokenClaims, error) {
 	return CreateAccessToken(
-		issuer, subject, clientID, audience, actor, expiresIn, subjectTokenClaims,
+		issuer, subject, clientID, audience, actor, expiresIn, roles, subjectTokenClaims,
 	)
 }

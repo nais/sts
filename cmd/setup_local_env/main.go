@@ -43,8 +43,6 @@ func run(ctx context.Context) error {
 	}
 	defer pool.Close()
 
-	// TODO: should issuer be stored as part of client or not?
-
 	cs := store.NewClientStore(pool)
 	clients := []*oauth.Client{
 		{

@@ -72,6 +72,7 @@ type AuthorizationResult struct {
 	Target             Target
 	SubjectTokenClaims *AccessTokenClaims
 	Client             *Client
+	Roles              Roles
 }
 
 func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request TokenRequest) (*AuthorizationResult, error) {
@@ -110,7 +111,8 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		}
 	}
 
-	if err = a.ClientStore.AuthorizeTarget(ctx, ClientID(client.ID), target); err != nil {
+	roles, err := a.ClientStore.AuthorizeTarget(ctx, ClientID(client.ID), target)
+	if err != nil {
 		return nil, err
 	}
 
@@ -118,6 +120,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		Target:             target,
 		SubjectTokenClaims: claims,
 		Client:             client,
+		Roles:              roles,
 	}, nil
 }
 
@@ -133,6 +136,7 @@ func (a *AuthorizationServer) ClientCredentialsExchange(ctx context.Context, req
 		result.Target.AsAudience(),
 		nil,
 		1*time.Hour,
+		result.Roles,
 	)
 	if err != nil {
 		return nil, err
@@ -168,6 +172,7 @@ func (a *AuthorizationServer) TokenExchange(ctx context.Context, request *TokenE
 		request.Audience,
 		nil,
 		1*time.Hour,
+		result.Roles,
 		result.SubjectTokenClaims.Claims,
 	)
 	if err != nil {

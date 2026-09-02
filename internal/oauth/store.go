@@ -7,11 +7,12 @@ import (
 )
 
 type ClientID string
+type Roles []string
 
 type ClientStore interface {
 	Get(ctx context.Context, clientAuthClaims *AccessTokenClaims) (*Client, error)
 	Save(ctx context.Context, client *Client) error
-	AuthorizeTarget(ctx context.Context, clientID ClientID, target Target) error
+	AuthorizeTarget(ctx context.Context, clientID ClientID, target Target) (Roles, error)
 }
 
 type KeyStore interface {

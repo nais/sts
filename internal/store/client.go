@@ -70,19 +70,18 @@ func (s *Client) Save(ctx context.Context, client *oauth.Client) error {
 //   - move policy into client?
 //   - cache in memory (update cache on insert/delete)?
 //   - join on Get?
-func (s *Client) AuthorizeTarget(ctx context.Context, clientID oauth.ClientID, target oauth.Target) error {
-	_, err := s.queries.GetAuthorizationPolicy(ctx, sqlgen.GetAuthorizationPolicyParams{
+func (s *Client) AuthorizeTarget(ctx context.Context, clientID oauth.ClientID, target oauth.Target) (oauth.Roles, error) {
+	row, err := s.queries.GetAuthorizationPolicy(ctx, sqlgen.GetAuthorizationPolicyParams{
 		OwnerClientID:    string(clientID),
 		ConsumerClientID: target.GetValue(),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return oidc.ErrInvalidClient().WithDescription("authorization policy not found")
+		return nil, oidc.ErrInvalidClient().WithDescription("authorization policy not found")
 	}
 	if err != nil {
-		return fmt.Errorf("read authorization policy: %w", err)
+		return nil, oidc.ErrServerError().WithDescription("read authorization policy: %s", err)
 	}
-	// TODO: return roles
-	return nil
+	return row.Roles, nil
 }
 
 func toClient(row sqlgen.KubernetesClient) *oauth.Client {
