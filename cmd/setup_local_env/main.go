@@ -44,7 +44,6 @@ func run(ctx context.Context) error {
 	defer pool.Close()
 
 	// TODO: should issuer be stored as part of client or not?
-	// TODO: introduce token issuer for local use instead of depending on live connection to kubernetes
 
 	cs := store.NewClientStore(pool)
 	clients := []*oauth.Client{
