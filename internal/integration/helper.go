@@ -54,6 +54,7 @@ func startSts(t *testing.T, oauthServerURL string) string {
 
 	addr := fmt.Sprintf("localhost:%d", getFreePort(t))
 	internalAddr := fmt.Sprintf("localhost:%d", getFreePort(t))
+	url := fmt.Sprintf("http://%s", addr)
 
 	cfg := config.Config{
 		BindAddress:         addr,
@@ -62,7 +63,7 @@ func startSts(t *testing.T, oauthServerURL string) string {
 		LogLevel:            slog.LevelDebug,
 		LogFormat:           "text",
 		AuthorizationServerConfig: oauth.AuthorizationServerConfig{
-			Issuer:           addr,
+			Issuer:           url,
 			ExpectedAudience: "nais",
 			ClientAuthIssuers: []oauth.Issuer{
 				oauth.Issuer(fmt.Sprintf("%s/env1", oauthServerURL)),
@@ -97,7 +98,7 @@ func startSts(t *testing.T, oauthServerURL string) string {
 		t.Fatal("timeout waiting for STS readiness")
 	}
 
-	return fmt.Sprintf("http://%s", addr)
+	return url
 }
 
 func startMockOAuthServer(t *testing.T) string {
