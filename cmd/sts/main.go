@@ -5,11 +5,18 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/sts"
 )
 
 func main() {
-	if err := sts.Run(context.Background()); err != nil {
+	ctx := context.Background()
+	cfg, err := config.Load(ctx)
+	if err != nil {
+		slog.Error("loading STS config", "error", err)
+		os.Exit(1)
+	}
+	if err := sts.Run(ctx, cfg); err != nil {
 		slog.Error("error running STS", "error", err)
 		os.Exit(1)
 	}

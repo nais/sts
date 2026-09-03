@@ -5,20 +5,12 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/joho/godotenv"
 	"github.com/nais/sts/internal/api"
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database"
 )
 
-func Run(ctx context.Context) error {
-	_ = godotenv.Load(".env")
-
-	cfg, err := config.Load(ctx)
-	if err != nil {
-		return err
-	}
-
+func Run(ctx context.Context, cfg config.Config) error {
 	options := &slog.HandlerOptions{Level: cfg.LogLevel}
 	var handler slog.Handler = slog.NewTextHandler(os.Stderr, options)
 	if cfg.LogFormat == "json" {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/joho/godotenv"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/sethvargo/go-envconfig"
 )
@@ -19,6 +20,7 @@ type Config struct {
 }
 
 func Load(ctx context.Context) (Config, error) {
+	_ = godotenv.Load(".env")
 	return loadWith(ctx, envconfig.OsLookuper())
 }
 

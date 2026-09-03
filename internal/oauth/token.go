@@ -90,28 +90,3 @@ func mergeClaims(base map[string]json.RawMessage, authoritative any) (map[string
 	}
 	return claims, nil
 }
-
-func CreateClientCredentialsAccessToken(
-	issuer, clientID string,
-	audience oidc.Audience,
-	actor *oidc.ActorClaims,
-	expiresIn time.Duration,
-	roles Roles,
-) (*STSTokenClaims, error) {
-	return CreateAccessToken(
-		issuer, clientID, clientID, audience, actor, expiresIn, roles, nil,
-	)
-}
-
-func CreateTokenExchangeAccessToken(
-	issuer, subject, clientID string,
-	audience oidc.Audience,
-	actor *oidc.ActorClaims,
-	expiresIn time.Duration,
-	roles Roles,
-	subjectTokenClaims map[string]json.RawMessage,
-) (*STSTokenClaims, error) {
-	return CreateAccessToken(
-		issuer, subject, clientID, audience, actor, expiresIn, roles, subjectTokenClaims,
-	)
-}

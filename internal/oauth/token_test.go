@@ -37,7 +37,7 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 	}
 	original := cloneClaims(source)
 	accessToken, err := CreateAccessToken(
-		"sts-issuer", "subject", "client", oidc.Audience{"audience"}, nil, time.Hour, source,
+		"sts-issuer", "subject", "client", oidc.Audience{"audience"}, nil, time.Hour, nil, source,
 	)
 	if err != nil {
 		t.Fatal(err)

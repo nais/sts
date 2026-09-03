@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/joho/godotenv"
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
@@ -23,11 +22,6 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	err := godotenv.Load(".env")
-	if err != nil {
-		return err
-	}
-
 	cfg, err := config.Load(ctx)
 	if err != nil {
 		return err
