@@ -79,3 +79,38 @@ internal `/metrics` endpoint. They include:
 
 These metrics separate database, connection-pool, verification/key retrieval,
 and signing costs when deciding where optimization or caching is useful.
+
+### Local observability and traffic
+
+With STS running through `mise run local`, start the Prometheus and Grafana
+services declared in `docker-compose.yaml`:
+
+```shell
+mise run local:observability
+```
+
+Open the provisioned STS dashboard at
+[http://localhost:3000/d/sts-local-performance](http://localhost:3000/d/sts-local-performance).
+Prometheus is available at [http://localhost:9090](http://localhost:9090).
+Both services are behind the Compose `observability` profile and are not started
+by the normal local setup.
+
+Generate an even mix of client credentials and token exchange requests until
+Ctrl-C:
+
+```shell
+mise run local:traffic
+```
+
+The default is 100 requests per second with eight workers, which should leave a
+development machine responsive. The rate, concurrency, duration, and flow are
+configurable:
+
+```shell
+mise run local:traffic --rate 500 --workers 16 --duration 5m
+mise run local:traffic --rate 0 --workers 8 --flow token_exchange
+```
+
+A rate of `0` removes pacing; concurrency remains bounded by `--workers`. The
+traffic generator refreshes its mock fixture tokens every 30 minutes and prints
+request rate, errors, and latency every five seconds.
