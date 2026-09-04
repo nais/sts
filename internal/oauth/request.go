@@ -2,18 +2,17 @@ package oauth
 
 import "github.com/zitadel/oidc/v3/pkg/oidc"
 
-type AccessTokenResponse struct {
-	AccessToken     string                   `json:"access_token"`
-	IssuedTokenType oidc.TokenType           `json:"issued_token_type,omitempty"`
-	TokenType       string                   `json:"token_type"`
-	ExpiresIn       uint64                   `json:"expires_in,omitempty"`
-	Scopes          oidc.SpaceDelimitedArray `json:"scope,omitempty"`
-}
-
 type ClientAuthCredentials struct {
 	ClientID            string `schema:"client_id"`
 	ClientAssertion     string `schema:"client_assertion"` // JWT
 	ClientAssertionType string `schema:"client_assertion_type"`
+}
+
+func (c *ClientAuthCredentials) Validate() error {
+	if c.ClientAssertion == "" || c.ClientAssertionType != oidc.ClientAssertionTypeJWTAssertion {
+		return oidc.ErrInvalidRequest().WithDescription("client_assertion must be provided and be of type %s", oidc.ClientAssertionTypeJWTAssertion)
+	}
+	return nil
 }
 
 type TokenRequest interface {
@@ -23,20 +22,13 @@ type TokenRequest interface {
 	GetClientAuthCredentials() *ClientAuthCredentials
 }
 
-var _ TokenRequest = (*ClientCredentialsRequest)(nil)
-var _ TokenRequest = (*TokenExchangeRequest)(nil)
+var (
+	_ TokenRequest = (*ClientCredentialsRequest)(nil)
+	_ TokenRequest = (*TokenExchangeRequest)(nil)
+)
 
 type ClientCredentialsRequest struct {
 	oidc.ClientCredentialsRequest
-}
-
-type TokenExchangeRequest struct {
-	oidc.TokenExchangeRequest
-	*ClientAuthCredentials
-}
-
-func (t *TokenExchangeRequest) GetClientAuthCredentials() *ClientAuthCredentials {
-	return t.ClientAuthCredentials
 }
 
 func (c *ClientCredentialsRequest) GetClientAuthCredentials() *ClientAuthCredentials {
@@ -47,11 +39,8 @@ func (c *ClientCredentialsRequest) GetClientAuthCredentials() *ClientAuthCredent
 	}
 }
 
-func (c *ClientAuthCredentials) Validate() error {
-	if c.ClientAssertion == "" || c.ClientAssertionType != oidc.ClientAssertionTypeJWTAssertion {
-		return oidc.ErrInvalidRequest().WithDescription("client_assertion must be provided and be of type %s", oidc.ClientAssertionTypeJWTAssertion)
-	}
-	return nil
+func (c *ClientCredentialsRequest) GrantType() oidc.GrantType {
+	return c.ClientCredentialsRequest.GrantType
 }
 
 func (c *ClientCredentialsRequest) Target() (Target, error) {
@@ -59,13 +48,6 @@ func (c *ClientCredentialsRequest) Target() (Target, error) {
 		return nil, oidc.ErrInvalidTarget().WithDescription("scope must contain exactly one target scope")
 	}
 	return targetScope(c.Scope[0]), nil
-}
-
-func (t *TokenExchangeRequest) Target() (Target, error) {
-	if len(t.Audience) != 1 {
-		return nil, oidc.ErrInvalidTarget().WithDescription("audience must contain exactly one audience")
-	}
-	return targetAudience(t.Audience[0]), nil
 }
 
 func (c *ClientCredentialsRequest) Validate() error {
@@ -81,6 +63,26 @@ func (c *ClientCredentialsRequest) Validate() error {
 		return oidc.ErrInvalidTarget().WithDescription("scope must contain exactly one target scope")
 	}
 	return nil
+}
+
+type TokenExchangeRequest struct {
+	oidc.TokenExchangeRequest
+	*ClientAuthCredentials
+}
+
+func (t *TokenExchangeRequest) GetClientAuthCredentials() *ClientAuthCredentials {
+	return t.ClientAuthCredentials
+}
+
+func (t *TokenExchangeRequest) GrantType() oidc.GrantType {
+	return t.TokenExchangeRequest.GrantType
+}
+
+func (t *TokenExchangeRequest) Target() (Target, error) {
+	if len(t.Audience) != 1 {
+		return nil, oidc.ErrInvalidTarget().WithDescription("audience must contain exactly one audience")
+	}
+	return targetAudience(t.Audience[0]), nil
 }
 
 func (t *TokenExchangeRequest) Validate() error {
@@ -106,22 +108,21 @@ func (t *TokenExchangeRequest) Validate() error {
 	return nil
 }
 
-func (c *ClientCredentialsRequest) GrantType() oidc.GrantType {
-	return c.ClientCredentialsRequest.GrantType
-}
-
-func (t *TokenExchangeRequest) GrantType() oidc.GrantType {
-	return t.TokenExchangeRequest.GrantType
-}
-
 type Target interface {
 	GetValue() string
 	GetType() string
 	AsAudience() oidc.Audience
 }
 
-type targetScope string
-type targetAudience string
+type (
+	targetScope    string
+	targetAudience string
+)
+
+var (
+	_ Target = (*targetScope)(nil)
+	_ Target = (*targetAudience)(nil)
+)
 
 func (t targetAudience) GetValue() string {
 	return string(t)
@@ -146,6 +147,3 @@ func (t targetScope) GetType() string {
 func (t targetScope) AsAudience() oidc.Audience {
 	return oidc.Audience{string(t)}
 }
-
-var _ Target = (*targetScope)(nil)
-var _ Target = (*targetAudience)(nil)

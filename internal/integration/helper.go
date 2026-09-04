@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nais/sts/internal/config"
+	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/sts"
 	"github.com/testcontainers/testcontainers-go"
@@ -86,7 +87,7 @@ func startSts(t *testing.T, oauthServerURL string) string {
 	for time.Now().Before(deadline) {
 		resp, err := http.Get(fmt.Sprintf("http://%s/readyz", internalAddr))
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				break
 			}
@@ -146,7 +147,6 @@ func getFreePort(t *testing.T) int {
 	if err != nil {
 		t.Fatalf("failed to listen on TCP address: %v", err)
 	}
-	defer l.Close()
-
+	defer ioconvenience.CloseWithLog(l, slog.Default())
 	return l.Addr().(*net.TCPAddr).Port
 }

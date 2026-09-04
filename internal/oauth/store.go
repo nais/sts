@@ -6,8 +6,10 @@ import (
 	"github.com/go-jose/go-jose/v4"
 )
 
-type ClientID string
-type Roles []string
+type (
+	ClientID string
+	Roles    []string
+)
 
 type ClientStore interface {
 	Get(ctx context.Context, clientAuthClaims *AccessTokenClaims) (*Client, error)
