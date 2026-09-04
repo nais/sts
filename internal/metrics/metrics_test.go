@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 )
 
 func TestMetrics(t *testing.T) {
@@ -19,9 +18,12 @@ func TestMetrics(t *testing.T) {
 	})
 
 	metrics := provider.Metrics()
-	metrics.ObserveTokenGrant(t.Context(), "client_credentials", time.Now(), nil)
-	metrics.ObserveTokenStep(t.Context(), "get_client", time.Now(), nil)
-	metrics.ObserveTokenStep(t.Context(), "authorize_target", time.Now(), errors.New("denied"))
+	finish := metrics.StartTokenGrant(t.Context(), "client_credentials")
+	finish(nil)
+	finish = metrics.StartTokenStep(t.Context(), "get_client")
+	finish(nil)
+	finish = metrics.StartTokenStep(t.Context(), "authorize_target")
+	finish(errors.New("denied"))
 
 	families, err := provider.Registry().Gather()
 	if err != nil {

@@ -86,7 +86,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		return nil, err
 	}
 
-	start := time.Now()
+	finishStep := a.Metrics.StartTokenStep(ctx, "verify_client_assertion")
 	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion, func(claims *AccessTokenClaims) error {
 		if len(claims.Audience) != 1 {
 			return oidc.ErrInvalidClient().WithDescription("audience is invalid: got %d audiences, want 1", len(claims.Audience))
@@ -96,7 +96,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		}
 		return nil
 	})
-	a.Metrics.ObserveTokenStep(ctx, "verify_client_assertion", start, err)
+	finishStep(err)
 	if err != nil {
 		return nil, oidc.ErrInvalidClient().WithDescription("client assertion is invalid: %+v", err)
 	}
@@ -106,9 +106,9 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		return nil, err
 	}
 
-	start = time.Now()
+	finishStep = a.Metrics.StartTokenStep(ctx, "get_client")
 	client, err := a.ClientStore.Get(ctx, clientAuthClaims)
-	a.Metrics.ObserveTokenStep(ctx, "get_client", start, err)
+	finishStep(err)
 	if err != nil {
 		return nil, oidc.ErrInvalidClient().WithDescription("client not found: %+v", err)
 	}
@@ -119,17 +119,17 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		if !ok {
 			return nil, oidc.ErrInvalidRequest().WithDescription("could not parse request as TokenExchangeRequest")
 		}
-		start = time.Now()
+		finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
 		claims, err = a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken)
-		a.Metrics.ObserveTokenStep(ctx, "verify_subject_token", start, err)
+		finishStep(err)
 		if err != nil {
 			return nil, oidc.ErrInvalidClient().WithDescription("subject token is invalid")
 		}
 	}
 
-	start = time.Now()
+	finishStep = a.Metrics.StartTokenStep(ctx, "authorize_target")
 	roles, err := a.ClientStore.AuthorizeTarget(ctx, ClientID(client.ID), target)
-	a.Metrics.ObserveTokenStep(ctx, "authorize_target", start, err)
+	finishStep(err)
 	if err != nil {
 		return nil, err
 	}
@@ -144,34 +144,22 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 }
 
 func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenRequest) (*Response, error) {
-	start := time.Now()
-	grantType := grantTypeMetricLabel(request.GrantType())
-	var handlerErr error
-	defer func() { a.Metrics.ObserveTokenGrant(ctx, grantType, start, handlerErr) }()
+	finishGrant := a.Metrics.StartTokenGrant(ctx, request.GrantType())
+	var err error
+	defer func() { finishGrant(err) }()
 
-	result, handlerErr := a.AuthorizeRequest(ctx, request)
-	if handlerErr != nil {
-		return nil, handlerErr
+	result, err := a.AuthorizeRequest(ctx, request)
+	if err != nil {
+		return nil, err
 	}
 
-	data, handlerErr := a.CreateTokenResponse(ctx, result)
-	if handlerErr != nil {
-		return nil, handlerErr
+	data, err := a.CreateTokenResponse(ctx, result)
+	if err != nil {
+		return nil, err
 	}
 	return &Response{
 		Data: data,
 	}, nil
-}
-
-func grantTypeMetricLabel(grantType oidc.GrantType) string {
-	switch grantType {
-	case oidc.GrantTypeClientCredentials:
-		return "client_credentials"
-	case oidc.GrantTypeTokenExchange:
-		return "token_exchange"
-	default:
-		return "unknown"
-	}
 }
 
 func (a *AuthorizationServer) Keys(ctx context.Context) (*Response, error) {
@@ -207,15 +195,15 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 		return nil, err
 	}
 
-	start := time.Now()
+	finishStep := a.Metrics.StartTokenStep(ctx, "get_signer")
 	signer, err := a.KeyStore.Signer(ctx)
-	a.Metrics.ObserveTokenStep(ctx, "get_signer", start, err)
+	finishStep(err)
 	if err != nil {
 		return nil, fmt.Errorf("get signer: %w", err)
 	}
-	start = time.Now()
+	finishStep = a.Metrics.StartTokenStep(ctx, "sign_token")
 	signed, err := accessToken.Sign(signer)
-	a.Metrics.ObserveTokenStep(ctx, "sign_token", start, err)
+	finishStep(err)
 	if err != nil {
 		return nil, err
 	}
