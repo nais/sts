@@ -8,10 +8,13 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/config"
+	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/sts"
@@ -19,6 +22,121 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
+
+type testFixtures struct {
+	Environment    string
+	Namespace      string
+	ClientWorkload string
+	ClientID       string
+	Target         string
+	Role           string
+	TokenExpiry    time.Duration
+}
+
+var fixtures = testFixtures{
+	Environment:    "env1",
+	Namespace:      "namespace1",
+	ClientWorkload: "workload1",
+	ClientID:       "env1:namespace1:workload1",
+	Target:         "env1:namespace1:workload2",
+	Role:           "reader",
+	TokenExpiry:    time.Hour,
+}
+
+type testServer string
+
+func (s testServer) Endpoint(path string) string {
+	return (&url.URL{Scheme: "http", Host: string(s)}).JoinPath(path).String()
+}
+
+func startMockOAuthServer(t *testing.T) testServer {
+	t.Helper()
+	ctx := t.Context()
+
+	container, err := testcontainers.Run(ctx,
+		"ghcr.io/navikt/mock-oauth2-server:latest",
+		testcontainers.WithExposedPorts("8080/tcp"),
+		testcontainers.WithEnv(map[string]string{
+			"JSON_CONFIG_PATH": "/config/mock-oauth2-server.json",
+		}),
+		testcontainers.WithFiles(testcontainers.ContainerFile{
+			HostFilePath:      "../../mock-oauth2-server.json",
+			ContainerFilePath: "/config/mock-oauth2-server.json",
+			FileMode:          0o644,
+		}),
+		testcontainers.WithWaitStrategy(wait.ForListeningPort("8080/tcp")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := container.Terminate(context.Background()); err != nil {
+			t.Errorf("terminate mock OAuth2 container: %v", err)
+		}
+	})
+
+	addr, err := container.PortEndpoint(ctx, "8080/tcp", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return testServer(addr)
+}
+
+func startSts(t *testing.T, oauthServer testServer) testServer {
+	t.Helper()
+
+	dsn := setupPostgres(t)
+
+	addr := fmt.Sprintf("localhost:%d", getFreePort(t))
+	internalAddr := fmt.Sprintf("localhost:%d", getFreePort(t))
+	server := testServer(addr)
+
+	cfg := config.Config{
+		BindAddress:         addr,
+		DatabaseURL:         dsn,
+		InternalBindAddress: internalAddr,
+		LogLevel:            slog.LevelDebug,
+		LogFormat:           "text",
+		AuthorizationServerConfig: oauth.AuthorizationServerConfig{
+			Issuer:           server.Endpoint(""),
+			ExpectedAudience: "nais",
+			ClientAuthIssuers: []oauth.Issuer{
+				oauth.Issuer(oauthServer.Endpoint("/env1")),
+				oauth.Issuer(oauthServer.Endpoint("/env2")),
+			},
+			SubjectTokenIssuers: []oauth.Issuer{
+				oauth.Issuer(oauthServer.Endpoint("/subject1")),
+				oauth.Issuer(oauthServer.Endpoint("/subject2")),
+			},
+			TokenExpiry: fixtures.TokenExpiry,
+		},
+	}
+
+	ctx := t.Context()
+	go func() {
+		_ = sts.Run(ctx, cfg)
+	}()
+
+	deadline := time.Now().Add(10 * time.Second)
+	ready := false
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(fmt.Sprintf("http://%s/readyz", internalAddr))
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				ready = true
+				break
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatal("timeout waiting for STS readiness")
+	}
+
+	seedSts(t, dsn, oauthServer)
+	return server
+}
 
 func setupPostgres(t *testing.T) string {
 	t.Helper()
@@ -48,91 +166,33 @@ func setupPostgres(t *testing.T) string {
 	return dsn
 }
 
-func startSts(t *testing.T, oauthServerURL string) string {
+func seedSts(t *testing.T, dsn string, oauthServer testServer) {
 	t.Helper()
 
-	dsn := setupPostgres(t)
-
-	addr := fmt.Sprintf("localhost:%d", getFreePort(t))
-	internalAddr := fmt.Sprintf("localhost:%d", getFreePort(t))
-	url := fmt.Sprintf("http://%s", addr)
-
-	cfg := config.Config{
-		BindAddress:         addr,
-		DatabaseURL:         dsn,
-		InternalBindAddress: internalAddr,
-		LogLevel:            slog.LevelDebug,
-		LogFormat:           "text",
-		AuthorizationServerConfig: oauth.AuthorizationServerConfig{
-			Issuer:           url,
-			ExpectedAudience: "nais",
-			ClientAuthIssuers: []oauth.Issuer{
-				oauth.Issuer(fmt.Sprintf("%s/env1", oauthServerURL)),
-				oauth.Issuer(fmt.Sprintf("%s/env2", oauthServerURL)),
-			},
-			SubjectTokenIssuers: []oauth.Issuer{
-				oauth.Issuer(fmt.Sprintf("%s/subject1", oauthServerURL)),
-				oauth.Issuer(fmt.Sprintf("%s/subject2", oauthServerURL)),
-			},
-			TokenExpiry: 1 * time.Hour,
-		},
-	}
-
-	ctx := t.Context()
-	go func() {
-		_ = sts.Run(ctx, cfg)
-	}()
-
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		resp, err := http.Get(fmt.Sprintf("http://%s/readyz", internalAddr))
-		if err == nil {
-			_ = resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				break
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	if time.Now().After(deadline) {
-		t.Fatal("timeout waiting for STS readiness")
-	}
-
-	return url
-}
-
-func startMockOAuthServer(t *testing.T) string {
-	t.Helper()
-	ctx := t.Context()
-
-	container, err := testcontainers.Run(ctx,
-		"ghcr.io/navikt/mock-oauth2-server:latest",
-		testcontainers.WithExposedPorts("8080/tcp"),
-		testcontainers.WithEnv(map[string]string{
-			"JSON_CONFIG_PATH": "/config/mock-oauth2-server.json",
-		}),
-		testcontainers.WithFiles(testcontainers.ContainerFile{
-			HostFilePath:      "../../mock-oauth2-server.json",
-			ContainerFilePath: "/config/mock-oauth2-server.json",
-			FileMode:          0o644,
-		}),
-		testcontainers.WithWaitStrategy(wait.ForListeningPort("8080/tcp")),
-	)
+	pool, err := pgxpool.New(t.Context(), dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := container.Terminate(context.Background()); err != nil {
-			t.Errorf("terminate mock OAuth2 container: %v", err)
-		}
-	})
+	defer pool.Close()
 
-	addr, err := container.PortEndpoint(ctx, "8080/tcp", "http")
-	if err != nil {
+	queries := sqlgen.New(pool)
+	if err := queries.UpsertKubernetesClient(t.Context(), sqlgen.UpsertKubernetesClientParams{
+		ID:            fixtures.ClientID,
+		Environment:   fixtures.Environment,
+		Namespace:     fixtures.Namespace,
+		Workload:      fixtures.ClientWorkload,
+		Issuer:        oauthServer.Endpoint(fmt.Sprintf("/%s", fixtures.Environment)),
+		AllowedScopes: []string{fixtures.Target},
+	}); err != nil {
 		t.Fatal(err)
 	}
-	return addr
+	if err := queries.UpsertAuthorizationPolicy(t.Context(), sqlgen.UpsertAuthorizationPolicyParams{
+		OwnerClientID:    fixtures.ClientID,
+		ConsumerClientID: fixtures.Target,
+		Roles:            []string{fixtures.Role},
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func getFreePort(t *testing.T) int {
