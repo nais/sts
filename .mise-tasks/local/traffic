@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#MISE description="Generate configurable traffic against the local STS"
+#USAGE flag "-r --rate <rate>" help="Target requests per second; 0 means unlimited" default="100"
+#USAGE flag "-w --workers <workers>" help="Maximum concurrent workers" default="8"
+#USAGE flag "-d --duration <duration>" help="Duration such as 30s or 5m; 0 runs until Ctrl-C" default="0"
+#USAGE flag "-f --flow <flow>" help="mixed, client_credentials, or token_exchange" default="mixed"
+
+set -euo pipefail
+
+go run ./cmd/local_traffic \
+  -rate "${usage_rate}" \
+  -workers "${usage_workers}" \
+  -duration "${usage_duration}" \
+  -flow "${usage_flow}"
