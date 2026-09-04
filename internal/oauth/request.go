@@ -86,6 +86,8 @@ func (t *TokenExchangeRequest) Target() (Target, error) {
 }
 
 func (t *TokenExchangeRequest) Validate() error {
+	// TODO: deny exchanges where urn:nais:grant_type was client_credentials
+
 	if err := t.ClientAuthCredentials.Validate(); err != nil {
 		return err
 	}
