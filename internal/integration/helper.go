@@ -49,7 +49,7 @@ func (s testServer) Endpoint(path string) string {
 	return (&url.URL{Scheme: "http", Host: string(s)}).JoinPath(path).String()
 }
 
-func startMockOAuthServer(t *testing.T) testServer {
+func startMockOAuthServer(t testing.TB) testServer {
 	t.Helper()
 	ctx := t.Context()
 
@@ -82,7 +82,7 @@ func startMockOAuthServer(t *testing.T) testServer {
 	return testServer(addr)
 }
 
-func startSts(t *testing.T, oauthServer testServer) testServer {
+func startSts(t testing.TB, oauthServer testServer) (testServer, testServer) {
 	t.Helper()
 
 	dsn := setupPostgres(t)
@@ -135,10 +135,10 @@ func startSts(t *testing.T, oauthServer testServer) testServer {
 	}
 
 	seedSts(t, dsn, oauthServer)
-	return server
+	return server, testServer(internalAddr)
 }
 
-func setupPostgres(t *testing.T) string {
+func setupPostgres(t testing.TB) string {
 	t.Helper()
 	ctx := t.Context()
 
@@ -166,7 +166,7 @@ func setupPostgres(t *testing.T) string {
 	return dsn
 }
 
-func seedSts(t *testing.T, dsn string, oauthServer testServer) {
+func seedSts(t testing.TB, dsn string, oauthServer testServer) {
 	t.Helper()
 
 	pool, err := pgxpool.New(t.Context(), dsn)
@@ -195,7 +195,7 @@ func seedSts(t *testing.T, dsn string, oauthServer testServer) {
 	}
 }
 
-func getFreePort(t *testing.T) int {
+func getFreePort(t testing.TB) int {
 	t.Helper()
 
 	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")

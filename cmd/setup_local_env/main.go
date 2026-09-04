@@ -11,6 +11,7 @@ import (
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/store"
+	"go.opentelemetry.io/otel"
 )
 
 func main() {
@@ -31,7 +32,7 @@ func run(ctx context.Context) error {
 	var handler slog.Handler = slog.NewTextHandler(os.Stderr, options)
 
 	slog.SetDefault(slog.New(handler))
-	pool, err := database.NewPool(ctx, cfg.DatabaseURL, slog.Default())
+	pool, err := database.NewPool(ctx, cfg.DatabaseURL, slog.Default(), otel.Meter("github.com/nais/sts/setup-local-env"))
 	if err != nil {
 		return err
 	}

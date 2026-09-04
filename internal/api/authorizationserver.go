@@ -8,9 +8,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/config"
+	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/store"
 	"github.com/riandyrn/otelchi"
+	otelchimetric "github.com/riandyrn/otelchi/metric"
 	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
@@ -25,7 +27,7 @@ const (
 // signingKeyCacheTTL keeps token signing off the database on every request.
 const signingKeyCacheTTL = time.Minute
 
-func authorizationServerRouter(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) (http.Handler, error) {
+func authorizationServerRouter(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, metricsProvider *stsmetrics.Provider) (http.Handler, error) {
 	e := &op.Endpoints{
 		Token:   op.NewEndpoint(tokenEndpoint),
 		JwksURI: op.NewEndpoint(jwksEndpoint),
@@ -36,12 +38,22 @@ func authorizationServerRouter(ctx context.Context, cfg config.Config, pool *pgx
 	if err := keyStore.EnsureSigningKey(ctx); err != nil {
 		return nil, err
 	}
-	s, err := oauth.NewAuthorizationServer(ctx, cfg.AuthorizationServerConfig, clientStore, keyStore)
+	s, err := oauth.NewAuthorizationServer(ctx, cfg.AuthorizationServerConfig, clientStore, keyStore, metricsProvider.Metrics())
 	if err != nil {
 		return nil, err
 	}
 
 	router := chi.NewRouter()
+	httpMetrics := otelchimetric.NewBaseConfig(
+		"nais-sts",
+		otelchimetric.WithMeterProvider(metricsProvider.MeterProvider()),
+	)
+	router.Use(
+		otelchimetric.NewServerActiveRequests(httpMetrics),
+		otelchimetric.NewServerRequestDuration(httpMetrics),
+		otelchimetric.NewServerRequestBodySize(httpMetrics),
+		otelchimetric.NewServerResponseBodySize(httpMetrics),
+	)
 	router.Use(otelchi.Middleware(
 		"nais-sts",
 		otelchi.WithChiRoutes(router),

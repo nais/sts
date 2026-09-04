@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
@@ -17,6 +18,7 @@ type AuthorizationServer struct {
 	ClientStore           ClientStore
 	KeyStore              KeyStore
 	TokenExchangeVerifier *TokenVerifier
+	Metrics               *stsmetrics.Metrics
 	AuthorizationServerConfig
 }
 
@@ -51,7 +53,7 @@ func (c AuthorizationServerConfig) Validate() error {
 	return nil
 }
 
-func NewAuthorizationServer(ctx context.Context, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore) (*AuthorizationServer, error) {
+func NewAuthorizationServer(ctx context.Context, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore, metrics *stsmetrics.Metrics) (*AuthorizationServer, error) {
 	clientAuthVerifier, err := NewTokenVerifier(ctx, cfg.ClientAuthIssuers...)
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
@@ -66,6 +68,7 @@ func NewAuthorizationServer(ctx context.Context, cfg AuthorizationServerConfig, 
 		ClientStore:               clientStore,
 		KeyStore:                  keyStore,
 		TokenExchangeVerifier:     tokenExchangeVerifier,
+		Metrics:                   metrics,
 		AuthorizationServerConfig: cfg,
 	}, nil
 }
@@ -83,6 +86,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		return nil, err
 	}
 
+	start := time.Now()
 	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion, func(claims *AccessTokenClaims) error {
 		if len(claims.Audience) != 1 {
 			return oidc.ErrInvalidClient().WithDescription("audience is invalid: got %d audiences, want 1", len(claims.Audience))
@@ -92,6 +96,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		}
 		return nil
 	})
+	a.Metrics.ObserveTokenStep(ctx, "verify_client_assertion", start, err)
 	if err != nil {
 		return nil, oidc.ErrInvalidClient().WithDescription("client assertion is invalid: %+v", err)
 	}
@@ -101,7 +106,9 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		return nil, err
 	}
 
+	start = time.Now()
 	client, err := a.ClientStore.Get(ctx, clientAuthClaims)
+	a.Metrics.ObserveTokenStep(ctx, "get_client", start, err)
 	if err != nil {
 		return nil, oidc.ErrInvalidClient().WithDescription("client not found: %+v", err)
 	}
@@ -112,13 +119,17 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		if !ok {
 			return nil, oidc.ErrInvalidRequest().WithDescription("could not parse request as TokenExchangeRequest")
 		}
+		start = time.Now()
 		claims, err = a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken)
+		a.Metrics.ObserveTokenStep(ctx, "verify_subject_token", start, err)
 		if err != nil {
 			return nil, oidc.ErrInvalidClient().WithDescription("subject token is invalid")
 		}
 	}
 
+	start = time.Now()
 	roles, err := a.ClientStore.AuthorizeTarget(ctx, ClientID(client.ID), target)
+	a.Metrics.ObserveTokenStep(ctx, "authorize_target", start, err)
 	if err != nil {
 		return nil, err
 	}
@@ -180,11 +191,15 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 		return nil, err
 	}
 
+	start := time.Now()
 	signer, err := a.KeyStore.Signer(ctx)
+	a.Metrics.ObserveTokenStep(ctx, "get_signer", start, err)
 	if err != nil {
 		return nil, fmt.Errorf("get signer: %w", err)
 	}
+	start = time.Now()
 	signed, err := accessToken.Sign(signer)
+	a.Metrics.ObserveTokenStep(ctx, "sign_token", start, err)
 	if err != nil {
 		return nil, err
 	}

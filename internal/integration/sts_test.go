@@ -24,7 +24,7 @@ import (
 
 func TestSts(t *testing.T) {
 	oauthServer := startMockOAuthServer(t)
-	sts := startSts(t, oauthServer)
+	sts, _ := startSts(t, oauthServer)
 
 	t.Run("discovery", func(t *testing.T) {
 		resp := get[oidc.DiscoveryConfiguration](t, sts.Endpoint("/.well-known/oauth-authorization-server"))
@@ -192,7 +192,7 @@ func getStsToken(t *testing.T, sts testServer, form url.Values) *oauth.AccessTok
 	return response
 }
 
-func getKubernetesToken(t *testing.T, oauthServer testServer, environment, namespace, workload string) string {
+func getKubernetesToken(t testing.TB, oauthServer testServer, environment, namespace, workload string) string {
 	t.Helper()
 
 	resp, err := post[oidc.AccessTokenResponse](t, oauthServer.Endpoint(fmt.Sprintf("/%s/token", environment)), url.Values{
@@ -207,7 +207,7 @@ func getKubernetesToken(t *testing.T, oauthServer testServer, environment, names
 	return resp.AccessToken
 }
 
-func getSubjectToken(t *testing.T, oauthServer testServer, issuer string) (string, *oauth.AccessTokenClaims) {
+func getSubjectToken(t testing.TB, oauthServer testServer, issuer string) (string, *oauth.AccessTokenClaims) {
 	t.Helper()
 
 	redirectURI := "https://unused.example/callback"
@@ -255,7 +255,7 @@ func getSubjectToken(t *testing.T, oauthServer testServer, issuer string) (strin
 	return token.AccessToken, claims
 }
 
-func post[T any](t *testing.T, endpoint string, form url.Values) (*T, error) {
+func post[T any](t testing.TB, endpoint string, form url.Values) (*T, error) {
 	t.Helper()
 
 	body := strings.NewReader(form.Encode())
@@ -275,7 +275,7 @@ func post[T any](t *testing.T, endpoint string, form url.Values) (*T, error) {
 	return ret, err
 }
 
-func get[T any](t *testing.T, url string) *T {
+func get[T any](t testing.TB, url string) *T {
 	t.Helper()
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)

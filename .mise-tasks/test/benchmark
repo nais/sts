@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+#MISE description="Benchmark steady-state STS token issuance"
+
+set -e
+
+go test -run '^$' -bench '^BenchmarkSts$' -benchmem -tags=integration_test ./internal/integration
