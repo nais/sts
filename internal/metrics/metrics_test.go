@@ -19,6 +19,7 @@ func TestMetrics(t *testing.T) {
 	})
 
 	metrics := provider.Metrics()
+	metrics.ObserveTokenGrant(t.Context(), "client_credentials", time.Now(), nil)
 	metrics.ObserveTokenStep(t.Context(), "get_client", time.Now(), nil)
 	metrics.ObserveTokenStep(t.Context(), "authorize_target", time.Now(), errors.New("denied"))
 
@@ -26,14 +27,21 @@ func TestMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	want := map[string]int{
+		"sts_token_grant_duration_seconds": 1,
+		"sts_token_step_duration_seconds":  2,
+	}
 	for _, family := range families {
-		if family.GetName() != "sts_token_step_duration_seconds" {
+		expected, ok := want[family.GetName()]
+		if !ok {
 			continue
 		}
-		if got := len(family.Metric); got != 2 {
-			t.Errorf("token step duration series count = %d, want 2", got)
+		if got := len(family.Metric); got != expected {
+			t.Errorf("%s series count = %d, want %d", family.GetName(), got, expected)
 		}
-		return
+		delete(want, family.GetName())
 	}
-	t.Error("token step duration metric was not gathered")
+	for name := range want {
+		t.Errorf("metric %s was not gathered", name)
+	}
 }

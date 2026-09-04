@@ -144,18 +144,34 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 }
 
 func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenRequest) (*Response, error) {
-	result, err := a.AuthorizeRequest(ctx, request)
-	if err != nil {
-		return nil, err
+	start := time.Now()
+	grantType := grantTypeMetricLabel(request.GrantType())
+	var handlerErr error
+	defer func() { a.Metrics.ObserveTokenGrant(ctx, grantType, start, handlerErr) }()
+
+	result, handlerErr := a.AuthorizeRequest(ctx, request)
+	if handlerErr != nil {
+		return nil, handlerErr
 	}
 
-	data, err := a.CreateTokenResponse(ctx, result)
-	if err != nil {
-		return nil, err
+	data, handlerErr := a.CreateTokenResponse(ctx, result)
+	if handlerErr != nil {
+		return nil, handlerErr
 	}
 	return &Response{
 		Data: data,
 	}, nil
+}
+
+func grantTypeMetricLabel(grantType oidc.GrantType) string {
+	switch grantType {
+	case oidc.GrantTypeClientCredentials:
+		return "client_credentials"
+	case oidc.GrantTypeTokenExchange:
+		return "token_exchange"
+	default:
+		return "unknown"
+	}
 }
 
 func (a *AuthorizationServer) Keys(ctx context.Context) (*Response, error) {

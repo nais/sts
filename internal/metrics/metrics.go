@@ -58,10 +58,20 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 }
 
 type Metrics struct {
-	stepDuration metric.Float64Histogram
+	grantDuration metric.Float64Histogram
+	stepDuration  metric.Float64Histogram
 }
 
 func New(meter metric.Meter) (*Metrics, error) {
+	grantDuration, err := meter.Float64Histogram(
+		"sts.token.grant.duration",
+		metric.WithDescription("Time spent processing a token grant."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(durationBuckets...),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create token grant duration: %w", err)
+	}
 	stepDuration, err := meter.Float64Histogram(
 		"sts.token.step.duration",
 		metric.WithDescription("Time spent in each token issuance step."),
@@ -71,16 +81,26 @@ func New(meter metric.Meter) (*Metrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create token step duration: %w", err)
 	}
-	return &Metrics{stepDuration: stepDuration}, nil
+	return &Metrics{grantDuration: grantDuration, stepDuration: stepDuration}, nil
+}
+
+func (m *Metrics) ObserveTokenGrant(ctx context.Context, grantType string, start time.Time, err error) {
+	m.grantDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(
+		attribute.String("grant_type", grantType),
+		attribute.String("outcome", outcome(err)),
+	))
 }
 
 func (m *Metrics) ObserveTokenStep(ctx context.Context, step string, start time.Time, err error) {
-	outcome := "success"
-	if err != nil {
-		outcome = "error"
-	}
 	m.stepDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(
 		attribute.String("step", step),
-		attribute.String("outcome", outcome),
+		attribute.String("outcome", outcome(err)),
 	))
+}
+
+func outcome(err error) string {
+	if err != nil {
+		return "error"
+	}
+	return "success"
 }
