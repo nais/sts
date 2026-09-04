@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/store"
+	"go.opentelemetry.io/otel"
 )
 
 func TestNewPoolMigratesPostgres(t *testing.T) {
@@ -31,7 +32,7 @@ func TestNewPoolMigratesPostgres(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			pool, err := database.NewPool(ctx, dsn, log)
+			pool, err := database.NewPool(ctx, dsn, log, otel.Meter("integration-test"))
 			if err != nil {
 				errs <- err
 				return
@@ -92,7 +93,7 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx := t.Context()
 	dsn := setupPostgres(t)
-	pool, err := database.NewPool(ctx, dsn, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	pool, err := database.NewPool(ctx, dsn, slog.New(slog.NewTextHandler(io.Discard, nil)), otel.Meter("integration-test"))
 	if err != nil {
 		t.Fatal(err)
 	}

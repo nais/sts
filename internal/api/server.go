@@ -17,8 +17,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/ioconvenience"
+	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sync/errgroup"
 )
@@ -27,7 +27,7 @@ const shutdownTimeout = 5 * time.Second
 
 const readinessTimeout = 2 * time.Second
 
-func StartServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error {
+func StartServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, provider *stsmetrics.Provider) error {
 	publicListener, err := net.Listen("tcp", cfg.BindAddress)
 	if err != nil {
 		return fmt.Errorf("listen on public address %q: %w", cfg.BindAddress, err)
@@ -40,13 +40,13 @@ func StartServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) err
 	}
 	defer ioconvenience.CloseWithLog(internalListener, slog.Default())
 
-	router, err := authorizationServerRouter(ctx, cfg, pool)
+	router, err := authorizationServerRouter(ctx, cfg, pool, provider)
 	if err != nil {
 		return fmt.Errorf("setting up auth server; %w", err)
 	}
 
 	publicServer := httpServer(router)
-	internalServer := httpServer(internalRouter(prometheusRegistry(), pool))
+	internalServer := httpServer(internalRouter(provider.Registry(), pool))
 	slog.Info("servers listening",
 		"public_port", publicListener.Addr().(*net.TCPAddr).Port,
 		"internal_port", internalListener.Addr().(*net.TCPAddr).Port,
@@ -120,10 +120,4 @@ func readinessHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 		healthHandler(w, r)
 	}
-}
-
-func prometheusRegistry() *prometheus.Registry {
-	registry := prometheus.NewRegistry()
-	registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-	return registry
 }

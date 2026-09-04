@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+#MISE description="Start local Prometheus and Grafana"
+
+set -e
+
+docker compose --profile observability up -d prometheus grafana
+
+printf '%s\n' \
+  'Prometheus: http://localhost:9090' \
+  'Grafana:    http://localhost:3000/d/sts-local-performance'

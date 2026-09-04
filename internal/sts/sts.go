@@ -8,6 +8,7 @@ import (
 	"github.com/nais/sts/internal/api"
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database"
+	stsmetrics "github.com/nais/sts/internal/metrics"
 )
 
 func Run(ctx context.Context, cfg config.Config) error {
@@ -25,11 +26,21 @@ func Run(ctx context.Context, cfg config.Config) error {
 		"log_format", cfg.LogFormat,
 	)
 
-	pool, err := database.NewPool(ctx, cfg.DatabaseURL, slog.Default())
+	metricsProvider, err := stsmetrics.NewProvider()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := metricsProvider.Shutdown(context.Background()); err != nil {
+			slog.Error("shut down metrics provider", "error", err)
+		}
+	}()
+
+	pool, err := database.NewPool(ctx, cfg.DatabaseURL, slog.Default(), metricsProvider.Meter())
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 
-	return api.StartServer(ctx, cfg, pool)
+	return api.StartServer(ctx, cfg, pool, metricsProvider)
 }

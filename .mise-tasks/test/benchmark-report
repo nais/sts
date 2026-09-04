@@ -1,0 +1,35 @@
+#!/usr/bin/env sh
+#MISE description="Generate an HTML STS benchmark and metrics report"
+
+set -eu
+
+report_dir="${STS_BENCHMARK_REPORT_DIR:-benchmark-report}"
+mkdir -p "${report_dir}"
+report_dir="$(cd "${report_dir}" >/dev/null && pwd)"
+benchmark_output="${report_dir}/benchmark.txt"
+report_output="${report_dir}/index.html"
+: > "${benchmark_output}"
+
+for benchmark in client_credentials token_exchange; do
+  metrics_output="${report_dir}/${benchmark}.prom"
+  run_output="${report_dir}/${benchmark}.txt"
+
+  if ! STS_BENCHMARK_METRICS_FILE="${metrics_output}" go test \
+    -run '^$' \
+    -bench "^BenchmarkSts/${benchmark}$" \
+    -benchmem \
+    -tags=integration_test \
+    ./internal/integration > "${run_output}" 2>&1; then
+    cat "${run_output}"
+    exit 1
+  fi
+
+  cat "${run_output}"
+  cat "${run_output}" >> "${benchmark_output}"
+done
+
+go run ./cmd/benchmark_report \
+  -benchmark "${benchmark_output}" \
+  -metrics "client_credentials=${report_dir}/client_credentials.prom" \
+  -metrics "token_exchange=${report_dir}/token_exchange.prom" \
+  -output "${report_output}"

@@ -14,6 +14,7 @@ import (
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
+	"go.opentelemetry.io/otel/metric"
 )
 
 //go:embed migrations/0*.sql
@@ -21,7 +22,7 @@ var migrations embed.FS
 
 const migrationTimeout = 2 * time.Minute
 
-func NewPool(ctx context.Context, dsn string, log *slog.Logger) (*pgxpool.Pool, error) {
+func NewPool(ctx context.Context, dsn string, log *slog.Logger, meter metric.Meter) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse database configuration: %w", err)
@@ -31,9 +32,19 @@ func NewPool(ctx context.Context, dsn string, log *slog.Logger) (*pgxpool.Pool, 
 		config.MaxConns = 20
 	}
 
+	dbMetrics, err := newDatabaseMetrics(meter)
+	if err != nil {
+		return nil, err
+	}
+	config.ConnConfig.Tracer = dbMetrics
+
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("create database pool: %w", err)
+	}
+	if err = dbMetrics.registerPoolMetrics(meter, pool); err != nil {
+		pool.Close()
+		return nil, err
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
