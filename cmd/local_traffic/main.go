@@ -17,13 +17,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-)
 
-const (
-	clientAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
-	tokenExchangeGrant  = "urn:ietf:params:oauth:grant-type:token-exchange"
-	jwtTokenType        = "urn:ietf:params:oauth:token-type:jwt"
-	accessTokenType     = "urn:ietf:params:oauth:token-type:access_token"
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
 type config struct {
@@ -46,10 +41,10 @@ type requestForms struct {
 
 type counters struct {
 	started   time.Time
-	requests  atomic.Uint64
-	errors    atomic.Uint64
-	latencyNS atomic.Uint64
-	maxNS     atomic.Uint64
+	requests  atomic.Int64
+	errors    atomic.Int64
+	latencyNS atomic.Int64
+	maxNS     atomic.Int64
 }
 
 func main() {
@@ -176,7 +171,7 @@ func sendRequest(ctx context.Context, client *http.Client, endpoint, flow string
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	start := time.Now()
 	response, err := client.Do(request)
-	elapsed := uint64(time.Since(start))
+	elapsed := time.Since(start).Nanoseconds()
 	stats.requests.Add(1)
 	stats.latencyNS.Add(elapsed)
 	updateMax(&stats.maxNS, elapsed)
@@ -191,7 +186,7 @@ func sendRequest(ctx context.Context, client *http.Client, endpoint, flow string
 	}
 }
 
-func updateMax(value *atomic.Uint64, candidate uint64) {
+func updateMax(value *atomic.Int64, candidate int64) {
 	for current := value.Load(); candidate > current; current = value.Load() {
 		if value.CompareAndSwap(current, candidate) {
 			return
@@ -213,14 +208,14 @@ func prepareForms(ctx context.Context, client *http.Client, cfg config) (*reques
 	}
 	return &requestForms{
 		clientCredentials: url.Values{
-			"grant_type": {"client_credentials"}, "client_assertion_type": {clientAssertionType},
+			"grant_type": {string(oidc.GrantTypeClientCredentials)}, "client_assertion_type": {oidc.ClientAssertionTypeJWTAssertion},
 			"client_assertion": {clientAssertion}, "scope": {"env1:namespace1:workload2"},
 		},
 		tokenExchange: url.Values{
-			"grant_type": {tokenExchangeGrant}, "client_assertion_type": {clientAssertionType},
+			"grant_type": {string(oidc.GrantTypeTokenExchange)}, "client_assertion_type": {oidc.ClientAssertionTypeJWTAssertion},
 			"client_assertion": {clientAssertion}, "audience": {"env1:namespace1:workload2"},
-			"subject_token": {subjectToken}, "subject_token_type": {jwtTokenType},
-			"requested_token_type": {accessTokenType},
+			"subject_token": {subjectToken}, "subject_token_type": {string(oidc.JWTTokenType)},
+			"requested_token_type": {string(oidc.AccessTokenType)},
 		},
 	}, nil
 }

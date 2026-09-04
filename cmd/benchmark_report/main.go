@@ -108,7 +108,7 @@ func fatal(err error) {
 }
 
 func parseBenchmarks(path string) ([]benchmarkResult, error) {
-	contents, err := os.ReadFile(path)
+	contents, err := os.ReadFile(path) // #nosec G304 -- This CLI intentionally accepts a benchmark output path.
 	if err != nil {
 		return nil, fmt.Errorf("read benchmark output: %w", err)
 	}
@@ -138,7 +138,7 @@ func parseBenchmarks(path string) ([]benchmarkResult, error) {
 }
 
 func parseMetrics(name, path string) (reportSection, error) {
-	input, err := os.Open(path)
+	input, err := os.Open(path) // #nosec G304 -- This CLI intentionally accepts a metrics input path.
 	if err != nil {
 		return reportSection{}, fmt.Errorf("open metrics for %s: %w", name, err)
 	}
@@ -269,7 +269,7 @@ func formatDuration(value time.Duration) string {
 }
 
 func writeReport(path string, data reportData) error {
-	output, err := os.Create(path)
+	output, err := os.Create(path) // #nosec G304 -- This CLI intentionally accepts a report output path.
 	if err != nil {
 		return fmt.Errorf("create report: %w", err)
 	}
