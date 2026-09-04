@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+#MISE description="Verify all github actions are pinned"
+
+set -e
+
+ratchet lint .github/workflows/*.yaml

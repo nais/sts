@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+#MISE description="Run deadcode"
+
+set -e
+
+deadcode -test -tags integration_test ./...

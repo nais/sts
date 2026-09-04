@@ -35,13 +35,3 @@ Server runs two listeners for public and internal use:
 - `http://localhost:8081/metrics`
 
 Edit `.env` to override the local configuration.
-
-### Request tokens
-
-```shell
-mise run token:m2m
-mise run token:obo
-```
-
-Both tasks create a workload identity token from the active Kubernetes context
-and namespace. The OBO task also uses it as the subject token.

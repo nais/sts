@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+#MISE description="Upgrade github actions to latest version satisfying their version tag"
+
+set -e
+
+ratchet update .github/workflows/*.yaml

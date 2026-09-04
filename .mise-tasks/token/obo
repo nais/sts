@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+#MISE description="Exchange a subject token"
+#USAGE flag "-e --environment <environment>" help="The environment to use for the token request" default="env1"
+#USAGE flag "-n --namespace <namespace>" help="The namespace to use for the token request" default="namespace1"
+#USAGE flag "-w --workload <workload>" help="The workload to use for the token request" default="workload1"
+#USAGE flag "-t --target_workload <target_workload>" help="The target workload to use for the token request" default="workload2"
+
+set -euo pipefail
+
+set -a
+source .env
+set +a
+
+ENV="${usage_environment}"
+TARGET_AUDIENCE="${ENV}:${usage_namespace}:${usage_target_workload}"
+REDIRECT_URI="https://unused.example/callback"
+
+if ! AUTHORIZATION_RESPONSE=$(curl -sS --fail-with-body --get --write-out '%{redirect_url}' \
+  "http://localhost:3004/subject1/authorize" \
+  -d 'client_id=default_client' \
+  -d 'scope=openid%20somescope' \
+  -d 'response_type=code' \
+  -d 'response_mode=query' \
+  -d 'state=1234' \
+  -d 'nonce=5678' \
+  -d "redirect_uri=${REDIRECT_URI}"); then
+  printf '%s\n' "${AUTHORIZATION_RESPONSE}" >&2
+  exit 1
+fi
+
+AUTHORIZATION_CODE=$(jq -rR 'capture("[?&]code=(?<code>[^&]+)").code' <<< "${AUTHORIZATION_RESPONSE}")
+
+if ! WORKLOAD_RESPONSE=$(curl -sS --fail-with-body \
+  "http://localhost:3004/${ENV}/token" \
+  -d 'grant_type=client_credentials' \
+  -d 'client_secret=yolo' \
+  -d "ns=${usage_namespace}" \
+  -d "workload=${usage_workload}" \
+  -d 'client_id=default_client'); then
+  printf '%s\n' "${WORKLOAD_RESPONSE}" >&2
+  exit 1
+fi
+
+WORKLOAD_TOKEN=$(jq -r '.access_token' <<< "${WORKLOAD_RESPONSE}")
+printf '%s\n' "Authenticating with token:"
+printf '%s\n' "${WORKLOAD_TOKEN}" | step crypto jwt inspect --insecure | jq -r .
+
+if ! SUBJECT_RESPONSE=$(curl -sS --fail-with-body \
+  "http://localhost:3004/subject1/token" \
+  -d 'grant_type=authorization_code' \
+  -d "code=${AUTHORIZATION_CODE}" \
+  -d 'client_secret=yolo' \
+  -d 'client_id=default_client' \
+  -d "redirect_uri=${REDIRECT_URI}"); then
+  printf '%s\n' "${SUBJECT_RESPONSE}" >&2
+  exit 1
+fi
+
+SUBJECT_TOKEN=$(jq -r '.access_token' <<< "${SUBJECT_RESPONSE}")
+
+if ! TOKEN_RESPONSE=$(curl -sS --fail-with-body \
+  "${ISSUER}/token" \
+  -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+  -d 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
+  -d "client_assertion=${WORKLOAD_TOKEN}" \
+  -d "audience=${TARGET_AUDIENCE}" \
+  -d "subject_token=${SUBJECT_TOKEN}" \
+  -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \
+  -d 'requested_token_type=urn:ietf:params:oauth:token-type:access_token'); then
+  printf '%s\n' "${TOKEN_RESPONSE}" >&2
+  exit 1
+fi
+
+printf '%s\n' "${TOKEN_RESPONSE}" | jq -r '.access_token' | step crypto jwt inspect --insecure | jq -r .

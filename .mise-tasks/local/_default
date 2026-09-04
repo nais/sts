@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+#MISE description="Run the service locally"
+#MISE depends=["local:setup"]
+
+set -e
+
+go run ./cmd/sts

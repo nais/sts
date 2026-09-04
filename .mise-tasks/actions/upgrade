@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+#MISE description="Upgrade github actions to latest"
+
+set -e
+
+ratchet upgrade .github/workflows/*.yaml

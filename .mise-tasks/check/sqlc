@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+#MISE description="Check SQL queries and schema"
+
+set -e
+
+sqlc vet

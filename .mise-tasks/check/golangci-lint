@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+#MISE description="Run golangci-lint"
+
+set -e
+
+golangci-lint run --build-tags integration_test

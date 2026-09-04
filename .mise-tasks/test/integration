@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+#MISE description="Run PostgreSQL integration tests"
+
+set -e
+
+go test -race -cover -tags=integration_test ./internal/integration

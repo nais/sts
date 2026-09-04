@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+#MISE description="Generate SQL functions and models"
+
+set -e
+
+sqlc generate

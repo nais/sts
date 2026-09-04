@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+#MISE description="Format Go code using gofumpt"
+
+set -e
+
+gofumpt -w ./

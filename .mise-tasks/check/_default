@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+#MISE description="Run all static checks"
+#MISE depends=["check:golangci-lint", "check:deadcode", "check:gosec", "check:ratchet", "check:govulncheck", "check:helm-lint", "check:sqlc"]
