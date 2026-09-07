@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nais/sts/internal/api"
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/oauth"
-	"github.com/nais/sts/internal/sts"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -114,7 +114,7 @@ func startSts(t testing.TB, oauthServer testServer) (testServer, testServer) {
 
 	ctx := t.Context()
 	go func() {
-		_ = sts.Run(ctx, cfg)
+		_ = api.Run(ctx, cfg)
 	}()
 
 	deadline := time.Now().Add(10 * time.Second)

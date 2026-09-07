@@ -41,19 +41,9 @@ func authorizationServerRouter(authServer *oauth.AuthorizationServer, metricsPro
 		otelchi.WithChiRoutes(router),
 		otelchi.WithRequestMethodInSpanName(true),
 	))
-	router.Use(contextMiddleware(authServer.Issuer))
-	router.HandleFunc(oauthDiscoveryEndpoint, oauth.DiscoveryEndpoint(e))
+	router.HandleFunc(oauthDiscoveryEndpoint, oauth.DiscoveryEndpoint(e, authServer.Issuer))
 	router.HandleFunc(e.Token.Relative(), authServer.TokenEndpoint())
 	router.HandleFunc(e.JwksURI.Relative(), authServer.JwksEndpoint())
 
 	return router
-}
-
-func contextMiddleware(issuer string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r = r.WithContext(op.ContextWithIssuer(r.Context(), issuer))
-			next.ServeHTTP(w, r)
-		})
-	}
 }

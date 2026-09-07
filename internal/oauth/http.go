@@ -20,7 +20,7 @@ func init() {
 	Decoder = decoder
 }
 
-func DiscoveryEndpoint(endpoints *op.Endpoints) http.HandlerFunc {
+func DiscoveryEndpoint(endpoints *op.Endpoints, issuer string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		issuer := op.IssuerFromContext(r.Context())
 		respond(w, r, &Response{
