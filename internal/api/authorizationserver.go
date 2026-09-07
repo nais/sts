@@ -27,13 +27,12 @@ const (
 // signingKeyCacheTTL keeps token signing off the database on every request.
 const signingKeyCacheTTL = time.Minute
 
-func authorizationServerRouter(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, metricsProvider *stsmetrics.Provider) (http.Handler, error) {
+func authorizationServerRouter(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, clientStore oauth.ClientStore, metricsProvider *stsmetrics.Provider) (http.Handler, error) {
 	e := &op.Endpoints{
 		Token:   op.NewEndpoint(tokenEndpoint),
 		JwksURI: op.NewEndpoint(jwksEndpoint),
 	}
 
-	clientStore := store.NewClientStore(pool)
 	keyStore := store.NewPostgresKeyStore(pool, signingKeyCacheTTL)
 	if err := keyStore.EnsureSigningKey(ctx); err != nil {
 		return nil, err

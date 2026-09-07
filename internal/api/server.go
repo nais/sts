@@ -18,6 +18,7 @@ import (
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/ioconvenience"
 	stsmetrics "github.com/nais/sts/internal/metrics"
+	"github.com/nais/sts/internal/store"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sync/errgroup"
@@ -26,6 +27,8 @@ import (
 const shutdownTimeout = 5 * time.Second
 
 const readinessTimeout = 2 * time.Second
+
+const clientCacheRefreshInterval = time.Minute
 
 func StartServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, provider *stsmetrics.Provider) error {
 	publicListener, err := net.Listen("tcp", cfg.BindAddress)
@@ -40,10 +43,18 @@ func StartServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 	}
 	defer ioconvenience.CloseWithLog(internalListener, slog.Default())
 
-	router, err := authorizationServerRouter(ctx, cfg, pool, provider)
+	clientStore, err := store.NewCachedClientStore(pool, clientCacheRefreshInterval, slog.Default())
+	if err != nil {
+		return fmt.Errorf("create client cache: %w", err)
+	}
+	router, err := authorizationServerRouter(ctx, cfg, pool, clientStore, provider)
 	if err != nil {
 		return fmt.Errorf("setting up auth server; %w", err)
 	}
+	if err := clientStore.Initialize(ctx); err != nil {
+		return fmt.Errorf("initialize client cache: %w", err)
+	}
+	defer clientStore.Close()
 
 	publicServer := httpServer(router)
 	internalServer := httpServer(internalRouter(provider.Registry(), pool))
@@ -64,6 +75,10 @@ func StartServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error { return serve(publicServer, publicListener) })
 	group.Go(func() error { return serve(internalServer, internalListener) })
+	group.Go(func() error {
+		clientStore.Run(groupCtx)
+		return nil
+	})
 	group.Go(func() error { return shutdown(groupCtx, "public", publicServer) })
 	group.Go(func() error { return shutdown(groupCtx, "internal", internalServer) })
 	return group.Wait()
