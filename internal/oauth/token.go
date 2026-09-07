@@ -55,6 +55,7 @@ func CreateAccessToken(
 	iat := oidc.FromTime(now)
 	nbf := iat
 	// TODO: review the claims we want or need to set (act, urn:nais, etc.)
+	// TODO: add urn:nais:grant_type (or similar) to denote the type of grant used to acquire the token
 	stsTokenClaims := STSTokenClaims{
 		Issuer:           issuer,
 		Subject:          subject,

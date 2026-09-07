@@ -58,6 +58,7 @@ func NewAuthorizationServer(ctx context.Context, cfg AuthorizationServerConfig, 
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}
+	// TODO: add internal verifier for subject token issuers to allow token exchange chains
 	tokenExchangeVerifier, err := NewTokenVerifier(ctx, cfg.SubjectTokenIssuers...)
 	if err != nil {
 		return nil, fmt.Errorf("creating token exchange verifier: %w", err)
@@ -82,6 +83,7 @@ type AuthorizationResult struct {
 }
 
 func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request TokenRequest) (*AuthorizationResult, error) {
+	// TODO: don't allow token exchanges where subject_token is a client_credentials token issued by us
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
