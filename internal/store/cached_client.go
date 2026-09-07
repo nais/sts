@@ -29,6 +29,8 @@ type clientSnapshot struct {
 	policies map[policyKey]oauth.Roles
 }
 
+var _ oauth.ClientStore = (*CachedClient)(nil)
+
 // CachedClient serves clients and policies from an atomically replaced snapshot.
 type CachedClient struct {
 	pool     *pgxpool.Pool
@@ -38,7 +40,7 @@ type CachedClient struct {
 	log      *slog.Logger
 }
 
-func NewCachedClientStore(pool *pgxpool.Pool, refreshInterval time.Duration, log *slog.Logger) (*CachedClient, error) {
+func NewCachedClientStore(ctx context.Context, pool *pgxpool.Pool, refreshInterval time.Duration, log *slog.Logger) (*CachedClient, error) {
 	store := &CachedClient{pool: pool, queries: sqlgen.New(pool), log: log}
 	snapshot, err := cache.NewSnapshot(store.load, refreshInterval)
 	if err != nil {
@@ -48,14 +50,17 @@ func NewCachedClientStore(pool *pgxpool.Pool, refreshInterval time.Duration, log
 	store.listener = cache.NewPostgresListener(pool, clientCacheChannel, func(string) {
 		snapshot.Trigger()
 	}, log)
+
+	if err := store.initialize(ctx); err != nil {
+		return nil, fmt.Errorf("initializing: %w", err)
+	}
+
 	return store, nil
 }
 
-var _ oauth.ClientStore = (*CachedClient)(nil)
-
-// Initialize subscribes before loading to avoid missing a write between the
+// initialize subscribes before loading to avoid missing a write between the
 // initial snapshot and LISTEN registration.
-func (s *CachedClient) Initialize(ctx context.Context) error {
+func (s *CachedClient) initialize(ctx context.Context) error {
 	if err := s.listener.Connect(ctx); err != nil {
 		return err
 	}

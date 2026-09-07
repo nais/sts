@@ -37,8 +37,14 @@ type keyCache struct {
 	public jose.JSONWebKeySet
 }
 
-func NewPostgresKeyStore(pool *pgxpool.Pool, ttl time.Duration) *PostgresKeyStore {
-	return &PostgresKeyStore{pool: pool, queries: sqlgen.New(pool), ttl: ttl}
+func NewPostgresKeyStore(ctx context.Context, pool *pgxpool.Pool, ttl time.Duration) (*PostgresKeyStore, error) {
+	keystore := &PostgresKeyStore{pool: pool, queries: sqlgen.New(pool), ttl: ttl}
+
+	err := keystore.EnsureSigningKey(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("initialize keystore: %w", err)
+	}
+	return keystore, nil
 }
 
 func (s *PostgresKeyStore) Signer(ctx context.Context) (jose.Signer, error) {

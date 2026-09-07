@@ -66,15 +66,15 @@ func TestNewPoolMigratesPostgres(t *testing.T) {
 func TestPostgresKeyStore(t *testing.T) {
 	ctx := t.Context()
 	pool := newTestPool(t)
-	st := store.NewPostgresKeyStore(pool, time.Minute)
+	st, err := store.NewPostgresKeyStore(ctx, pool, time.Minute)
+	require.NoError(t, err)
 
-	if _, err := st.Signer(ctx); err == nil {
-		t.Fatal("expected an error without an active signing key")
-	}
+	// A second call must not create another key.
 	if err := st.EnsureSigningKey(ctx); err != nil {
 		t.Fatal(err)
 	}
-	// A second call must not create another key.
+
+	// A third call must not create another key.
 	if err := st.EnsureSigningKey(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -96,9 +96,8 @@ func TestPostgresKeyStore(t *testing.T) {
 
 func TestCachedClientStoreFallsBackToPostgresOnMiss(t *testing.T) {
 	pool := newTestPool(t)
-	cached, err := store.NewCachedClientStore(pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	cached, err := store.NewCachedClientStore(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	require.NoError(t, err)
-	require.NoError(t, cached.Initialize(t.Context()))
 	defer cached.Close()
 
 	direct := store.NewClientStore(pool)
@@ -114,9 +113,8 @@ func TestCachedClientStoreRefreshesAfterNotification(t *testing.T) {
 	direct := store.NewClientStore(pool)
 	require.NoError(t, direct.Save(t.Context(), testClient("old-scope")))
 
-	cached, err := store.NewCachedClientStore(pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	cached, err := store.NewCachedClientStore(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	require.NoError(t, err)
-	require.NoError(t, cached.Initialize(t.Context()))
 
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
