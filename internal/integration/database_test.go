@@ -62,7 +62,6 @@ func TestNewPoolMigratesPostgres(t *testing.T) {
 	defer pool.Close()
 }
 
-// TODO: remove or rewrite when adding real integration tests
 func TestPostgresKeyStore(t *testing.T) {
 	ctx := t.Context()
 	pool := newTestPool(t)

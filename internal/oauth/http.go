@@ -22,7 +22,6 @@ func init() {
 
 func DiscoveryEndpoint(endpoints *op.Endpoints, issuer string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		issuer := op.IssuerFromContext(r.Context())
 		respond(w, r, &Response{
 			Data: &oidc.DiscoveryConfiguration{
 				Issuer:        issuer,
