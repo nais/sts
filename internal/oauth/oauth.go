@@ -54,12 +54,12 @@ func (c AuthorizationServerConfig) Validate() error {
 }
 
 func NewAuthorizationServer(ctx context.Context, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore, metrics *stsmetrics.Metrics) (*AuthorizationServer, error) {
-	clientAuthVerifier, err := NewTokenVerifier(ctx, cfg.ClientAuthIssuers...)
+	clientAuthVerifier, err := NewTokenVerifier(ctx, nil, cfg.ClientAuthIssuers...)
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}
-	// TODO: add internal verifier for subject token issuers to allow token exchange chains
-	tokenExchangeVerifier, err := NewTokenVerifier(ctx, cfg.SubjectTokenIssuers...)
+	// TODO: rewrite this to be more elegant
+	tokenExchangeVerifier, err := NewTokenVerifier(ctx, &internalIssuer{Issuer: cfg.Issuer, Keyset: keyStore, RequiredAlgs: []string{"RS256"}}, cfg.SubjectTokenIssuers...)
 	if err != nil {
 		return nil, fmt.Errorf("creating token exchange verifier: %w", err)
 	}

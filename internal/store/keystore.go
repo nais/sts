@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/database/sqlgen"
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
 // TODO: review this entire file...
@@ -102,6 +103,19 @@ func (s *PostgresKeyStore) EnsureSigningKey(ctx context.Context) error {
 		return fmt.Errorf("insert signing key: %w", err)
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *PostgresKeyStore) VerifySignature(ctx context.Context, jws *jose.JSONWebSignature) ([]byte, error) {
+	keyID, alg := oidc.GetKeyIDAndAlg(jws)
+	keySet, err := s.PublicKeys(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get public keys: %w", err)
+	}
+	key, err := oidc.FindMatchingKey(keyID, oidc.KeyUseSignature, alg, keySet.Keys...)
+	if err != nil {
+		return nil, fmt.Errorf("invalid signature: %w", err)
+	}
+	return jws.Verify(&key)
 }
 
 func (s *PostgresKeyStore) load(ctx context.Context) (*keyCache, error) {

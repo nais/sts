@@ -26,7 +26,13 @@ type verifier struct {
 	requiredAlgs []string
 }
 
-func NewTokenVerifier(ctx context.Context, issuers ...Issuer) (*TokenVerifier, error) {
+type internalIssuer struct {
+	Issuer       string
+	Keyset       oidc.KeySet
+	RequiredAlgs []string
+}
+
+func NewTokenVerifier(ctx context.Context, i *internalIssuer, issuers ...Issuer) (*TokenVerifier, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	ret := &TokenVerifier{
 		verifiers: make(map[Issuer]*verifier),
@@ -37,6 +43,13 @@ func NewTokenVerifier(ctx context.Context, issuers ...Issuer) (*TokenVerifier, e
 			return nil, err
 		}
 		ret.verifiers[issuer] = v
+	}
+	if i != nil {
+		ret.verifiers[Issuer(i.Issuer)] = &verifier{
+			issuer:       i.Issuer,
+			keyset:       i.Keyset,
+			requiredAlgs: i.RequiredAlgs,
+		}
 	}
 	return ret, nil
 }

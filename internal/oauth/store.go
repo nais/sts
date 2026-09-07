@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/go-jose/go-jose/v4"
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
 type (
@@ -20,4 +21,5 @@ type ClientStore interface {
 type KeyStore interface {
 	Signer(ctx context.Context) (jose.Signer, error)
 	PublicKeys(ctx context.Context) (*jose.JSONWebKeySet, error)
+	oidc.KeySet
 }

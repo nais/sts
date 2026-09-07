@@ -83,6 +83,28 @@ func TestSts(t *testing.T) {
 		})
 	})
 
+	t.Run("token exchange with STS issued token", func(t *testing.T) {
+		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
+		subjectToken, subjectClaims := getSubjectToken(t, oauthServer, "subject1")
+		form := tokenExchangeForm(clientAssertion, subjectToken, fixtures.Target)
+		resp := stsToken[oauth.AccessTokenResponse](t, sts, form)
+
+		assert.Equal(t, oidc.BearerToken, resp.TokenType)
+		assert.Equal(t, oidc.AccessTokenType, resp.IssuedTokenType)
+		assertTokenClaims(t, sts, resp, func(claims *oauth.STSTokenClaims) {
+			assert.Equal(t, subjectClaims.Subject, claims.Subject)
+		})
+
+		form = tokenExchangeForm(clientAssertion, resp.AccessToken, fixtures.Target)
+		resp = stsToken[oauth.AccessTokenResponse](t, sts, form)
+	
+		assert.Equal(t, oidc.BearerToken, resp.TokenType)
+		assert.Equal(t, oidc.AccessTokenType, resp.IssuedTokenType)
+		assertTokenClaims(t, sts, resp, func(claims *oauth.STSTokenClaims) {
+			assert.Equal(t, subjectClaims.Subject, claims.Subject)
+		})
+	})
+
 	t.Run("token exchange denies unauthorized audience", func(t *testing.T) {
 		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
 		subjectToken, _ := getSubjectToken(t, oauthServer, "subject1")
@@ -227,7 +249,7 @@ func getSubjectToken(t testing.TB, oauthServer testServer, issuer string) (strin
 		"redirect_uri":  {redirectURI},
 	})
 
-	verifier, err := oauth.NewTokenVerifier(t.Context(), oauth.Issuer(oauthServer.Endpoint(issuer)))
+	verifier, err := oauth.NewTokenVerifier(t.Context(), nil, oauth.Issuer(oauthServer.Endpoint(issuer)))
 	require.NoError(t, err)
 
 	claims, err := verifier.Verify(t.Context(), token.AccessToken)
