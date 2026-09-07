@@ -4,7 +4,6 @@ package integration
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -27,10 +26,10 @@ func TestSts(t *testing.T) {
 	sts, _ := startSts(t, oauthServer)
 
 	t.Run("discovery", func(t *testing.T) {
-		resp := get[oidc.DiscoveryConfiguration](t, sts.Endpoint("/.well-known/oauth-authorization-server"))
-		assert.Equal(t, sts.Endpoint(""), resp.Issuer)
-		assert.Equal(t, sts.Endpoint("/token"), resp.TokenEndpoint)
-		assert.Equal(t, sts.Endpoint("/jwks"), resp.JwksURI)
+		resp := get[oidc.DiscoveryConfiguration](t, sts.Endpoint(".well-known", "oauth-authorization-server"))
+		assert.Equal(t, sts.Endpoint(), resp.Issuer)
+		assert.Equal(t, sts.Endpoint("token"), resp.TokenEndpoint)
+		assert.Equal(t, sts.Endpoint("jwks"), resp.JwksURI)
 
 		assert.Equal(t, []oidc.GrantType{
 			oidc.GrantTypeClientCredentials,
@@ -44,11 +43,10 @@ func TestSts(t *testing.T) {
 	t.Run("client credentials", func(t *testing.T) {
 		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
 		form := clientCredentialsForm(clientAssertion, fixtures.Target)
+		resp := stsToken[oauth.AccessTokenResponse](t, sts, form)
 
-		resp := getStsToken(t, sts, form)
 		assert.Equal(t, oidc.BearerToken, resp.TokenType)
 		assert.Empty(t, resp.IssuedTokenType)
-
 		assertTokenClaims(t, sts, resp, func(claims *oauth.STSTokenClaims) {
 			assert.Equal(t, fixtures.ClientID, claims.Subject)
 		})
@@ -57,9 +55,7 @@ func TestSts(t *testing.T) {
 	t.Run("client credentials denies unauthorized scope", func(t *testing.T) {
 		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
 		form := clientCredentialsForm(clientAssertion, "env1:namespace1:unauthorized")
-
-		resp, err := post[oidc.Error](t, sts.Endpoint("/token"), form)
-		require.NoError(t, err)
+		resp := stsToken[oidc.Error](t, sts, form)
 
 		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
 		assert.Contains(t, resp.Description, "authorization policy not found")
@@ -68,9 +64,7 @@ func TestSts(t *testing.T) {
 	t.Run("client credentials denies unregistered client", func(t *testing.T) {
 		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, "unregistered")
 		form := clientCredentialsForm(clientAssertion, fixtures.Target)
-
-		resp, err := post[oidc.Error](t, sts.Endpoint("/token"), form)
-		require.NoError(t, err)
+		resp := stsToken[oidc.Error](t, sts, form)
 
 		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
 		assert.Contains(t, resp.Description, "client not found")
@@ -80,11 +74,10 @@ func TestSts(t *testing.T) {
 		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
 		subjectToken, subjectClaims := getSubjectToken(t, oauthServer, "subject1")
 		form := tokenExchangeForm(clientAssertion, subjectToken, fixtures.Target)
+		resp := stsToken[oauth.AccessTokenResponse](t, sts, form)
 
-		resp := getStsToken(t, sts, form)
 		assert.Equal(t, oidc.BearerToken, resp.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, resp.IssuedTokenType)
-
 		assertTokenClaims(t, sts, resp, func(claims *oauth.STSTokenClaims) {
 			assert.Equal(t, subjectClaims.Subject, claims.Subject)
 		})
@@ -94,9 +87,7 @@ func TestSts(t *testing.T) {
 		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
 		subjectToken, _ := getSubjectToken(t, oauthServer, "subject1")
 		form := tokenExchangeForm(clientAssertion, subjectToken, "env1:namespace1:unauthorized")
-
-		resp, err := post[oidc.Error](t, sts.Endpoint("/token"), form)
-		require.NoError(t, err)
+		resp := stsToken[oidc.Error](t, sts, form)
 
 		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
 		assert.Contains(t, resp.Description, "authorization policy not found")
@@ -106,9 +97,7 @@ func TestSts(t *testing.T) {
 		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, "unregistered")
 		subjectToken, _ := getSubjectToken(t, oauthServer, "subject1")
 		form := tokenExchangeForm(clientAssertion, subjectToken, fixtures.Target)
-
-		resp, err := post[oidc.Error](t, sts.Endpoint("/token"), form)
-		require.NoError(t, err)
+		resp := stsToken[oidc.Error](t, sts, form)
 
 		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
 		assert.Contains(t, resp.Description, "client not found")
@@ -118,9 +107,7 @@ func TestSts(t *testing.T) {
 		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
 		subjectToken, _ := getSubjectToken(t, oauthServer, "untrusted")
 		form := tokenExchangeForm(clientAssertion, subjectToken, fixtures.Target)
-
-		resp, err := post[oidc.Error](t, sts.Endpoint("/token"), form)
-		require.NoError(t, err)
+		resp := stsToken[oidc.Error](t, sts, form)
 
 		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
 		assert.Contains(t, resp.Description, "subject token is invalid")
@@ -137,7 +124,7 @@ func assertTokenClaims(t *testing.T, sts testServer, response *oauth.AccessToken
 	assert.GreaterOrEqual(t, response.ExpiresIn, wantExpiresIn-10)
 	assert.LessOrEqual(t, response.ExpiresIn, wantExpiresIn)
 
-	keys := get[jose.JSONWebKeySet](t, sts.Endpoint("/jwks"))
+	keys := get[jose.JSONWebKeySet](t, sts.Endpoint("jwks"))
 	parsed, err := jwt.ParseSigned(response.AccessToken, []jose.SignatureAlgorithm{jose.RS256})
 	require.NoError(t, err)
 	require.Len(t, parsed.Headers, 1)
@@ -148,7 +135,7 @@ func assertTokenClaims(t *testing.T, sts testServer, response *oauth.AccessToken
 	claims := new(oauth.STSTokenClaims)
 	require.NoError(t, parsed.Claims(matchingKeys[0].Key, claims))
 
-	assert.Equal(t, sts.Endpoint(""), claims.Issuer)
+	assert.Equal(t, sts.Endpoint(), claims.Issuer)
 	assert.Equal(t, oidc.Audience{fixtures.Target}, claims.Audience)
 	assert.Equal(t, fixtures.ClientID, claims.ClientID)
 	assert.Equal(t, oauth.Roles{fixtures.Role}, claims.ApplicationRoles)
@@ -183,26 +170,21 @@ func tokenExchangeForm(clientAssertion, subjectToken, audience string) url.Value
 	}
 }
 
-func getStsToken(t *testing.T, sts testServer, form url.Values) *oauth.AccessTokenResponse {
+func stsToken[T any](t testing.TB, sts testServer, form url.Values) *T {
 	t.Helper()
-
-	response, err := post[oauth.AccessTokenResponse](t, sts.Endpoint("/token"), form)
-	require.NoError(t, err)
-
-	return response
+	return post[T](t, sts.Endpoint("token"), form)
 }
 
 func getKubernetesToken(t testing.TB, oauthServer testServer, environment, namespace, workload string) string {
 	t.Helper()
 
-	resp, err := post[oidc.AccessTokenResponse](t, oauthServer.Endpoint(fmt.Sprintf("/%s/token", environment)), url.Values{
+	resp := post[oidc.AccessTokenResponse](t, oauthServer.Endpoint(environment, "token"), url.Values{
 		"grant_type":    {"client_credentials"},
 		"client_id":     {"client1"},
 		"client_secret": {"secret1"},
 		"ns":            {namespace},
 		"workload":      {workload},
 	})
-	require.NoError(t, err)
 
 	return resp.AccessToken
 }
@@ -211,7 +193,7 @@ func getSubjectToken(t testing.TB, oauthServer testServer, issuer string) (strin
 	t.Helper()
 
 	redirectURI := "https://unused.example/callback"
-	authorizeURL, err := url.Parse(oauthServer.Endpoint(fmt.Sprintf("/%s/authorize", issuer)))
+	authorizeURL, err := url.Parse(oauthServer.Endpoint(issuer, "authorize"))
 	require.NoError(t, err)
 
 	authorizeURL.RawQuery = url.Values{
@@ -237,16 +219,15 @@ func getSubjectToken(t testing.TB, oauthServer testServer, issuer string) (strin
 	code := location.Query().Get("code")
 	require.NotEmpty(t, code)
 
-	token, err := post[oidc.AccessTokenResponse](t, oauthServer.Endpoint(fmt.Sprintf("/%s/token", issuer)), url.Values{
+	token := post[oidc.AccessTokenResponse](t, oauthServer.Endpoint(issuer, "token"), url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
 		"client_secret": {"yolo"},
 		"client_id":     {"default_client"},
 		"redirect_uri":  {redirectURI},
 	})
-	require.NoError(t, err)
 
-	verifier, err := oauth.NewTokenVerifier(t.Context(), oauth.Issuer(oauthServer.Endpoint(fmt.Sprintf("/%s", issuer))))
+	verifier, err := oauth.NewTokenVerifier(t.Context(), oauth.Issuer(oauthServer.Endpoint(issuer)))
 	require.NoError(t, err)
 
 	claims, err := verifier.Verify(t.Context(), token.AccessToken)
@@ -255,7 +236,7 @@ func getSubjectToken(t testing.TB, oauthServer testServer, issuer string) (strin
 	return token.AccessToken, claims
 }
 
-func post[T any](t testing.TB, endpoint string, form url.Values) (*T, error) {
+func post[T any](t testing.TB, endpoint string, form url.Values) *T {
 	t.Helper()
 
 	body := strings.NewReader(form.Encode())
@@ -265,14 +246,13 @@ func post[T any](t testing.TB, endpoint string, form url.Values) (*T, error) {
 
 	ret := new(T)
 	err = httphelper.HttpRequest(http.DefaultClient, req, ret)
-
 	if oidcErr, ok := errors.AsType[*oidc.Error](err); ok {
 		if response, ok := any(*oidcErr).(T); ok {
-			return &response, nil
+			return &response
 		}
 	}
-
-	return ret, err
+	require.NoError(t, err, "HTTP request")
+	return ret
 }
 
 func get[T any](t testing.TB, url string) *T {
@@ -284,6 +264,5 @@ func get[T any](t testing.TB, url string) *T {
 	ret := new(T)
 	err = httphelper.HttpRequest(http.DefaultClient, req, ret)
 	require.NoError(t, err, "HTTP request")
-
 	return ret
 }

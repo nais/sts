@@ -45,8 +45,8 @@ var fixtures = testFixtures{
 
 type testServer string
 
-func (s testServer) Endpoint(path string) string {
-	return (&url.URL{Scheme: "http", Host: string(s)}).JoinPath(path).String()
+func (s testServer) Endpoint(paths ...string) string {
+	return (&url.URL{Scheme: "http", Host: string(s)}).JoinPath(paths...).String()
 }
 
 func startMockOAuthServer(t testing.TB) testServer {
@@ -98,15 +98,15 @@ func startSts(t testing.TB, oauthServer testServer) (testServer, testServer) {
 		LogLevel:            slog.LevelDebug,
 		LogFormat:           "text",
 		AuthorizationServerConfig: oauth.AuthorizationServerConfig{
-			Issuer:           server.Endpoint(""),
+			Issuer:           server.Endpoint(),
 			ExpectedAudience: "nais",
 			ClientAuthIssuers: []oauth.Issuer{
-				oauth.Issuer(oauthServer.Endpoint("/env1")),
-				oauth.Issuer(oauthServer.Endpoint("/env2")),
+				oauth.Issuer(oauthServer.Endpoint("env1")),
+				oauth.Issuer(oauthServer.Endpoint("env2")),
 			},
 			SubjectTokenIssuers: []oauth.Issuer{
-				oauth.Issuer(oauthServer.Endpoint("/subject1")),
-				oauth.Issuer(oauthServer.Endpoint("/subject2")),
+				oauth.Issuer(oauthServer.Endpoint("subject1")),
+				oauth.Issuer(oauthServer.Endpoint("subject2")),
 			},
 			TokenExpiry: fixtures.TokenExpiry,
 		},
@@ -181,7 +181,7 @@ func seedSts(t testing.TB, dsn string, oauthServer testServer) {
 		Environment:   fixtures.Environment,
 		Namespace:     fixtures.Namespace,
 		Workload:      fixtures.ClientWorkload,
-		Issuer:        oauthServer.Endpoint(fmt.Sprintf("/%s", fixtures.Environment)),
+		Issuer:        oauthServer.Endpoint(fixtures.Environment),
 		AllowedScopes: []string{fixtures.Target},
 	}); err != nil {
 		t.Fatal(err)
