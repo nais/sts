@@ -1,16 +1,11 @@
 package api
 
 import (
-	"context"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/nais/sts/internal/config"
 	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/nais/sts/internal/oauth"
-	"github.com/nais/sts/internal/store"
 	"github.com/riandyrn/otelchi"
 	otelchimetric "github.com/riandyrn/otelchi/metric"
 	"github.com/zitadel/oidc/v3/pkg/op"
@@ -24,23 +19,10 @@ const (
 	jwksEndpoint           = "/jwks"
 )
 
-// signingKeyCacheTTL keeps token signing off the database on every request.
-const signingKeyCacheTTL = time.Minute
-
-func authorizationServerRouter(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, metricsProvider *stsmetrics.Provider) (http.Handler, error) {
+func authorizationServerRouter(authServer *oauth.AuthorizationServer, metricsProvider *stsmetrics.Provider) http.Handler {
 	e := &op.Endpoints{
 		Token:   op.NewEndpoint(tokenEndpoint),
 		JwksURI: op.NewEndpoint(jwksEndpoint),
-	}
-
-	clientStore := store.NewClientStore(pool)
-	keyStore := store.NewPostgresKeyStore(pool, signingKeyCacheTTL)
-	if err := keyStore.EnsureSigningKey(ctx); err != nil {
-		return nil, err
-	}
-	s, err := oauth.NewAuthorizationServer(ctx, cfg.AuthorizationServerConfig, clientStore, keyStore, metricsProvider.Metrics())
-	if err != nil {
-		return nil, err
 	}
 
 	router := chi.NewRouter()
@@ -59,12 +41,12 @@ func authorizationServerRouter(ctx context.Context, cfg config.Config, pool *pgx
 		otelchi.WithChiRoutes(router),
 		otelchi.WithRequestMethodInSpanName(true),
 	))
-	router.Use(contextMiddleware(cfg.AuthorizationServerConfig.Issuer))
+	router.Use(contextMiddleware(authServer.Issuer))
 	router.HandleFunc(oauthDiscoveryEndpoint, oauth.DiscoveryEndpoint(e))
-	router.HandleFunc(e.Token.Relative(), s.TokenEndpoint())
-	router.HandleFunc(e.JwksURI.Relative(), s.JwksEndpoint())
+	router.HandleFunc(e.Token.Relative(), authServer.TokenEndpoint())
+	router.HandleFunc(e.JwksURI.Relative(), authServer.JwksEndpoint())
 
-	return router, nil
+	return router
 }
 
 func contextMiddleware(issuer string) func(http.Handler) http.Handler {

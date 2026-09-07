@@ -56,6 +56,67 @@ func (q *Queries) GetKubernetesClient(ctx context.Context, arg GetKubernetesClie
 	return i, err
 }
 
+const listAuthorizationPolicies = `-- name: ListAuthorizationPolicies :many
+SELECT owner_client_id, consumer_client_id, roles
+FROM authorization_policies
+ORDER BY owner_client_id, consumer_client_id
+`
+
+func (q *Queries) ListAuthorizationPolicies(ctx context.Context) ([]AuthorizationPolicy, error) {
+	rows, err := q.db.Query(ctx, listAuthorizationPolicies)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuthorizationPolicy{}
+	for rows.Next() {
+		var i AuthorizationPolicy
+		if err := rows.Scan(&i.OwnerClientID, &i.ConsumerClientID, &i.Roles); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listKubernetesClients = `-- name: ListKubernetesClients :many
+SELECT id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
+FROM kubernetes_clients
+ORDER BY id
+`
+
+func (q *Queries) ListKubernetesClients(ctx context.Context) ([]KubernetesClient, error) {
+	rows, err := q.db.Query(ctx, listKubernetesClients)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []KubernetesClient{}
+	for rows.Next() {
+		var i KubernetesClient
+		if err := rows.Scan(
+			&i.ID,
+			&i.Environment,
+			&i.Namespace,
+			&i.Workload,
+			&i.Issuer,
+			&i.AllowedScopes,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertAuthorizationPolicy = `-- name: UpsertAuthorizationPolicy :exec
 INSERT INTO authorization_policies (owner_client_id, consumer_client_id, roles)
 VALUES ($1, $2, $3::TEXT[]) ON CONFLICT (owner_client_id, consumer_client_id) DO

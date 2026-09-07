@@ -11,6 +11,8 @@ type Querier interface {
 	GetAuthorizationPolicy(ctx context.Context, arg GetAuthorizationPolicyParams) (AuthorizationPolicy, error)
 	GetKubernetesClient(ctx context.Context, arg GetKubernetesClientParams) (KubernetesClient, error)
 	InsertSigningKey(ctx context.Context, arg InsertSigningKeyParams) error
+	ListAuthorizationPolicies(ctx context.Context) ([]AuthorizationPolicy, error)
+	ListKubernetesClients(ctx context.Context) ([]KubernetesClient, error)
 	ListValidSigningKeys(ctx context.Context) ([]SigningKey, error)
 	UpsertAuthorizationPolicy(ctx context.Context, arg UpsertAuthorizationPolicyParams) error
 	UpsertKubernetesClient(ctx context.Context, arg UpsertKubernetesClientParams) error

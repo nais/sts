@@ -18,14 +18,22 @@ import (
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/ioconvenience"
 	stsmetrics "github.com/nais/sts/internal/metrics"
+	"github.com/nais/sts/internal/oauth"
+	"github.com/nais/sts/internal/store"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sync/errgroup"
 )
 
-const shutdownTimeout = 5 * time.Second
+const (
+	shutdownTimeout  = 5 * time.Second
+	readinessTimeout = 2 * time.Second
+)
 
-const readinessTimeout = 2 * time.Second
+const (
+	clientCacheRefreshInterval = time.Minute
+	signingKeyCacheTTL         = time.Minute
+)
 
 func StartServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, provider *stsmetrics.Provider) error {
 	publicListener, err := net.Listen("tcp", cfg.BindAddress)
@@ -40,13 +48,28 @@ func StartServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 	}
 	defer ioconvenience.CloseWithLog(internalListener, slog.Default())
 
-	router, err := authorizationServerRouter(ctx, cfg, pool, provider)
+	clientStore, err := store.NewCachedClientStore(ctx,
+		pool,
+		clientCacheRefreshInterval,
+		slog.With(slog.Default(), "component", "authorizationserver"))
 	if err != nil {
-		return fmt.Errorf("setting up auth server; %w", err)
+		return err
+	}
+	defer clientStore.Close()
+
+	keyStore, err := store.NewPostgresKeyStore(ctx, pool, signingKeyCacheTTL)
+	if err != nil {
+		return err
 	}
 
-	publicServer := httpServer(router)
+	authServer, err := oauth.NewAuthorizationServer(ctx, cfg.AuthorizationServerConfig, clientStore, keyStore, provider.Metrics())
+	if err != nil {
+		return fmt.Errorf("initialize authorization server: %w", err)
+	}
+
+	publicServer := httpServer(authorizationServerRouter(authServer, provider))
 	internalServer := httpServer(internalRouter(provider.Registry(), pool))
+
 	slog.Info("servers listening",
 		"public_port", publicListener.Addr().(*net.TCPAddr).Port,
 		"internal_port", internalListener.Addr().(*net.TCPAddr).Port,
@@ -64,6 +87,10 @@ func StartServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error { return serve(publicServer, publicListener) })
 	group.Go(func() error { return serve(internalServer, internalListener) })
+	group.Go(func() error {
+		clientStore.Run(groupCtx)
+		return nil
+	})
 	group.Go(func() error { return shutdown(groupCtx, "public", publicServer) })
 	group.Go(func() error { return shutdown(groupCtx, "internal", internalServer) })
 	return group.Wait()
