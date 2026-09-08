@@ -3,8 +3,10 @@
 package integration
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,11 +14,11 @@ import (
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
-	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	httphelper "github.com/zitadel/oidc/v3/pkg/http"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
@@ -49,6 +51,7 @@ func TestSts(t *testing.T) {
 		assert.Empty(t, resp.IssuedTokenType)
 		assertTokenClaims(t, sts, resp, func(claims *oauth.STSTokenClaims) {
 			assert.Equal(t, fixtures.ClientID, claims.Subject)
+			assert.Equal(t, oidc.GrantTypeClientCredentials, claims.GrantType)
 		})
 	})
 
@@ -78,9 +81,7 @@ func TestSts(t *testing.T) {
 
 		assert.Equal(t, oidc.BearerToken, resp.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, resp.IssuedTokenType)
-		assertTokenClaims(t, sts, resp, func(claims *oauth.STSTokenClaims) {
-			assert.Equal(t, subjectClaims.Subject, claims.Subject)
-		})
+		assertTokenExchangeClaims(t, sts, resp, subjectClaims)
 	})
 
 	t.Run("token exchange with STS issued token", func(t *testing.T) {
@@ -91,18 +92,24 @@ func TestSts(t *testing.T) {
 
 		assert.Equal(t, oidc.BearerToken, resp.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, resp.IssuedTokenType)
-		assertTokenClaims(t, sts, resp, func(claims *oauth.STSTokenClaims) {
-			assert.Equal(t, subjectClaims.Subject, claims.Subject)
-		})
+		assertTokenExchangeClaims(t, sts, resp, subjectClaims)
 
 		form = tokenExchangeForm(clientAssertion, resp.AccessToken, fixtures.Target)
 		resp = stsToken[oauth.AccessTokenResponse](t, sts, form)
 
 		assert.Equal(t, oidc.BearerToken, resp.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, resp.IssuedTokenType)
-		assertTokenClaims(t, sts, resp, func(claims *oauth.STSTokenClaims) {
-			assert.Equal(t, subjectClaims.Subject, claims.Subject)
-		})
+		assertTokenExchangeClaims(t, sts, resp, subjectClaims)
+	})
+
+	t.Run("token exchange denies STS client credentials token", func(t *testing.T) {
+		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
+		clientCredentialsToken := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Target))
+
+		resp := stsToken[oidc.Error](t, sts, tokenExchangeForm(clientAssertion, clientCredentialsToken.AccessToken, fixtures.Target))
+
+		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
+		assert.Contains(t, resp.Description, "grant_type claim is invalid")
 	})
 
 	t.Run("token exchange denies unauthorized audience", func(t *testing.T) {
@@ -138,7 +145,35 @@ func TestSts(t *testing.T) {
 
 type claimAssertions func(claims *oauth.STSTokenClaims)
 
-func assertTokenClaims(t *testing.T, sts testServer, response *oauth.AccessTokenResponse, fn claimAssertions) {
+func assertTokenExchangeClaims(t *testing.T, sts testServer, response *oauth.AccessTokenResponse, subjectClaims *oauth.AccessTokenClaims) {
+	t.Helper()
+
+	// Parse the issued token as typed STS claims and as a complete raw claim map.
+	var stsClaims *oauth.STSTokenClaims
+	issuedClaims := assertTokenClaims(t, sts, response, func(claims *oauth.STSTokenClaims) {
+		stsClaims = claims
+		assert.Equal(t, subjectClaims.Subject, claims.Subject)
+		assert.Equal(t, oidc.GrantTypeTokenExchange, claims.GrantType)
+		assert.NotEqual(t, subjectClaims.Issuer, claims.Issuer)
+		assert.NotEqual(t, subjectClaims.Audience, claims.Audience)
+		assert.NotEqual(t, subjectClaims.ClientID, claims.ClientID)
+	})
+
+	// Preserve original subject token claims
+	expectedClaims := maps.Clone(subjectClaims.Claims)
+
+	// Marshal the typed STS claims to their JWT claim names and values.
+	data, err := json.Marshal(stsClaims)
+	require.NoError(t, err)
+
+	// Unmarshal into the clone to overwrite STS-owned claims and retain all other subject claims.
+	require.NoError(t, json.Unmarshal(data, &expectedClaims))
+
+	// Assert that the issued token contains exactly the expected merged claims.
+	assert.Equal(t, expectedClaims, issuedClaims.Claims)
+}
+
+func assertTokenClaims(t *testing.T, sts testServer, response *oauth.AccessTokenResponse, fn claimAssertions) *oauth.AccessTokenClaims {
 	t.Helper()
 	require.NotEmpty(t, response.AccessToken)
 
@@ -146,16 +181,22 @@ func assertTokenClaims(t *testing.T, sts testServer, response *oauth.AccessToken
 	assert.GreaterOrEqual(t, response.ExpiresIn, wantExpiresIn-10)
 	assert.LessOrEqual(t, response.ExpiresIn, wantExpiresIn)
 
-	keys := get[jose.JSONWebKeySet](t, sts.Endpoint("jwks"))
-	parsed, err := jwt.ParseSigned(response.AccessToken, []jose.SignatureAlgorithm{jose.RS256})
+	tokenVerifier, err := oauth.NewTokenVerifier(
+		oauth.Issuer(sts.Endpoint()),
+		rp.NewRemoteKeySet(http.DefaultClient, sts.Endpoint("jwks")),
+		string(jose.RS256),
+	)
 	require.NoError(t, err)
-	require.Len(t, parsed.Headers, 1)
 
-	matchingKeys := keys.Key(parsed.Headers[0].KeyID)
-	require.Len(t, matchingKeys, 1)
+	verifier, err := oauth.NewMultiIssuerTokenVerifier(tokenVerifier)
+	require.NoError(t, err)
+	rawClaims, err := verifier.Verify(t.Context(), response.AccessToken)
+	require.NoError(t, err)
 
 	claims := new(oauth.STSTokenClaims)
-	require.NoError(t, parsed.Claims(matchingKeys[0].Key, claims))
+	data, err := json.Marshal(rawClaims.Claims)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, claims))
 
 	assert.Equal(t, sts.Endpoint(), claims.Issuer)
 	assert.Equal(t, oidc.Audience{fixtures.Target}, claims.Audience)
@@ -169,6 +210,7 @@ func assertTokenClaims(t *testing.T, sts testServer, response *oauth.AccessToken
 	assert.Equal(t, fixtures.TokenExpiry, claims.Expiration.AsTime().Sub(claims.IssuedAt.AsTime()))
 
 	fn(claims)
+	return rawClaims
 }
 
 func clientCredentialsForm(clientAssertion, scope string) url.Values {
