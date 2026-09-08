@@ -97,7 +97,7 @@ func TestSts(t *testing.T) {
 
 		form = tokenExchangeForm(clientAssertion, resp.AccessToken, fixtures.Target)
 		resp = stsToken[oauth.AccessTokenResponse](t, sts, form)
-	
+
 		assert.Equal(t, oidc.BearerToken, resp.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, resp.IssuedTokenType)
 		assertTokenClaims(t, sts, resp, func(claims *oauth.STSTokenClaims) {
@@ -249,7 +249,10 @@ func getSubjectToken(t testing.TB, oauthServer testServer, issuer string) (strin
 		"redirect_uri":  {redirectURI},
 	})
 
-	verifier, err := oauth.NewTokenVerifier(t.Context(), nil, oauth.Issuer(oauthServer.Endpoint(issuer)))
+	subjectTokenVerifier, err := oauth.ExternalTokenVerifier(t.Context(), oauth.Issuer(oauthServer.Endpoint(issuer)))
+	require.NoError(t, err)
+
+	verifier, err := oauth.NewMultiIssuerTokenVerifier(subjectTokenVerifier)
 	require.NoError(t, err)
 
 	claims, err := verifier.Verify(t.Context(), token.AccessToken)

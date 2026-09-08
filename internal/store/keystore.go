@@ -86,6 +86,7 @@ func (s *PostgresKeyStore) EnsureSigningKey(ctx context.Context) error {
 		return fmt.Errorf("read active signing key: %w", err)
 	}
 
+	// TODO: consider stronger algorithm, should be configurable and looked up from a single source of truth
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return fmt.Errorf("generate signing key: %w", err)

@@ -14,10 +14,10 @@ import (
 )
 
 type AuthorizationServer struct {
-	ClientAuthVerifier    *TokenVerifier
+	ClientAuthVerifier    MultiIssuerTokenVerifier
 	ClientStore           ClientStore
 	KeyStore              KeyStore
-	TokenExchangeVerifier *TokenVerifier
+	TokenExchangeVerifier MultiIssuerTokenVerifier
 	Metrics               *stsmetrics.Metrics
 	AuthorizationServerConfig
 }
@@ -54,12 +54,12 @@ func (c AuthorizationServerConfig) Validate() error {
 }
 
 func NewAuthorizationServer(ctx context.Context, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore, metrics *stsmetrics.Metrics) (*AuthorizationServer, error) {
-	clientAuthVerifier, err := NewTokenVerifier(ctx, nil, cfg.ClientAuthIssuers...)
+	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx, cfg.ClientAuthIssuers)
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}
-	// TODO: rewrite this to be more elegant
-	tokenExchangeVerifier, err := NewTokenVerifier(ctx, &internalIssuer{Issuer: cfg.Issuer, Keyset: keyStore, RequiredAlgs: []string{"RS256"}}, cfg.SubjectTokenIssuers...)
+
+	tokenExchangeVerifier, err := NewTokenExchangeTokenVerifier(ctx, cfg, keyStore)
 	if err != nil {
 		return nil, fmt.Errorf("creating token exchange verifier: %w", err)
 	}

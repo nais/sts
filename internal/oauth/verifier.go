@@ -7,67 +7,53 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-jose/go-jose/v4"
 	oauthclient "github.com/zitadel/oidc/v3/pkg/client"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-const SkewTime = time.Minute
-
 type Issuer string
 
-type TokenVerifier struct {
-	verifiers map[Issuer]*verifier
-}
+type MultiIssuerTokenVerifier map[Issuer]*TokenVerifier
 
-type verifier struct {
-	issuer       string
-	keyset       oidc.KeySet
-	requiredAlgs []string
-}
-
-type internalIssuer struct {
-	Issuer       string
-	Keyset       oidc.KeySet
-	RequiredAlgs []string
-}
-
-func NewTokenVerifier(ctx context.Context, i *internalIssuer, issuers ...Issuer) (*TokenVerifier, error) {
-	client := &http.Client{Timeout: 5 * time.Second}
-	ret := &TokenVerifier{
-		verifiers: make(map[Issuer]*verifier),
+func NewMultiIssuerTokenVerifier(verifiers ...*TokenVerifier) (MultiIssuerTokenVerifier, error) {
+	if len(verifiers) == 0 {
+		return nil, fmt.Errorf("no verifiers configured")
 	}
-	for _, issuer := range issuers {
-		v, err := newVerifier(ctx, string(issuer), client)
-		if err != nil {
+	verifier := make(MultiIssuerTokenVerifier, len(verifiers))
+	for _, v := range verifiers {
+		if err := verifier.Add(v); err != nil {
 			return nil, err
 		}
-		ret.verifiers[issuer] = v
 	}
-	if i != nil {
-		ret.verifiers[Issuer(i.Issuer)] = &verifier{
-			issuer:       i.Issuer,
-			keyset:       i.Keyset,
-			requiredAlgs: i.RequiredAlgs,
-		}
+	return verifier, nil
+}
+
+func (v MultiIssuerTokenVerifier) Add(i *TokenVerifier) error {
+	_, ok := v[i.issuer]
+	if ok {
+		return fmt.Errorf("duplicate issuer %q", i.issuer)
 	}
-	return ret, nil
+	v[i.issuer] = i
+	return nil
 }
 
 type VerifyFn func(claims *AccessTokenClaims) error
 
-func (t *TokenVerifier) Verify(ctx context.Context, rawToken string, fns ...VerifyFn) (*AccessTokenClaims, error) {
+func (v MultiIssuerTokenVerifier) Verify(ctx context.Context, rawToken string, fns ...VerifyFn) (*AccessTokenClaims, error) {
 	claims := new(AccessTokenClaims)
 	payload, err := oidc.ParseToken(rawToken, claims)
 	if err != nil {
 		return nil, err
 	}
-	v, ok := t.verifiers[Issuer(claims.Issuer)]
+
+	verifier, ok := v[Issuer(claims.Issuer)]
 	if !ok {
 		return nil, fmt.Errorf("issuer %q not supported", claims.Issuer)
 	}
 
-	verifiedClaims, err := v.verify(ctx, rawToken, payload, claims)
+	verifiedClaims, err := verifier.Verify(ctx, rawToken, payload, claims)
 	if err != nil {
 		return nil, err
 	}
@@ -80,31 +66,38 @@ func (t *TokenVerifier) Verify(ctx context.Context, rawToken string, fns ...Veri
 	return verifiedClaims, nil
 }
 
-func newVerifier(ctx context.Context, issuer string, client *http.Client) (*verifier, error) {
-	metadata, err := oauthclient.Discover(ctx, issuer, client)
+func NewTokenExchangeTokenVerifier(ctx context.Context, cfg AuthorizationServerConfig, keyStore KeyStore) (MultiIssuerTokenVerifier, error) {
+	subjectTokenVerifiers, err := ExternalTokenVerifiers(ctx, cfg.SubjectTokenIssuers...)
 	if err != nil {
-		return nil, fmt.Errorf("discover metadata from issuer %q: %w", issuer, err)
+		return nil, fmt.Errorf("resolving subject token verifiers: %w", err)
 	}
-	if metadata.Issuer != issuer {
-		return nil, fmt.Errorf("configured issuer does not match issuer in discovery document: got %q, want %q", metadata.Issuer, issuer)
-	}
-	algorithms := asymmetricAlgorithms(metadata.IDTokenSigningAlgValuesSupported)
-	if len(algorithms) == 0 {
-		return nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms: %s", algorithms)
-	}
-	keyset := rp.NewRemoteKeySet(client, metadata.JwksURI)
-	return &verifier{
-		issuer:       issuer,
-		keyset:       keyset,
-		requiredAlgs: algorithms,
-	}, nil
+	return NewMultiIssuerTokenVerifier(append(
+		subjectTokenVerifiers,
+		InternalTokenVerifier(cfg, keyStore),
+	)...)
 }
 
-func (v *verifier) verify(ctx context.Context, rawToken string, payload []byte, claims *AccessTokenClaims) (*AccessTokenClaims, error) {
-	if claims.Issuer != v.issuer {
+func NewClientAuthTokenVerifier(ctx context.Context, issuers []Issuer) (MultiIssuerTokenVerifier, error) {
+	clientAuthVerifiers, err := ExternalTokenVerifiers(ctx, issuers...)
+	if err != nil {
+		return nil, fmt.Errorf("resolving client auth verifiers: %w", err)
+	}
+	return NewMultiIssuerTokenVerifier(clientAuthVerifiers...)
+}
+
+type TokenVerifier struct {
+	issuer       Issuer
+	keyset       oidc.KeySet
+	requiredAlgs []string
+}
+
+func (i *TokenVerifier) Verify(ctx context.Context, rawToken string, payload []byte, claims *AccessTokenClaims) (*AccessTokenClaims, error) {
+	const SkewTime = time.Minute
+
+	if claims.Issuer != string(i.issuer) {
 		return nil, oidc.ErrIssuerInvalid
 	}
-	if err := oidc.CheckSignature(ctx, rawToken, payload, claims, v.requiredAlgs, v.keyset); err != nil {
+	if err := oidc.CheckSignature(ctx, rawToken, payload, claims, i.requiredAlgs, i.keyset); err != nil {
 		return nil, err
 	}
 	if err := oidc.CheckExpiration(claims, SkewTime); err != nil {
@@ -125,10 +118,58 @@ func (v *verifier) verify(ctx context.Context, rawToken string, payload []byte, 
 	return claims, nil
 }
 
+func InternalTokenVerifier(cfg AuthorizationServerConfig, keyStore KeyStore) *TokenVerifier {
+	return &TokenVerifier{
+		issuer:       Issuer(cfg.Issuer),
+		keyset:       keyStore,
+		requiredAlgs: []string{string(jose.RS256)}, // TODO: should lookup from config
+	}
+}
+
+func ExternalTokenVerifiers(ctx context.Context, issuers ...Issuer) ([]*TokenVerifier, error) {
+	result := make([]*TokenVerifier, 0, len(issuers))
+	for _, issuer := range issuers {
+		ti, err := ExternalTokenVerifier(ctx, issuer)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, ti)
+	}
+	return result, nil
+}
+
+func ExternalTokenVerifier(ctx context.Context, issuer Issuer) (*TokenVerifier, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	metadata, err := oauthclient.Discover(ctx, string(issuer), client)
+	if err != nil {
+		return nil, fmt.Errorf("discover metadata from issuer %q: %w", issuer, err)
+	}
+
+	if metadata.Issuer != string(issuer) {
+		return nil, fmt.Errorf("configured issuer does not match issuer in discovery document: got %q, want %q", metadata.Issuer, issuer)
+	}
+
+	algorithms := asymmetricAlgorithms(metadata.IDTokenSigningAlgValuesSupported)
+	if len(algorithms) == 0 {
+		return nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms: %s", algorithms)
+	}
+
+	return &TokenVerifier{
+		issuer:       issuer,
+		keyset:       rp.NewRemoteKeySet(client, metadata.JwksURI),
+		requiredAlgs: algorithms,
+	}, nil
+}
+
 func asymmetricAlgorithms(advertised []string) []string {
 	algorithms := make([]string, 0, len(advertised))
 	for _, algorithm := range advertised {
-		if strings.HasPrefix(algorithm, "RS") || strings.HasPrefix(algorithm, "PS") || strings.HasPrefix(algorithm, "ES") || algorithm == "EdDSA" {
+		if strings.HasPrefix(algorithm, "RS") ||
+			strings.HasPrefix(algorithm, "PS") ||
+			strings.HasPrefix(algorithm, "ES") ||
+			algorithm == "EdDSA" || // TODO: deprecated by RFC9864
+			algorithm == "Ed25519" ||
+			algorithm == "Ed448" {
 			algorithms = append(algorithms, algorithm)
 		}
 	}
