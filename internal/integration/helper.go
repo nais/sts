@@ -4,24 +4,33 @@ package integration
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
 
+	"github.com/go-jose/go-jose/v4"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/api"
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/oauth"
+	"github.com/nais/sts/internal/registration"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
+
+var key crypto.PrivateKey
 
 type testFixtures struct {
 	Environment    string
@@ -41,6 +50,10 @@ var fixtures = testFixtures{
 	Target:         "env1:namespace1:workload2",
 	Role:           "reader",
 	TokenExpiry:    time.Hour,
+}
+
+func init() {
+	key, _ = rsa.GenerateKey(rand.Reader, 2048)
 }
 
 type testServer string
@@ -91,6 +104,27 @@ func startSts(t testing.TB, oauthServer testServer) (testServer, testServer) {
 	internalAddr := fmt.Sprintf("localhost:%d", getFreePort(t))
 	server := testServer(addr)
 
+	registratorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		contentType := "application/jwk-set+json"
+		if r.Header.Get("Accept") == "application/json" {
+			contentType = "application/json"
+		}
+
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Add("Vary", "Accept")
+
+		if err := json.NewEncoder(w).Encode((jose.JSONWebKeySet{Keys: []jose.JSONWebKey{
+			{
+				Key:       key.(*rsa.PrivateKey).Public(),
+				KeyID:     "foo",
+				Algorithm: "RS256",
+				Use:       "sig",
+			},
+		}})); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}))
+
 	cfg := config.Config{
 		BindAddress:         addr,
 		DatabaseURL:         dsn,
@@ -109,6 +143,20 @@ func startSts(t testing.TB, oauthServer testServer) (testServer, testServer) {
 				oauth.Issuer(oauthServer.Endpoint("subject2")),
 			},
 			TokenExpiry: fixtures.TokenExpiry,
+		},
+		Registrators: []*registration.ClientRegistrator{
+			{
+				Issuer:        oauthServer.Endpoint("env1"),
+				Subject:       "system:serviceaccount:namespace1:registrator1",
+				ClientJwksUri: registratorServer.URL,
+				RequiredAlgs:  []string{"RS256"},
+			},
+			{
+				Issuer:        oauthServer.Endpoint("env2"),
+				Subject:       "system:serviceaccount:namespace1:registrator2",
+				ClientJwksUri: registratorServer.URL,
+				RequiredAlgs:  []string{"RS256"},
+			},
 		},
 	}
 

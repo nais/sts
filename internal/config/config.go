@@ -7,6 +7,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/nais/sts/internal/oauth"
+	"github.com/nais/sts/internal/registration"
 	"github.com/sethvargo/go-envconfig"
 )
 
@@ -17,6 +18,8 @@ type Config struct {
 	LogLevel                  slog.Level `env:"LOG_LEVEL, default=info"`
 	LogFormat                 string     `env:"LOG_FORMAT, default=text"`
 	AuthorizationServerConfig oauth.AuthorizationServerConfig
+	Registrators              []*registration.ClientRegistrator // TODO: env things
+
 }
 
 func Load(ctx context.Context) (Config, error) {

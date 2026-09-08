@@ -113,8 +113,8 @@ func verifySoftwareStatement(ctx context.Context, registrator *ClientRegistrator
 }
 
 func bearerAuth(r *http.Request, verifier oauth.MultiIssuerTokenVerifier) (*oauth.AccessTokenClaims, error) {
-	token := strings.TrimPrefix(strings.ToLower(r.Header.Get("Authorization")), "bearer ")
-	if token == "" {
+	token, ok := bearerToken(r)
+	if !ok {
 		return nil, oidc.ErrUnauthorizedClient().WithDescription("missing bearer token")
 	}
 	// TODO: verify claims for authorized client registrators
@@ -139,4 +139,22 @@ func respond(w http.ResponseWriter, r *http.Request, resp any, err error) {
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func bearerToken(r *http.Request) (token string, ok bool) {
+	auth := r.Header.Get("Authorization")
+	if auth == "" {
+		return "", false
+	}
+
+	const prefix = "Bearer "
+	if len(auth) < len(prefix) || !strings.EqualFold(auth[:len(prefix)], prefix) {
+		return "", false
+	}
+
+	token = auth[len(prefix):]
+	if len(token) == 0 {
+		return "", false
+	}
+	return token, true
 }

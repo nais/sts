@@ -102,7 +102,16 @@ func startServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 		return fmt.Errorf("initialize authorization server: %w", err)
 	}
 
-	publicServer := httpServer(authorizationServerRouter(authServer, provider))
+	router := chi.NewRouter()
+	router.Mount("/", authorizationServerRouter(authServer, provider))
+
+	registration, err := registrationApiRouter(ctx, cfg, provider)
+	if err != nil {
+		return err
+	}
+	router.Mount("/api", registration)
+
+	publicServer := httpServer(router)
 	internalServer := httpServer(internalRouter(provider.Registry(), pool))
 
 	slog.Info("servers listening",

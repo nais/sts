@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nais/sts/internal/config"
 	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/registration"
@@ -49,7 +51,7 @@ func authorizationServerRouter(authServer *oauth.AuthorizationServer, metricsPro
 	return router
 }
 
-func registrationApiRouter(metricsProvider *stsmetrics.Provider) http.Handler {
+func registrationApiRouter(ctx context.Context, cfg config.Config, metricsProvider *stsmetrics.Provider) (http.Handler, error) {
 	router := chi.NewRouter()
 	httpMetrics := otelchimetric.NewBaseConfig(
 		"nais-sts",
@@ -68,7 +70,13 @@ func registrationApiRouter(metricsProvider *stsmetrics.Provider) http.Handler {
 	))
 
 	// TODO: actually add config here
-	router.Handle("/registration/client", registration.NewClientHandler(nil, nil))
+	registrators := cfg.Registrators
 
-	return router
+	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, cfg.AuthorizationServerConfig.ClientAuthIssuers)
+	if err != nil {
+		return nil, err
+	}
+
+	router.Handle("/registration/client", registration.NewClientHandler(registrators, verifier))
+	return router, nil
 }

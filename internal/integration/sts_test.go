@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -16,9 +17,11 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/oauth"
+	"github.com/nais/sts/internal/registration"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
+	"github.com/zitadel/oidc/v3/pkg/crypto"
 	httphelper "github.com/zitadel/oidc/v3/pkg/http"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
@@ -40,6 +43,34 @@ func TestSts(t *testing.T) {
 
 		assert.Equal(t, []oidc.AuthMethod{oidc.AuthMethodPrivateKeyJWT}, resp.TokenEndpointAuthMethodsSupported)
 		assert.Equal(t, []string{"RS256"}, resp.TokenEndpointAuthSigningAlgValuesSupported)
+	})
+
+	t.Run("registration", func(t *testing.T) {
+		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, "registrator1")
+		ss := registration.SoftwareStatement{
+			ClientId: "foo",
+			Workload: registration.Workload{
+				Environment: "yolo",
+				Issuer:      "baz",
+				Namespace:   "bar",
+				Name:        "foo",
+			},
+			AuthorizationPolicies: nil,
+		}
+
+		signer, err := jose.NewSigner(jose.SigningKey{Key: jose.JSONWebKey{
+			Key:   key,
+			KeyID: "foo",
+		}, Algorithm: "RS256"}, nil)
+		require.NoError(t, err)
+		signed, err := crypto.Sign(ss, signer)
+		require.NoError(t, err)
+
+		resp := postJson[registration.ClientRegistrationResponse](t, sts.Endpoint("api", "registration", "client"), clientAssertion, registration.ClientRegistration{
+			ClientName:        "foo",
+			SoftwareStatement: signed,
+		})
+		println(resp)
 	})
 
 	t.Run("client credentials", func(t *testing.T) {
@@ -310,6 +341,28 @@ func post[T any](t testing.TB, endpoint string, form url.Values) *T {
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint, body)
 	require.NoError(t, err, "creating request")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	ret := new(T)
+	err = httphelper.HttpRequest(http.DefaultClient, req, ret)
+	if oidcErr, ok := errors.AsType[*oidc.Error](err); ok {
+		if response, ok := any(*oidcErr).(T); ok {
+			return &response
+		}
+	}
+	require.NoError(t, err, "HTTP request")
+	return ret
+}
+
+func postJson[T any](t testing.TB, endpoint string, token string, body any) *T {
+	t.Helper()
+
+	data, err := json.Marshal(body)
+	require.NoError(t, err, "marshaling JSON body")
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint, bytes.NewReader(data))
+	require.NoError(t, err, "creating request")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	ret := new(T)
 	err = httphelper.HttpRequest(http.DefaultClient, req, ret)
