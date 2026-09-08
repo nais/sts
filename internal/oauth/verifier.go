@@ -17,19 +17,6 @@ type Issuer string
 
 type MultiIssuerTokenVerifier map[Issuer]*TokenVerifier
 
-func NewMultiIssuerTokenVerifier(verifiers ...*TokenVerifier) (MultiIssuerTokenVerifier, error) {
-	if len(verifiers) == 0 {
-		return nil, fmt.Errorf("no verifiers configured")
-	}
-	verifier := make(MultiIssuerTokenVerifier, len(verifiers))
-	for _, v := range verifiers {
-		if err := verifier.Add(v); err != nil {
-			return nil, err
-		}
-	}
-	return verifier, nil
-}
-
 func (v MultiIssuerTokenVerifier) Add(i *TokenVerifier) error {
 	_, ok := v[i.issuer]
 	if ok {
@@ -66,14 +53,31 @@ func (v MultiIssuerTokenVerifier) Verify(ctx context.Context, rawToken string, f
 	return verifiedClaims, nil
 }
 
+func NewMultiIssuerTokenVerifier(verifiers ...*TokenVerifier) (MultiIssuerTokenVerifier, error) {
+	if len(verifiers) == 0 {
+		return nil, fmt.Errorf("no verifiers configured")
+	}
+	verifier := make(MultiIssuerTokenVerifier, len(verifiers))
+	for _, v := range verifiers {
+		if err := verifier.Add(v); err != nil {
+			return nil, err
+		}
+	}
+	return verifier, nil
+}
+
 func NewTokenExchangeTokenVerifier(ctx context.Context, cfg AuthorizationServerConfig, keyStore KeyStore) (MultiIssuerTokenVerifier, error) {
 	subjectTokenVerifiers, err := ExternalTokenVerifiers(ctx, cfg.SubjectTokenIssuers...)
 	if err != nil {
 		return nil, fmt.Errorf("resolving subject token verifiers: %w", err)
 	}
+	internalTokenVerifier, err := InternalTokenVerifier(cfg, keyStore)
+	if err != nil {
+		return nil, fmt.Errorf("creating internal token verifier: %w", err)
+	}
 	return NewMultiIssuerTokenVerifier(append(
 		subjectTokenVerifiers,
-		InternalTokenVerifier(cfg, keyStore),
+		internalTokenVerifier,
 	)...)
 }
 
@@ -118,12 +122,28 @@ func (i *TokenVerifier) Verify(ctx context.Context, rawToken string, payload []b
 	return claims, nil
 }
 
-func InternalTokenVerifier(cfg AuthorizationServerConfig, keyStore KeyStore) *TokenVerifier {
-	return &TokenVerifier{
-		issuer:       Issuer(cfg.Issuer),
-		keyset:       keyStore,
-		requiredAlgs: []string{string(jose.RS256)}, // TODO: should lookup from config
+func NewTokenVerifier(issuer Issuer, keyset oidc.KeySet, requiredAlgs ...string) (*TokenVerifier, error) {
+	if issuer == "" {
+		return nil, fmt.Errorf("issuer must not be empty")
 	}
+	if keyset == nil {
+		return nil, fmt.Errorf("key set must not be nil")
+	}
+	if len(requiredAlgs) == 0 {
+		return nil, fmt.Errorf("required algorithms must not be empty")
+	}
+	return &TokenVerifier{
+		issuer:       issuer,
+		keyset:       keyset,
+		requiredAlgs: requiredAlgs,
+	}, nil
+}
+
+func InternalTokenVerifier(cfg AuthorizationServerConfig, keyStore KeyStore) (*TokenVerifier, error) {
+	return NewTokenVerifier(cfg.Issuer,
+		keyStore,
+		string(jose.RS256), // TODO: should lookup from config
+	)
 }
 
 func ExternalTokenVerifiers(ctx context.Context, issuers ...Issuer) ([]*TokenVerifier, error) {
@@ -154,11 +174,7 @@ func ExternalTokenVerifier(ctx context.Context, issuer Issuer) (*TokenVerifier, 
 		return nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms: %s", algorithms)
 	}
 
-	return &TokenVerifier{
-		issuer:       issuer,
-		keyset:       rp.NewRemoteKeySet(client, metadata.JwksURI),
-		requiredAlgs: algorithms,
-	}, nil
+	return NewTokenVerifier(issuer, rp.NewRemoteKeySet(client, metadata.JwksURI), algorithms...)
 }
 
 func asymmetricAlgorithms(advertised []string) []string {
