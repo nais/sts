@@ -36,14 +36,24 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 		"custom": json.RawMessage(`{"number":9007199254740993}`),
 	}
 	original := cloneClaims(source)
-	accessToken, err := CreateAccessToken(
-		"sts-issuer", "subject", "client", oidc.Audience{"audience"}, nil, time.Hour, nil, source,
-	)
+	result := &AuthorizationResult{
+		Target:    TargetAudience("audience"),
+		GrantType: oidc.GrantTypeClientCredentials,
+		SubjectTokenClaims: &AccessTokenClaims{
+			Subject: "source-subject",
+			Claims:  source,
+		},
+		Client: &Client{
+			ID: "client",
+		},
+		Roles: nil,
+	}
+	accessToken, err := CreateAccessToken("sts-issuer", time.Hour, result)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertJSONClaim(t, accessToken.Claims, "iss", "sts-issuer")
-	assertJSONClaim(t, accessToken.Claims, "sub", "subject")
+	assertJSONClaim(t, accessToken.Claims, "sub", "source-subject")
 	assertJSONClaim(t, accessToken.Claims, "client_id", "client")
 	if got, want := string(accessToken.Claims["act"]), `{"sub":"stale-actor"}`; got != want {
 		t.Fatalf("act claim = %s, want %s", got, want)
@@ -70,7 +80,7 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertJSONClaim(t, got, "iss", "sts-issuer")
-	assertJSONClaim(t, got, "sub", "subject")
+	assertJSONClaim(t, got, "sub", "source-subject")
 	assertJSONClaim(t, got, "client_id", "client")
 	if got, want := string(got["act"]), `{"sub":"stale-actor"}`; got != want {
 		t.Fatalf("act claim = %s, want %s", got, want)

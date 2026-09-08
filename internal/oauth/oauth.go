@@ -23,7 +23,7 @@ type AuthorizationServer struct {
 }
 
 type AuthorizationServerConfig struct {
-	Issuer              string        `env:"ISSUER, default=http://localhost:8080"`
+	Issuer              Issuer        `env:"ISSUER, default=http://localhost:8080"`
 	ExpectedAudience    string        `env:"EXPECTED_AUDIENCE, default=nais"`
 	ClientAuthIssuers   []Issuer      `env:"CLIENT_AUTH_ISSUERS, required"`
 	SubjectTokenIssuers []Issuer      `env:"SUBJECT_TOKEN_ISSUERS, required"`
@@ -34,7 +34,7 @@ func (c AuthorizationServerConfig) Validate() error {
 	if c.Issuer == "" {
 		return fmt.Errorf("issuer must not be empty")
 	}
-	issuer, err := url.Parse(c.Issuer)
+	issuer, err := url.Parse(string(c.Issuer))
 	if err != nil || !issuer.IsAbs() || issuer.Host == "" {
 		return fmt.Errorf("issuer must be an absolute URL")
 	}
@@ -83,21 +83,12 @@ type AuthorizationResult struct {
 }
 
 func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request TokenRequest) (*AuthorizationResult, error) {
-	// TODO: don't allow token exchanges where subject_token is a client_credentials token issued by us
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
 
 	finishStep := a.Metrics.StartTokenStep(ctx, "verify_client_assertion")
-	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion, func(claims *AccessTokenClaims) error {
-		if len(claims.Audience) != 1 {
-			return oidc.ErrInvalidClient().WithDescription("audience is invalid: got %d audiences, want 1", len(claims.Audience))
-		}
-		if claims.Audience[0] != a.ExpectedAudience {
-			return oidc.ErrInvalidClient().WithDescription("audience is invalid: got %q, want %q", claims.Audience[0], a.ExpectedAudience)
-		}
-		return nil
-	})
+	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion, a.verifyClientAuthClaims)
 	finishStep(err)
 	if err != nil {
 		return nil, oidc.ErrInvalidClient().WithDescription("client assertion is invalid: %+v", err)
@@ -122,10 +113,10 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 			return nil, oidc.ErrInvalidRequest().WithDescription("could not parse request as TokenExchangeRequest")
 		}
 		finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
-		claims, err = a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken)
+		claims, err = a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken, a.verifyTokenExchangeClaims)
 		finishStep(err)
 		if err != nil {
-			return nil, oidc.ErrInvalidClient().WithDescription("subject token is invalid")
+			return nil, oidc.ErrInvalidClient().WithDescription("subject token is invalid: %s", err)
 		}
 	}
 
@@ -175,24 +166,7 @@ func (a *AuthorizationServer) Keys(ctx context.Context) (*Response, error) {
 }
 
 func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *AuthorizationResult) (*AccessTokenResponse, error) {
-	// TODO: figure out what to set in actor
-	subject := result.Client.ID
-	var claims map[string]json.RawMessage
-
-	if result.SubjectTokenClaims != nil {
-		subject = result.SubjectTokenClaims.Subject
-		claims = result.SubjectTokenClaims.Claims
-	}
-	accessToken, err := CreateAccessToken(
-		a.Issuer,
-		subject,
-		result.Client.ID,
-		result.Target.AsAudience(),
-		nil,
-		a.TokenExpiry,
-		result.Roles,
-		claims,
-	)
+	accessToken, err := CreateAccessToken(a.Issuer, a.TokenExpiry, result)
 	if err != nil {
 		return nil, err
 	}
@@ -219,4 +193,33 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 		ret.IssuedTokenType = oidc.AccessTokenType
 	}
 	return ret, nil
+}
+
+func (a *AuthorizationServer) verifyClientAuthClaims(claims *AccessTokenClaims) error {
+	if len(claims.Audience) != 1 {
+		return oidc.ErrInvalidClient().WithDescription("audience is invalid: got %d audiences, want 1", len(claims.Audience))
+	}
+	if claims.Audience[0] != a.ExpectedAudience {
+		return oidc.ErrInvalidClient().WithDescription("audience is invalid: got %q, want %q", claims.Audience[0], a.ExpectedAudience)
+	}
+	return nil
+}
+
+func (a *AuthorizationServer) verifyTokenExchangeClaims(claims *AccessTokenClaims) error {
+	if claims.Issuer != string(a.Issuer) {
+		return nil
+	}
+
+	var grantType oidc.GrantType
+	rawGrantType, ok := claims.Claims["urn:nais:grant_type"]
+	if !ok {
+		return oidc.ErrInvalidRequest().WithDescription("grant_type claim is missing")
+	}
+	if err := json.Unmarshal(rawGrantType, &grantType); err != nil {
+		return oidc.ErrInvalidRequest().WithDescription("grant_type claim must be a string")
+	}
+	if grantType != oidc.GrantTypeTokenExchange {
+		return oidc.ErrInvalidRequest().WithDescription("grant_type claim is invalid: got %q, want %q", grantType, oidc.GrantTypeTokenExchange)
+	}
+	return nil
 }

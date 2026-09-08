@@ -98,7 +98,7 @@ func startSts(t testing.TB, oauthServer testServer) (testServer, testServer) {
 		LogLevel:            slog.LevelDebug,
 		LogFormat:           "text",
 		AuthorizationServerConfig: oauth.AuthorizationServerConfig{
-			Issuer:           server.Endpoint(),
+			Issuer:           oauth.Issuer(server.Endpoint()),
 			ExpectedAudience: "nais",
 			ClientAuthIssuers: []oauth.Issuer{
 				oauth.Issuer(oauthServer.Endpoint("env1")),

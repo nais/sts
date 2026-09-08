@@ -12,8 +12,17 @@ import (
 )
 
 type STSTokenClaims struct {
-	oidc.TokenClaims
-	ApplicationRoles Roles                      `json:"application_roles,omitempty"`
+	Issuer           string                     `json:"iss"`
+	Subject          string                     `json:"sub"`
+	Audience         oidc.Audience              `json:"aud"`
+	ClientID         string                     `json:"client_id"`
+	JWTID            string                     `json:"jti"`
+	Actor            *oidc.ActorClaims          `json:"act,omitempty"`
+	Expiration       oidc.Time                  `json:"exp"`
+	IssuedAt         oidc.Time                  `json:"iat"`
+	NotBefore        oidc.Time                  `json:"nbf"`
+	ApplicationRoles Roles                      `json:"urn:nais:roles,omitempty"`
+	GrantType        oidc.GrantType             `json:"urn:nais:grant_type,omitempty"` // TODO: add human-readable alias (m2m, tokenx/obo)
 	Claims           map[string]json.RawMessage `json:"-"`
 }
 
@@ -41,32 +50,40 @@ func (a *AccessTokenClaims) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &a.Claims)
 }
 
-func CreateAccessToken(
-	issuer, subject, clientID string,
-	audience oidc.Audience,
-	actor *oidc.ActorClaims,
-	expiresIn time.Duration,
-	roles Roles,
-	subjectTokenClaims map[string]json.RawMessage,
-) (*STSTokenClaims, error) {
+func CreateAccessToken(issuer Issuer, expiresIn time.Duration, result *AuthorizationResult) (*STSTokenClaims, error) {
+	subject := result.Client.ID
+	var subjectTokenClaims map[string]json.RawMessage
+
+	if result.SubjectTokenClaims != nil {
+		subject = result.SubjectTokenClaims.Subject
+		subjectTokenClaims = result.SubjectTokenClaims.Claims
+	}
+
+	// TODO: figure out what to set in actor
+	var actor *oidc.ActorClaims
+	_ = actor
+
 	jti := uuid.New().String()
 	now := time.Now()
 	exp := oidc.FromTime(now.Add(expiresIn))
 	iat := oidc.FromTime(now)
 	nbf := iat
+
 	// TODO: review the claims we want or need to set (act, urn:nais, etc.)
-	// TODO: add urn:nais:grant_type (or similar) to denote the type of grant used to acquire the token
 	stsTokenClaims := STSTokenClaims{
-		Issuer:           issuer,
-		Subject:          subject,
-		Audience:         audience,
-		ClientID:         clientID,
-		JWTID:            jti,
-		Actor:            actor,
-		Expiration:       exp,
-		IssuedAt:         iat,
-		NotBefore:        nbf,
-		ApplicationRoles: roles,
+		Issuer:     string(issuer),
+		Subject:    subject,
+		Audience:   result.Target.AsAudience(),
+		ClientID:   result.Client.ID,
+		JWTID:      jti,
+		Actor:      actor,
+		Expiration: exp,
+		IssuedAt:   iat,
+		NotBefore:  nbf,
+
+		// urn:nais:*
+		ApplicationRoles: result.Roles,
+		GrantType:        result.GrantType,
 	}
 
 	claims, err := mergeClaims(subjectTokenClaims, stsTokenClaims)

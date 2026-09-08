@@ -47,7 +47,7 @@ func (c *ClientCredentialsRequest) Target() (Target, error) {
 	if len(c.Scope) != 1 {
 		return nil, oidc.ErrInvalidTarget().WithDescription("scope must contain exactly one target scope")
 	}
-	return targetScope(c.Scope[0]), nil
+	return TargetScope(c.Scope[0]), nil
 }
 
 func (c *ClientCredentialsRequest) Validate() error {
@@ -82,12 +82,10 @@ func (t *TokenExchangeRequest) Target() (Target, error) {
 	if len(t.Audience) != 1 {
 		return nil, oidc.ErrInvalidTarget().WithDescription("audience must contain exactly one audience")
 	}
-	return targetAudience(t.Audience[0]), nil
+	return TargetAudience(t.Audience[0]), nil
 }
 
 func (t *TokenExchangeRequest) Validate() error {
-	// TODO: deny exchanges where urn:nais:grant_type was client_credentials
-
 	if err := t.ClientAuthCredentials.Validate(); err != nil {
 		return err
 	}
@@ -117,35 +115,35 @@ type Target interface {
 }
 
 type (
-	targetScope    string
-	targetAudience string
+	TargetScope    string
+	TargetAudience string
 )
 
 var (
-	_ Target = (*targetScope)(nil)
-	_ Target = (*targetAudience)(nil)
+	_ Target = (*TargetScope)(nil)
+	_ Target = (*TargetAudience)(nil)
 )
 
-func (t targetAudience) GetValue() string {
+func (t TargetAudience) GetValue() string {
 	return string(t)
 }
 
-func (t targetAudience) GetType() string {
+func (t TargetAudience) GetType() string {
 	return "audience"
 }
 
-func (t targetAudience) AsAudience() oidc.Audience {
+func (t TargetAudience) AsAudience() oidc.Audience {
 	return oidc.Audience{string(t)}
 }
 
-func (t targetScope) GetValue() string {
+func (t TargetScope) GetValue() string {
 	return string(t)
 }
 
-func (t targetScope) GetType() string {
+func (t TargetScope) GetType() string {
 	return "scope"
 }
 
-func (t targetScope) AsAudience() oidc.Audience {
+func (t TargetScope) AsAudience() oidc.Audience {
 	return oidc.Audience{string(t)}
 }
