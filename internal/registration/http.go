@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"reflect"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/zitadel/oidc/v3/pkg/op"
 )
@@ -30,47 +33,61 @@ func NewApi(ctx context.Context, registrators ClientRegistrators, authServerCfg 
 }
 
 func (a *Api) PostEndpoint() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return errorAwareHandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
 		if err := validateContentType(r); err != nil {
-			http.Error(w, err.Error(), http.StatusUnsupportedMediaType)
-			return
+			return withHTTPStatus(err, http.StatusUnsupportedMediaType)
 		}
 
 		client, err := a.AuthorizeRequest(r)
 		if err != nil {
-			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
-			return
+			return withHTTPStatus(fmt.Errorf("unauthorized: %w", err), http.StatusUnauthorized)
 		}
 
 		registration, err := decodeClientRegistration(w, r)
 		if err != nil {
 			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-				http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
-				return
+				return withHTTPStatus(fmt.Errorf("request body too large"), http.StatusRequestEntityTooLarge)
 			}
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
+			return withHTTPStatus(fmt.Errorf("invalid request body"), http.StatusBadRequest)
 		}
 		ss, err := client.VerifySoftwareStatement(r.Context(), registration.SoftwareStatement)
 		if err != nil {
-			http.Error(w, "Invalid software statement: "+err.Error(), http.StatusBadRequest)
-			return
+			return withHTTPStatus(fmt.Errorf("invalid software statement: %w", err), http.StatusBadRequest)
 		}
+
 		err = a.SaveRegistration(r.Context(), ss)
 		if err != nil {
 			// TODO: log error and return a generic error message to avoid leaking sensitive information
-			http.Error(w, "Failed to save registration: "+err.Error(), http.StatusInternalServerError)
+			return withHTTPStatus(fmt.Errorf("failed to save registration: %w", err), http.StatusInternalServerError)
 		}
 
-		respond(w, r, &ClientRegistrationResponse{
+		respond(w, &ClientRegistrationResponse{
 			ClientRegistration: registration,
-		}, err)
-	}
+		})
+		return nil
+	})
 }
 
 func (a *Api) DeleteEndpoint() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-	}
+	return errorAwareHandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+		_, err := a.AuthorizeRequest(r)
+		if err != nil {
+			return withHTTPStatus(fmt.Errorf("unauthorized: %w", err), http.StatusUnauthorized)
+		}
+
+		clientID := oauth.ClientID(chi.URLParam(r, "id"))
+		if err := clientID.Validate(); err != nil {
+			return withHTTPStatus(err, http.StatusBadRequest)
+		}
+
+		if err := a.store.Delete(r.Context(), clientID); err != nil {
+			// TODO: handle without leaking internal stuff (e.g. not found)
+			return withHTTPStatus(fmt.Errorf("failed to delete registration: %w", err), http.StatusBadRequest)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+		return nil
+	})
 }
 
 func (a *Api) AuthorizeRequest(r *http.Request) (*Registrator, error) {
@@ -90,6 +107,19 @@ func (a *Api) SaveRegistration(ctx context.Context, s *SoftwareStatement) error 
 		Issuer:        s.Workload.Issuer,
 		AllowedScopes: []string{},
 	}, s.AuthorizationPolicies)
+}
+
+func withHTTPStatus(err error, status int) error {
+	return op.NewStatusError(err, status)
+}
+
+func errorAwareHandlerFunc(f func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		err := f(w, r)
+		if err != nil {
+			op.WriteError(w, r, err, slog.Default())
+		}
+	}
 }
 
 func validateContentType(r *http.Request) error {
@@ -126,12 +156,7 @@ func decodeClientRegistration(w http.ResponseWriter, r *http.Request) (ClientReg
 	return registration, nil
 }
 
-func respond(w http.ResponseWriter, r *http.Request, resp any, err error) {
-	if err != nil {
-		op.WriteError(w, r, err, nil)
-		return
-	}
-
+func respond(w http.ResponseWriter, resp any) {
 	if resp == nil || (reflect.ValueOf(resp).Kind() == reflect.Pointer && reflect.ValueOf(resp).IsNil()) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return

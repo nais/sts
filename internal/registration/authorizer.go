@@ -50,7 +50,7 @@ func (a *Authorizer) Authorize(r *http.Request) (*Registrator, error) {
 	if !ok {
 		return nil, oidc.ErrUnauthorizedClient().WithDescription("missing bearer token")
 	}
-	claims, err :=  a.ClientAuthVerifier.Verify(r.Context(), token, func(claims *oauth.AccessTokenClaims) error {
+	claims, err := a.ClientAuthVerifier.Verify(r.Context(), token, func(claims *oauth.AccessTokenClaims) error {
 		// TODO: verify extra claims for authorized client registrators
 		return nil
 	})

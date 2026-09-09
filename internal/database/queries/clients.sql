@@ -5,6 +5,10 @@ WHERE issuer = @issuer
   AND namespace = @namespace
   AND workload = @workload;
 
+-- name: DeleteKubernetesClient :exec
+DELETE FROM kubernetes_clients
+WHERE id = @id;
+
 -- name: GetAuthorizationPolicy :one
 SELECT *
 FROM authorization_policies

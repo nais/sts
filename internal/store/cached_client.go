@@ -61,53 +61,57 @@ func NewCachedClientStore(ctx context.Context, pool *pgxpool.Pool, refreshInterv
 
 // initialize subscribes before loading to avoid missing a write between the
 // initial snapshot and LISTEN registration.
-func (s *CachedClient) initialize(ctx context.Context) error {
-	if err := s.listener.Connect(ctx); err != nil {
+func (c *CachedClient) initialize(ctx context.Context) error {
+	if err := c.listener.Connect(ctx); err != nil {
 		return err
 	}
-	if err := s.snapshot.Initialize(ctx); err != nil {
-		s.listener.Close()
+	if err := c.snapshot.Initialize(ctx); err != nil {
+		c.listener.Close()
 		return fmt.Errorf("load initial client cache snapshot: %w", err)
 	}
 	return nil
 }
 
-func (s *CachedClient) Close() {
-	s.listener.Close()
+func (c *CachedClient) Close() {
+	c.listener.Close()
 }
 
-func (s *CachedClient) Run(ctx context.Context) {
+func (c *CachedClient) Run(ctx context.Context) {
 	var listener sync.WaitGroup
 	listener.Go(func() {
-		s.listener.Run(ctx)
+		c.listener.Run(ctx)
 	})
 
-	s.snapshot.Run(ctx, func(err error) {
-		s.log.Error("refresh client cache snapshot", "error", err)
+	c.snapshot.Run(ctx, func(err error) {
+		c.log.Error("refresh client cache snapshot", "error", err)
 	})
 	listener.Wait()
 }
 
-func (s *CachedClient) Get(ctx context.Context, claims *oauth.AccessTokenClaims) (*oauth.Client, error) {
+func (c *CachedClient) Delete(ctx context.Context, clientID oauth.ClientID) error {
+	return c.queries.DeleteKubernetesClient(ctx, string(clientID))
+}
+
+func (c *CachedClient) Get(ctx context.Context, claims *oauth.AccessTokenClaims) (*oauth.Client, error) {
 	key, err := clientKeyFromClaims(claims)
 	if err != nil {
 		return nil, err
 	}
 
-	snapshot, ok := s.snapshot.Current()
+	snapshot, ok := c.snapshot.Current()
 	if !ok {
 		return nil, oidc.ErrServerError().WithDescription("client cache is not initialized")
 	}
 	row, ok := snapshot.clients[key]
 	if !ok {
-		return s.getClientFromPostgres(ctx, key)
+		return c.getClientFromPostgres(ctx, key)
 	}
 	row.AllowedScopes = slices.Clone(row.AllowedScopes)
 	return toClient(row), nil
 }
 
-func (s *CachedClient) Save(ctx context.Context, client *oauth.Client, policies []oauth.AuthorizationPolicy) error {
-	return database.WithTx(ctx, s.pool, func(ctx context.Context, queries *sqlgen.Queries) error {
+func (c *CachedClient) Save(ctx context.Context, client *oauth.Client, policies []oauth.AuthorizationPolicy) error {
+	return database.WithTx(ctx, c.pool, func(ctx context.Context, queries *sqlgen.Queries) error {
 		if err := queries.UpsertKubernetesClient(ctx, sqlgen.UpsertKubernetesClientParams{
 			ID:            client.ID,
 			Environment:   client.Environment,
@@ -132,21 +136,21 @@ func (s *CachedClient) Save(ctx context.Context, client *oauth.Client, policies 
 	})
 }
 
-func (s *CachedClient) AuthorizeTarget(ctx context.Context, clientID oauth.ClientID, target oauth.Target) (oauth.Roles, error) {
-	snapshot, ok := s.snapshot.Current()
+func (c *CachedClient) AuthorizeTarget(ctx context.Context, clientID oauth.ClientID, target oauth.Target) (oauth.Roles, error) {
+	snapshot, ok := c.snapshot.Current()
 	if !ok {
 		return nil, oidc.ErrServerError().WithDescription("client cache is not initialized")
 	}
 	key := policyKey{owner: string(clientID), consumer: target.GetValue()}
 	roles, ok := snapshot.policies[key]
 	if !ok {
-		return s.getPolicyFromPostgres(ctx, key)
+		return c.getPolicyFromPostgres(ctx, key)
 	}
 	return slices.Clone(roles), nil
 }
 
-func (s *CachedClient) getClientFromPostgres(ctx context.Context, key clientKey) (*oauth.Client, error) {
-	row, err := s.queries.GetKubernetesClient(ctx, sqlgen.GetKubernetesClientParams{
+func (c *CachedClient) getClientFromPostgres(ctx context.Context, key clientKey) (*oauth.Client, error) {
+	row, err := c.queries.GetKubernetesClient(ctx, sqlgen.GetKubernetesClientParams{
 		Issuer:    key.issuer,
 		Namespace: key.namespace,
 		Workload:  key.workload,
@@ -160,12 +164,12 @@ func (s *CachedClient) getClientFromPostgres(ctx context.Context, key clientKey)
 
 	// A missed notification may have caused this fallback. Refresh the complete
 	// snapshot so later requests can use the cache again.
-	s.snapshot.Trigger()
+	c.snapshot.Trigger()
 	return toClient(row), nil
 }
 
-func (s *CachedClient) getPolicyFromPostgres(ctx context.Context, key policyKey) (oauth.Roles, error) {
-	row, err := s.queries.GetAuthorizationPolicy(ctx, sqlgen.GetAuthorizationPolicyParams{
+func (c *CachedClient) getPolicyFromPostgres(ctx context.Context, key policyKey) (oauth.Roles, error) {
+	row, err := c.queries.GetAuthorizationPolicy(ctx, sqlgen.GetAuthorizationPolicyParams{
 		OwnerClientID:    key.owner,
 		ConsumerClientID: key.consumer,
 	})
@@ -176,12 +180,12 @@ func (s *CachedClient) getPolicyFromPostgres(ctx context.Context, key policyKey)
 		return nil, oidc.ErrServerError().WithDescription("read authorization policy after cache miss: %s", err)
 	}
 
-	s.snapshot.Trigger()
+	c.snapshot.Trigger()
 	return row.Roles, nil
 }
 
-func (s *CachedClient) load(ctx context.Context) (*clientSnapshot, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{
+func (c *CachedClient) load(ctx context.Context) (*clientSnapshot, error) {
+	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{
 		IsoLevel:   pgx.RepeatableRead,
 		AccessMode: pgx.ReadOnly,
 	})

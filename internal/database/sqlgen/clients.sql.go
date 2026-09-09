@@ -7,6 +7,16 @@ import (
 	"context"
 )
 
+const deleteKubernetesClient = `-- name: DeleteKubernetesClient :exec
+DELETE FROM kubernetes_clients
+WHERE id = $1
+`
+
+func (q *Queries) DeleteKubernetesClient(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, deleteKubernetesClient, id)
+	return err
+}
+
 const getAuthorizationPolicy = `-- name: GetAuthorizationPolicy :one
 SELECT owner_client_id, consumer_client_id, roles
 FROM authorization_policies

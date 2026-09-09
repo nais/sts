@@ -66,6 +66,6 @@ func stsApi(
 	router.Post(e.Token.Relative(), authServer.TokenEndpoint())
 	router.Get(e.JwksURI.Relative(), authServer.JwksEndpoint())
 	router.Post(registrationEndpoint, registrationApi.PostEndpoint())
-	router.Delete(registrationEndpoint, registrationApi.DeleteEndpoint())
+	router.Delete(fmt.Sprintf("%s/{id}", registrationEndpoint), registrationApi.DeleteEndpoint())
 	return router, nil
 }

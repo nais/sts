@@ -7,6 +7,7 @@ import (
 )
 
 type Querier interface {
+	DeleteKubernetesClient(ctx context.Context, id string) error
 	GetActiveSigningKey(ctx context.Context) (SigningKey, error)
 	GetAuthorizationPolicy(ctx context.Context, arg GetAuthorizationPolicyParams) (AuthorizationPolicy, error)
 	GetKubernetesClient(ctx context.Context, arg GetKubernetesClientParams) (KubernetesClient, error)

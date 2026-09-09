@@ -92,7 +92,8 @@ func TestSts(t *testing.T) {
 			}
 			status, body := postRegistrationRequest(t, sts, registratorToken, request)
 			assert.Equal(t, http.StatusBadRequest, status)
-			assert.Contains(t, string(body), "Invalid software statement")
+			// TODO: assert that this is a json response
+			assert.Contains(t, string(body), "invalid software statement")
 		})
 
 		t.Run("rejects unauthorized registrator", func(t *testing.T) {
@@ -103,7 +104,8 @@ func TestSts(t *testing.T) {
 			}
 			status, body := postRegistrationRequest(t, sts, unauthorizedToken, request)
 			assert.Equal(t, http.StatusUnauthorized, status)
-			assert.Contains(t, string(body), "Unauthorized")
+			// TODO: assert that this is a json response
+			assert.Contains(t, string(body), "unauthorized")
 		})
 
 		t.Run("rejects malformed request", func(t *testing.T) {
@@ -113,7 +115,33 @@ func TestSts(t *testing.T) {
 				"unknown":            true,
 			})
 			assert.Equal(t, http.StatusBadRequest, status)
-			assert.Contains(t, string(body), "Invalid request body")
+			// TODO: assert that this is a json response
+			assert.Contains(t, string(body), "invalid request body")
+		})
+
+		for _, id := range []string{
+			"1client",
+			"client-",
+			"client:",
+			"client_name",
+			"client.name",
+		} {
+			t.Run("rejects invalid client ID "+id, func(t *testing.T) {
+				status, body := deleteRegistrationRequest(t, sts, registratorToken, id)
+				assert.Equal(t, http.StatusBadRequest, status)
+				assert.Contains(t, string(body), "invalid client ID")
+			})
+		}
+
+		t.Run("deletes registration with valid client ID", func(t *testing.T) {
+			status, body := deleteRegistrationRequest(t, sts, registratorToken, string(statement.ClientId))
+			require.Equal(t, http.StatusNoContent, status, body)
+			assert.Empty(t, body)
+
+			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, statement.Workload.Name)
+			resp := stsToken[oidc.Error](t, sts, clientCredentialsForm(clientAssertion, fixtures.Target))
+			assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
+			assert.Contains(t, resp.Description, "client not found")
 		})
 	})
 
@@ -216,52 +244,6 @@ func TestSts(t *testing.T) {
 		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
 		assert.Contains(t, resp.Description, "subject token is invalid")
 	})
-}
-
-func signSoftwareStatement(t testing.TB, statement registration.SoftwareStatement) string {
-	t.Helper()
-	signer, err := jose.NewSigner(jose.SigningKey{Key: jose.JSONWebKey{
-		Key:   key,
-		KeyID: "foo",
-	}, Algorithm: jose.RS256}, nil)
-	require.NoError(t, err)
-
-	signed, err := crypto.Sign(statement, signer)
-	require.NoError(t, err)
-	return signed
-}
-
-func tamperJWTSignature(t testing.TB, token string) string {
-	t.Helper()
-	parts := strings.Split(token, ".")
-	require.Len(t, parts, 3)
-	require.NotEmpty(t, parts[2])
-
-	if parts[2][0] == 'A' {
-		parts[2] = "B" + parts[2][1:]
-	} else {
-		parts[2] = "A" + parts[2][1:]
-	}
-	return strings.Join(parts, ".")
-}
-
-func postRegistrationRequest(t testing.TB, sts testServer, token string, body any) (int, []byte) {
-	t.Helper()
-	data, err := json.Marshal(body)
-	require.NoError(t, err)
-
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, sts.Endpoint("registration", "client"), bytes.NewReader(data))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer ioconvenience.CloseWithLog(resp.Body, slog.Default())
-
-	responseBody, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	return resp.StatusCode, responseBody
 }
 
 type claimAssertions func(claims *oauth.STSTokenClaims)
@@ -424,6 +406,68 @@ func getSubjectToken(t testing.TB, oauthServer testServer, issuer string) (strin
 	return token.AccessToken, claims
 }
 
+func signSoftwareStatement(t testing.TB, statement registration.SoftwareStatement) string {
+	t.Helper()
+	signer, err := jose.NewSigner(jose.SigningKey{Key: jose.JSONWebKey{
+		Key:   key,
+		KeyID: "foo",
+	}, Algorithm: jose.RS256}, nil)
+	require.NoError(t, err)
+
+	signed, err := crypto.Sign(statement, signer)
+	require.NoError(t, err)
+	return signed
+}
+
+func tamperJWTSignature(t testing.TB, token string) string {
+	t.Helper()
+	parts := strings.Split(token, ".")
+	require.Len(t, parts, 3)
+	require.NotEmpty(t, parts[2])
+
+	if parts[2][0] == 'A' {
+		parts[2] = "B" + parts[2][1:]
+	} else {
+		parts[2] = "A" + parts[2][1:]
+	}
+	return strings.Join(parts, ".")
+}
+
+func postRegistrationRequest(t testing.TB, sts testServer, token string, body any) (int, []byte) {
+	t.Helper()
+	data, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, sts.Endpoint("registration", "client"), bytes.NewReader(data))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer ioconvenience.CloseWithLog(resp.Body, slog.Default())
+
+	responseBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp.StatusCode, responseBody
+}
+
+func deleteRegistrationRequest(t testing.TB, sts testServer, token, id string) (int, []byte) {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, sts.Endpoint("registration", "client", id), nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer ioconvenience.CloseWithLog(resp.Body, slog.Default())
+
+	responseBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp.StatusCode, responseBody
+}
+
 func post[T any](t testing.TB, endpoint string, form url.Values) *T {
 	t.Helper()
 
@@ -431,28 +475,6 @@ func post[T any](t testing.TB, endpoint string, form url.Values) *T {
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint, body)
 	require.NoError(t, err, "creating request")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	ret := new(T)
-	err = httphelper.HttpRequest(http.DefaultClient, req, ret)
-	if oidcErr, ok := errors.AsType[*oidc.Error](err); ok {
-		if response, ok := any(*oidcErr).(T); ok {
-			return &response
-		}
-	}
-	require.NoError(t, err, "HTTP request")
-	return ret
-}
-
-func postJson[T any](t testing.TB, endpoint string, token string, body any) *T {
-	t.Helper()
-
-	data, err := json.Marshal(body)
-	require.NoError(t, err, "marshaling JSON body")
-
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint, bytes.NewReader(data))
-	require.NoError(t, err, "creating request")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
 
 	ret := new(T)
 	err = httphelper.HttpRequest(http.DefaultClient, req, ret)
