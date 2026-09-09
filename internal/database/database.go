@@ -9,8 +9,10 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
@@ -21,6 +23,8 @@ import (
 var migrations embed.FS
 
 const migrationTimeout = 2 * time.Minute
+
+type txContextKey struct{}
 
 func NewPool(ctx context.Context, dsn string, log *slog.Logger, meter metric.Meter) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(dsn)
@@ -57,6 +61,36 @@ func NewPool(ctx context.Context, dsn string, log *slog.Logger, meter metric.Met
 	}
 
 	return pool, nil
+}
+
+func Tx(ctx context.Context) (pgx.Tx, bool) {
+	tx, ok := ctx.Value(txContextKey{}).(pgx.Tx)
+	return tx, ok
+}
+
+// WithTx runs fn with transaction-bound queries. Nested calls reuse the active transaction.
+func WithTx(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, *sqlgen.Queries) error) error {
+	if tx, ok := Tx(ctx); ok {
+		return fn(ctx, sqlgen.New(tx))
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	if err := fn(context.WithValue(ctx, txContextKey{}, tx), sqlgen.New(tx)); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
 }
 
 type gooseLogger struct {

@@ -8,3 +8,9 @@ type Client struct {
 	sqlgen.KubernetesClient
 	// AllowedScopes is "static access", i.e. doesn't require the existence of a target client ID
 }
+
+type AuthorizationPolicy struct {
+	Owner    ClientID `json:"owner"`
+	Consumer ClientID `json:"consumer"`
+	Roles    Roles    `json:"roles"`
+}

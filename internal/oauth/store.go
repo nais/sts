@@ -14,7 +14,7 @@ type (
 
 type ClientStore interface {
 	Get(ctx context.Context, clientAuthClaims *AccessTokenClaims) (*Client, error)
-	Save(ctx context.Context, client *Client) error
+	Save(ctx context.Context, client *Client, policies []AuthorizationPolicy) error
 	AuthorizeTarget(ctx context.Context, clientID ClientID, target Target) (Roles, error)
 }
 

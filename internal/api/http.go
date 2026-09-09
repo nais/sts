@@ -57,7 +57,7 @@ func stsApi(
 	if err != nil {
 		return nil, fmt.Errorf("initialize authorization server: %w", err)
 	}
-	registrationApi, err := registration.NewApi(ctx, cfg.Registrators, cfg.AuthorizationServerConfig)
+	registrationApi, err := registration.NewApi(ctx, cfg.Registrators, cfg.AuthorizationServerConfig, clientStore)
 	if err != nil {
 		return nil, fmt.Errorf("initialize client registration handler: %w", err)
 	}

@@ -25,13 +25,18 @@ type ClientRegistrationResponse struct {
 }
 
 type SoftwareStatement struct {
-	ClientId              string                `json:"client_id"`
-	Workload              Workload              `json:"workload"`
-	AuthorizationPolicies []AuthorizationPolicy `json:"authorization_policies"`
+	ClientId              string                      `json:"client_id"`
+	Workload              Workload                    `json:"workload"`
+	AuthorizationPolicies []oauth.AuthorizationPolicy `json:"authorization_policies"`
 }
 
 // SetSignatureAlgorithm no-op, required to satisfy the oidc.ClaimsSignature interface when using oidc.CheckSignature
 func (s SoftwareStatement) SetSignatureAlgorithm(_ jose.SignatureAlgorithm) {}
+
+// TODO: validate and sanitize for db insert
+func (s SoftwareStatement) validate() error {
+	return nil
+}
 
 type Workload struct {
 	Environment string `json:"environment"`

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/cache"
+	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -77,11 +78,9 @@ func (s *CachedClient) Close() {
 
 func (s *CachedClient) Run(ctx context.Context) {
 	var listener sync.WaitGroup
-	listener.Add(1)
-	go func() {
-		defer listener.Done()
+	listener.Go(func() {
 		s.listener.Run(ctx)
-	}()
+	})
 
 	s.snapshot.Run(ctx, func(err error) {
 		s.log.Error("refresh client cache snapshot", "error", err)
@@ -107,14 +106,29 @@ func (s *CachedClient) Get(ctx context.Context, claims *oauth.AccessTokenClaims)
 	return toClient(row), nil
 }
 
-func (s *CachedClient) Save(ctx context.Context, client *oauth.Client) error {
-	return s.queries.UpsertKubernetesClient(ctx, sqlgen.UpsertKubernetesClientParams{
-		ID:            client.ID,
-		Environment:   client.Environment,
-		Namespace:     client.Namespace,
-		Workload:      client.Workload,
-		Issuer:        client.Issuer,
-		AllowedScopes: client.AllowedScopes,
+func (s *CachedClient) Save(ctx context.Context, client *oauth.Client, policies []oauth.AuthorizationPolicy) error {
+	return database.WithTx(ctx, s.pool, func(ctx context.Context, queries *sqlgen.Queries) error {
+		if err := queries.UpsertKubernetesClient(ctx, sqlgen.UpsertKubernetesClientParams{
+			ID:            client.ID,
+			Environment:   client.Environment,
+			Namespace:     client.Namespace,
+			Workload:      client.Workload,
+			Issuer:        client.Issuer,
+			AllowedScopes: client.AllowedScopes,
+		}); err != nil {
+			return fmt.Errorf("upsert client: %w", err)
+		}
+
+		for _, policy := range policies {
+			if err := queries.UpsertAuthorizationPolicy(ctx, sqlgen.UpsertAuthorizationPolicyParams{
+				OwnerClientID:    string(policy.Owner),
+				ConsumerClientID: string(policy.Consumer),
+				Roles:            policy.Roles,
+			}); err != nil {
+				return fmt.Errorf("upsert authorization policy: %w", err)
+			}
+		}
+		return nil
 	})
 }
 

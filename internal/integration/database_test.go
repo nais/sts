@@ -6,12 +6,14 @@ import (
 	"context"
 	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
@@ -60,6 +62,74 @@ func TestNewPoolMigratesPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
+}
+
+func TestWithTx(t *testing.T) {
+	pool := newTestPool(t)
+	queries := sqlgen.New(pool)
+
+	params := func(workload string) sqlgen.UpsertKubernetesClientParams {
+		return sqlgen.UpsertKubernetesClientParams{
+			ID:            "environment:namespace:" + workload,
+			Environment:   "environment",
+			Namespace:     "namespace",
+			Workload:      workload,
+			Issuer:        "https://issuer.example",
+			AllowedScopes: []string{"scope"},
+		}
+	}
+	get := func(workload string) (sqlgen.KubernetesClient, error) {
+		return queries.GetKubernetesClient(t.Context(), sqlgen.GetKubernetesClientParams{
+			Issuer:    "https://issuer.example",
+			Namespace: "namespace",
+			Workload:  workload,
+		})
+	}
+
+	t.Run("commits on success", func(t *testing.T) {
+		err := database.WithTx(t.Context(), pool, func(ctx context.Context, queries *sqlgen.Queries) error {
+			return queries.UpsertKubernetesClient(ctx, params("committed"))
+		})
+		require.NoError(t, err)
+
+		_, err = get("committed")
+		require.NoError(t, err)
+	})
+
+	t.Run("rolls back on error", func(t *testing.T) {
+		wantErr := errors.New("fail transaction")
+		err := database.WithTx(t.Context(), pool, func(ctx context.Context, queries *sqlgen.Queries) error {
+			require.NoError(t, queries.UpsertKubernetesClient(ctx, params("rolled-back")))
+			return wantErr
+		})
+		require.ErrorIs(t, err, wantErr)
+
+		_, err = get("rolled-back")
+		require.ErrorIs(t, err, pgx.ErrNoRows)
+	})
+
+	t.Run("nested calls reuse outer transaction", func(t *testing.T) {
+		wantErr := errors.New("fail outer transaction")
+		err := database.WithTx(t.Context(), pool, func(ctx context.Context, queries *sqlgen.Queries) error {
+			outerTx, ok := database.Tx(ctx)
+			require.True(t, ok)
+			require.NoError(t, queries.UpsertKubernetesClient(ctx, params("outer")))
+
+			require.NoError(t, database.WithTx(ctx, pool, func(ctx context.Context, queries *sqlgen.Queries) error {
+				innerTx, ok := database.Tx(ctx)
+				require.True(t, ok)
+				require.Same(t, outerTx, innerTx)
+				return queries.UpsertKubernetesClient(ctx, params("inner"))
+			}))
+			return wantErr
+		})
+		require.ErrorIs(t, err, wantErr)
+
+		_, err = get("outer")
+		require.ErrorIs(t, err, pgx.ErrNoRows)
+		_, err = get("inner")
+		require.ErrorIs(t, err, pgx.ErrNoRows)
+	})
 }
 
 func TestPostgresKeyStore(t *testing.T) {

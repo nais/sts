@@ -14,16 +14,18 @@ import (
 )
 
 type Api struct {
-	Authorizer *Authorizer
+	authorizer *Authorizer
+	store      oauth.ClientStore
 }
 
-func NewApi(ctx context.Context, registrators ClientRegistrators, authServerCfg oauth.AuthorizationServerConfig) (*Api, error) {
+func NewApi(ctx context.Context, registrators ClientRegistrators, authServerCfg oauth.AuthorizationServerConfig, store oauth.ClientStore) (*Api, error) {
 	authorizer, err := CreateAuthorizer(ctx, authServerCfg, registrators...)
 	if err != nil {
 		return nil, err
 	}
 	return &Api{
-		Authorizer: authorizer,
+		authorizer: authorizer,
+		store:      store,
 	}, nil
 }
 
@@ -54,8 +56,11 @@ func (a *Api) PostEndpoint() http.HandlerFunc {
 			http.Error(w, "Invalid software statement: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		_ = ss // TODO: use software statement to create client
-		// TODO: sanitize fields in software statement before inserting into db
+		err = a.SaveRegistration(r.Context(), ss)
+		if err != nil {
+			// TODO: log error and return a generic error message to avoid leaking sensitive information
+			http.Error(w, "Failed to save registration: "+err.Error(), http.StatusInternalServerError)
+		}
 
 		respond(w, r, &ClientRegistrationResponse{
 			ClientRegistration: registration,
@@ -69,7 +74,22 @@ func (a *Api) DeleteEndpoint() http.HandlerFunc {
 }
 
 func (a *Api) AuthorizeRequest(r *http.Request) (*Registrator, error) {
-	return a.Authorizer.Authorize(r)
+	return a.authorizer.Authorize(r)
+}
+
+func (a *Api) SaveRegistration(ctx context.Context, s *SoftwareStatement) error {
+	// TODO: sanitize fields in software statement before inserting into db
+	if err := s.validate(); err != nil {
+		return err
+	}
+	return a.store.Save(ctx, &oauth.Client{
+		ID:            s.ClientId,
+		Environment:   s.Workload.Environment,
+		Namespace:     s.Workload.Namespace,
+		Workload:      s.Workload.Name,
+		Issuer:        s.Workload.Issuer,
+		AllowedScopes: []string{},
+	}, s.AuthorizationPolicies)
 }
 
 func validateContentType(r *http.Request) error {

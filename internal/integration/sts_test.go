@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -46,31 +47,74 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("registration", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, "registrator1")
-		ss := registration.SoftwareStatement{
-			ClientId: "foo",
+		registratorToken := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, "registrator1")
+		statement := registration.SoftwareStatement{
+			ClientId: "env1:namespace1:registered-workload",
 			Workload: registration.Workload{
-				Environment: "yolo",
-				Issuer:      "baz",
-				Namespace:   "bar",
-				Name:        "foo",
+				Environment: fixtures.Environment,
+				Issuer:      oauthServer.Endpoint(fixtures.Environment),
+				Namespace:   fixtures.Namespace,
+				Name:        "registered-workload",
 			},
-			AuthorizationPolicies: nil,
+			AuthorizationPolicies: []oauth.AuthorizationPolicy{
+				{
+					Owner:    "env1:namespace1:registered-workload",
+					Consumer: oauth.ClientID(fixtures.Target),
+					Roles:    oauth.Roles{fixtures.Role},
+				},
+			},
 		}
+		signed := signSoftwareStatement(t, statement)
 
-		signer, err := jose.NewSigner(jose.SigningKey{Key: jose.JSONWebKey{
-			Key:   key,
-			KeyID: "foo",
-		}, Algorithm: "RS256"}, nil)
-		require.NoError(t, err)
-		signed, err := crypto.Sign(ss, signer)
-		require.NoError(t, err)
+		t.Run("accepts valid registration", func(t *testing.T) {
+			request := registration.ClientRegistration{
+				ClientName:        "registered client",
+				SoftwareStatement: signed,
+			}
+			status, body := postRegistrationRequest(t, sts, registratorToken, request)
+			require.Equal(t, http.StatusOK, status, body)
 
-		resp := postJson[registration.ClientRegistrationResponse](t, sts.Endpoint("registration", "client"), clientAssertion, registration.ClientRegistration{
-			ClientName:        "foo",
-			SoftwareStatement: signed,
+			var response registration.ClientRegistrationResponse
+			require.NoError(t, json.Unmarshal(body, &response))
+			assert.Equal(t, request.ClientName, response.ClientName)
+			assert.Equal(t, request.SoftwareStatement, response.SoftwareStatement)
+
+			// Verify that both the client and its authorization policy were persisted.
+			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, statement.Workload.Name)
+			token := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Target))
+			require.NotEmpty(t, token.AccessToken)
 		})
-		println(resp)
+
+		t.Run("rejects invalid software statement signature", func(t *testing.T) {
+			request := registration.ClientRegistration{
+				ClientName:        "invalid signature",
+				SoftwareStatement: tamperJWTSignature(t, signed),
+			}
+			status, body := postRegistrationRequest(t, sts, registratorToken, request)
+			assert.Equal(t, http.StatusBadRequest, status)
+			assert.Contains(t, string(body), "Invalid software statement")
+		})
+
+		t.Run("rejects unauthorized registrator", func(t *testing.T) {
+			unauthorizedToken := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, "not-a-registrator")
+			request := registration.ClientRegistration{
+				ClientName:        "unauthorized",
+				SoftwareStatement: signed,
+			}
+			status, body := postRegistrationRequest(t, sts, unauthorizedToken, request)
+			assert.Equal(t, http.StatusUnauthorized, status)
+			assert.Contains(t, string(body), "Unauthorized")
+		})
+
+		t.Run("rejects malformed request", func(t *testing.T) {
+			status, body := postRegistrationRequest(t, sts, registratorToken, map[string]any{
+				"client_name":        "unknown field",
+				"software_statement": signed,
+				"unknown":            true,
+			})
+			assert.Equal(t, http.StatusBadRequest, status)
+			assert.Contains(t, string(body), "Invalid request body")
+		})
 	})
 
 	t.Run("client credentials", func(t *testing.T) {
@@ -172,6 +216,52 @@ func TestSts(t *testing.T) {
 		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
 		assert.Contains(t, resp.Description, "subject token is invalid")
 	})
+}
+
+func signSoftwareStatement(t testing.TB, statement registration.SoftwareStatement) string {
+	t.Helper()
+	signer, err := jose.NewSigner(jose.SigningKey{Key: jose.JSONWebKey{
+		Key:   key,
+		KeyID: "foo",
+	}, Algorithm: jose.RS256}, nil)
+	require.NoError(t, err)
+
+	signed, err := crypto.Sign(statement, signer)
+	require.NoError(t, err)
+	return signed
+}
+
+func tamperJWTSignature(t testing.TB, token string) string {
+	t.Helper()
+	parts := strings.Split(token, ".")
+	require.Len(t, parts, 3)
+	require.NotEmpty(t, parts[2])
+
+	if parts[2][0] == 'A' {
+		parts[2] = "B" + parts[2][1:]
+	} else {
+		parts[2] = "A" + parts[2][1:]
+	}
+	return strings.Join(parts, ".")
+}
+
+func postRegistrationRequest(t testing.TB, sts testServer, token string, body any) (int, []byte) {
+	t.Helper()
+	data, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, sts.Endpoint("registration", "client"), bytes.NewReader(data))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer ioconvenience.CloseWithLog(resp.Body, slog.Default())
+
+	responseBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp.StatusCode, responseBody
 }
 
 type claimAssertions func(claims *oauth.STSTokenClaims)
