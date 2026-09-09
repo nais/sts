@@ -19,7 +19,6 @@ import (
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/ioconvenience"
 	stsmetrics "github.com/nais/sts/internal/metrics"
-	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/store"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -97,19 +96,13 @@ func startServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 		return err
 	}
 
-	authServer, err := oauth.NewAuthorizationServer(ctx, cfg.AuthorizationServerConfig, clientStore, keyStore, provider.Metrics())
+	api, err := stsApi(ctx, cfg, clientStore, keyStore, provider)
 	if err != nil {
-		return fmt.Errorf("initialize authorization server: %w", err)
+		return fmt.Errorf("setup api router: %w", err)
 	}
 
 	router := chi.NewRouter()
-	router.Mount("/", authorizationServerRouter(authServer, provider))
-
-	registration, err := registrationApiRouter(ctx, cfg, provider)
-	if err != nil {
-		return err
-	}
-	router.Mount("/api", registration)
+	router.Mount("/", api)
 
 	publicServer := httpServer(router)
 	internalServer := httpServer(internalRouter(provider.Registry(), pool))

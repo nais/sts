@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -20,9 +21,16 @@ const (
 	oauthDiscoveryEndpoint = "/.well-known/oauth-authorization-server"
 	tokenEndpoint          = "/token"
 	jwksEndpoint           = "/jwks"
+	registrationEndpoint   = "/registration/client"
 )
 
-func authorizationServerRouter(authServer *oauth.AuthorizationServer, metricsProvider *stsmetrics.Provider) http.Handler {
+func stsApi(
+	ctx context.Context,
+	cfg config.Config,
+	clientStore oauth.ClientStore,
+	keyStore oauth.KeyStore,
+	provider *stsmetrics.Provider,
+) (http.Handler, error) {
 	e := &op.Endpoints{
 		Token:   op.NewEndpoint(tokenEndpoint),
 		JwksURI: op.NewEndpoint(jwksEndpoint),
@@ -31,31 +39,7 @@ func authorizationServerRouter(authServer *oauth.AuthorizationServer, metricsPro
 	router := chi.NewRouter()
 	httpMetrics := otelchimetric.NewBaseConfig(
 		"nais-sts",
-		otelchimetric.WithMeterProvider(metricsProvider.MeterProvider()),
-	)
-	router.Use(
-		otelchimetric.NewServerActiveRequests(httpMetrics),
-		otelchimetric.NewServerRequestDuration(httpMetrics),
-		otelchimetric.NewServerRequestBodySize(httpMetrics),
-		otelchimetric.NewServerResponseBodySize(httpMetrics),
-	)
-	router.Use(otelchi.Middleware(
-		"nais-sts",
-		otelchi.WithChiRoutes(router),
-		otelchi.WithRequestMethodInSpanName(true),
-	))
-	router.HandleFunc(oauthDiscoveryEndpoint, oauth.DiscoveryEndpoint(e, authServer.Issuer))
-	router.HandleFunc(e.Token.Relative(), authServer.TokenEndpoint())
-	router.HandleFunc(e.JwksURI.Relative(), authServer.JwksEndpoint())
-
-	return router
-}
-
-func registrationApiRouter(ctx context.Context, cfg config.Config, metricsProvider *stsmetrics.Provider) (http.Handler, error) {
-	router := chi.NewRouter()
-	httpMetrics := otelchimetric.NewBaseConfig(
-		"nais-sts",
-		otelchimetric.WithMeterProvider(metricsProvider.MeterProvider()),
+		otelchimetric.WithMeterProvider(provider.MeterProvider()),
 	)
 	router.Use(
 		otelchimetric.NewServerActiveRequests(httpMetrics),
@@ -69,14 +53,19 @@ func registrationApiRouter(ctx context.Context, cfg config.Config, metricsProvid
 		otelchi.WithRequestMethodInSpanName(true),
 	))
 
-	// TODO: actually add config here
-	registrators := cfg.Registrators
-
-	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, cfg.AuthorizationServerConfig.ClientAuthIssuers)
+	authServer, err := oauth.NewAuthorizationServer(ctx, cfg.AuthorizationServerConfig, clientStore, keyStore, provider.Metrics())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initialize authorization server: %w", err)
+	}
+	registrationApi, err := registration.NewApi(ctx, cfg.Registrators, cfg.AuthorizationServerConfig)
+	if err != nil {
+		return nil, fmt.Errorf("initialize client registration handler: %w", err)
 	}
 
-	router.Handle("/registration/client", registration.NewClientHandler(registrators, verifier))
+	router.Get(oauthDiscoveryEndpoint, oauth.DiscoveryEndpoint(e, authServer.Issuer))
+	router.Post(e.Token.Relative(), authServer.TokenEndpoint())
+	router.Get(e.JwksURI.Relative(), authServer.JwksEndpoint())
+	router.Post(registrationEndpoint, registrationApi.PostEndpoint())
+	router.Delete(registrationEndpoint, registrationApi.DeleteEndpoint())
 	return router, nil
 }

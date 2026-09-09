@@ -18,8 +18,7 @@ type Config struct {
 	LogLevel                  slog.Level `env:"LOG_LEVEL, default=info"`
 	LogFormat                 string     `env:"LOG_FORMAT, default=text"`
 	AuthorizationServerConfig oauth.AuthorizationServerConfig
-	Registrators              []*registration.ClientRegistrator // TODO: env things
-
+	Registrators              []*registration.ClientRegistratorConfig // TODO: env things
 }
 
 func Load(ctx context.Context) (Config, error) {

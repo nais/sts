@@ -66,7 +66,7 @@ func TestSts(t *testing.T) {
 		signed, err := crypto.Sign(ss, signer)
 		require.NoError(t, err)
 
-		resp := postJson[registration.ClientRegistrationResponse](t, sts.Endpoint("api", "registration", "client"), clientAssertion, registration.ClientRegistration{
+		resp := postJson[registration.ClientRegistrationResponse](t, sts.Endpoint("registration", "client"), clientAssertion, registration.ClientRegistration{
 			ClientName:        "foo",
 			SoftwareStatement: signed,
 		})

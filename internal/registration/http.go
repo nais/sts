@@ -3,122 +3,107 @@ package registration
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"mime"
 	"net/http"
 	"reflect"
-	"strings"
 
-	"github.com/go-jose/go-jose/v4"
 	"github.com/nais/sts/internal/oauth"
-	"github.com/zitadel/oidc/v3/pkg/client/rp"
-	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
-type ClientRegistration struct {
-	ClientName        string `json:"client_name"`
-	SoftwareStatement string `json:"software_statement"`
+type Api struct {
+	Authorizer *Authorizer
 }
 
-type ClientRegistrationResponse struct {
-	ClientRegistration
-	GrantTypes              []string `json:"grant_types"`
-	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+func NewApi(ctx context.Context, registrators ClientRegistrators, authServerCfg oauth.AuthorizationServerConfig) (*Api, error) {
+	authorizer, err := CreateAuthorizer(ctx, authServerCfg, registrators...)
+	if err != nil {
+		return nil, err
+	}
+	return &Api{
+		Authorizer: authorizer,
+	}, nil
 }
 
-type SoftwareStatement struct {
-	ClientId              string                `json:"client_id"`
-	Workload              Workload              `json:"workload"`
-	AuthorizationPolicies []AuthorizationPolicy `json:"authorization_policies"`
-}
+func (a *Api) PostEndpoint() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := validateContentType(r); err != nil {
+			http.Error(w, err.Error(), http.StatusUnsupportedMediaType)
+			return
+		}
 
-func (s SoftwareStatement) SetSignatureAlgorithm(algorithm jose.SignatureAlgorithm) {
-
-}
-
-type Workload struct {
-	Environment string `json:"environment"`
-	Issuer      string `json:"issuer"`
-	Namespace   string `json:"namespace"`
-	Name        string `json:"workload"`
-}
-
-type AuthorizationPolicy struct {
-	Owner    oauth.ClientID `json:"owner"`
-	Consumer oauth.ClientID `json:"consumer"`
-	Roles    oauth.Roles    `json:"roles"`
-}
-
-type ClientRegistrator struct {
-	Issuer        string   `json:"issuer"`
-	Subject       string   `json:"subject"`
-	ClientJwksUri string   `json:"client_jwks_uri"`
-	RequiredAlgs  []string `json:"required_algs"`
-}
-
-type AuthorizedClientRegistrators = []*ClientRegistrator
-
-func NewClientHandler(registrators AuthorizedClientRegistrators, verifier oauth.MultiIssuerTokenVerifier) http.Handler {
-	// TODO: auth
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
-		claims, err := bearerAuth(r, verifier)
+		client, err := a.AuthorizeRequest(r)
 		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		var registrator *ClientRegistrator
-		for _, client := range registrators {
-			if claims.Issuer == client.Issuer && claims.Subject == client.Subject {
-				registrator = client
-				break
-			}
-		}
-		if registrator == nil {
-			// TODO: better error message
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 			return
 		}
 
-		var registration *ClientRegistration
-		if err := json.NewDecoder(r.Body).Decode(&registration); err != nil {
+		registration, err := decodeClientRegistration(w, r)
+		if err != nil {
+			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+				http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
-		ss, err := verifySoftwareStatement(r.Context(), registrator, registration.SoftwareStatement)
+		ss, err := client.VerifySoftwareStatement(r.Context(), registration.SoftwareStatement)
 		if err != nil {
 			http.Error(w, "Invalid software statement: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		_ = ss // TODO: use software statement to create client
+		// TODO: sanitize fields in software statement before inserting into db
 
 		respond(w, r, &ClientRegistrationResponse{
-			ClientRegistration: *registration,
-		}, nil)
-	})
+			ClientRegistration: registration,
+		}, err)
+	}
 }
 
-// TODO: save remote keyset to avoid fetching it for every request
-func verifySoftwareStatement(ctx context.Context, registrator *ClientRegistrator, softwareStatementString string) (*SoftwareStatement, error) {
-	ss := new(SoftwareStatement)
-	payload, err := oidc.ParseToken(softwareStatementString, ss)
-	if err != nil {
-		return nil, err
+func (a *Api) DeleteEndpoint() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 	}
-	keyset := rp.NewRemoteKeySet(http.DefaultClient, registrator.ClientJwksUri)
-
-	if err := oidc.CheckSignature(ctx, softwareStatementString, payload, ss, registrator.RequiredAlgs, keyset); err != nil {
-		return nil, err
-	}
-	return ss, nil
 }
 
-func bearerAuth(r *http.Request, verifier oauth.MultiIssuerTokenVerifier) (*oauth.AccessTokenClaims, error) {
-	token, ok := bearerToken(r)
-	if !ok {
-		return nil, oidc.ErrUnauthorizedClient().WithDescription("missing bearer token")
+func (a *Api) AuthorizeRequest(r *http.Request) (*Registrator, error) {
+	return a.Authorizer.Authorize(r)
+}
+
+func validateContentType(r *http.Request) error {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		return errors.New("content type must be application/json")
 	}
-	// TODO: verify claims for authorized client registrators
-	return verifier.Verify(r.Context(), token)
+	return nil
+}
+
+const maxRegistrationBodySize = 64 << 10
+
+func decodeClientRegistration(w http.ResponseWriter, r *http.Request) (ClientRegistration, error) {
+	var registration ClientRegistration
+	r.Body = http.MaxBytesReader(w, r.Body, maxRegistrationBodySize)
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&registration); err != nil {
+		return registration, err
+	}
+
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return registration, errors.New("request body must contain exactly one JSON value")
+		}
+		return registration, err
+	}
+
+	if err := registration.validate(); err != nil {
+		return registration, err
+	}
+	return registration, nil
 }
 
 func respond(w http.ResponseWriter, r *http.Request, resp any, err error) {
@@ -139,22 +124,4 @@ func respond(w http.ResponseWriter, r *http.Request, resp any, err error) {
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-}
-
-func bearerToken(r *http.Request) (token string, ok bool) {
-	auth := r.Header.Get("Authorization")
-	if auth == "" {
-		return "", false
-	}
-
-	const prefix = "Bearer "
-	if len(auth) < len(prefix) || !strings.EqualFold(auth[:len(prefix)], prefix) {
-		return "", false
-	}
-
-	token = auth[len(prefix):]
-	if len(token) == 0 {
-		return "", false
-	}
-	return token, true
 }

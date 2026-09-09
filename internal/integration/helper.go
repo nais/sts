@@ -144,7 +144,7 @@ func startSts(t testing.TB, oauthServer testServer) (testServer, testServer) {
 			},
 			TokenExpiry: fixtures.TokenExpiry,
 		},
-		Registrators: []*registration.ClientRegistrator{
+		Registrators: []*registration.ClientRegistratorConfig{
 			{
 				Issuer:        oauthServer.Endpoint("env1"),
 				Subject:       "system:serviceaccount:namespace1:registrator1",
