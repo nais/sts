@@ -10,6 +10,10 @@ values:
     displayName: STS host
     computed:
       template: "sts.external.{{.Tenant.Name}}.cloud.nais.io"
+  config.authorizationServer.issuer:
+    displayName: STS issuer
+    computed:
+      template: "https://sts.external.{{.Tenant.Name}}.cloud.nais.io"
   image.tag:
     displayName: Image version
     config:

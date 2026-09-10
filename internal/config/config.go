@@ -1,40 +1,72 @@
 package config
 
 import (
-	"context"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
+	"time"
 
-	"github.com/joho/godotenv"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/registration"
-	"github.com/sethvargo/go-envconfig"
+	"go.yaml.in/yaml/v3"
 )
 
 type Config struct {
-	BindAddress               string     `env:"BIND_ADDRESS, default=:8080"`
-	DatabaseURL               string     `env:"DATABASE_URL, required"`
-	InternalBindAddress       string     `env:"INTERNAL_BIND_ADDRESS, default=:8081"`
-	LogLevel                  slog.Level `env:"LOG_LEVEL, default=info"`
-	LogFormat                 string     `env:"LOG_FORMAT, default=text"`
-	AuthorizationServerConfig oauth.AuthorizationServerConfig
-	Registrators              []*registration.ClientRegistratorConfig // TODO: env things
+	BindAddress               string                          `yaml:"bindAddress"`
+	DatabaseURL               string                          `yaml:"databaseUrl"`
+	InternalBindAddress       string                          `yaml:"internalBindAddress"`
+	LogLevel                  slog.Level                      `yaml:"logLevel"`
+	LogFormat                 string                          `yaml:"logFormat"`
+	AuthorizationServerConfig oauth.AuthorizationServerConfig `yaml:"authorizationServer"`
+	Registrators              registration.ClientRegistrators `yaml:"registrators"`
 }
 
-func Load(ctx context.Context) (Config, error) {
-	_ = godotenv.Load(".env")
-	return loadWith(ctx, envconfig.OsLookuper())
+func Load() (Config, error) {
+	path := os.Getenv("CONFIG_FILE")
+	if path == "" {
+		return Config{}, fmt.Errorf("CONFIG_FILE must be set")
+	}
+	return loadFile(path)
 }
 
-func loadWith(ctx context.Context, lookuper envconfig.Lookuper) (Config, error) {
-	var cfg Config
-	if err := envconfig.ProcessWith(ctx, &envconfig.Config{Target: &cfg, Lookuper: lookuper}); err != nil {
-		return Config{}, err
+func loadFile(path string) (Config, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("open config file: %w", err)
+	}
+	defer file.Close()
+
+	cfg := defaultConfig()
+	decoder := yaml.NewDecoder(file)
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&cfg); err != nil {
+		return Config{}, fmt.Errorf("decode config file: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return Config{}, fmt.Errorf("decode config file: multiple YAML documents are not supported")
+		}
+		return Config{}, fmt.Errorf("decode config file: %w", err)
 	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func defaultConfig() Config {
+	return Config{
+		BindAddress:         ":8080",
+		InternalBindAddress: ":8081",
+		LogLevel:            slog.LevelInfo,
+		LogFormat:           "text",
+		AuthorizationServerConfig: oauth.AuthorizationServerConfig{
+			ExpectedAudience: "nais",
+			TokenExpiry:      15 * time.Minute,
+		},
+	}
 }
 
 func (c Config) validate() error {
@@ -47,5 +79,8 @@ func (c Config) validate() error {
 	if c.LogFormat != "text" && c.LogFormat != "json" {
 		return fmt.Errorf("log format must be text or json")
 	}
-	return c.AuthorizationServerConfig.Validate()
+	if err := c.AuthorizationServerConfig.Validate(); err != nil {
+		return err
+	}
+	return c.Registrators.Validate()
 }

@@ -1,10 +1,11 @@
 #!/usr/bin/env sh
 #MISE description="Setup local environment"
+#MISE env={CONFIG_FILE = "config.yaml"}
 
 set -e
 
-if [ ! -e .env ]; then
-	cp .env.example .env
+if [ ! -e "${CONFIG_FILE}" ]; then
+	cp config.example.yaml "${CONFIG_FILE}"
 fi
 docker compose up -d
 go run ./cmd/setup_local_env

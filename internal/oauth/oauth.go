@@ -23,11 +23,11 @@ type AuthorizationServer struct {
 }
 
 type AuthorizationServerConfig struct {
-	Issuer              Issuer        `env:"ISSUER, default=http://localhost:8080"`
-	ExpectedAudience    string        `env:"EXPECTED_AUDIENCE, default=nais"`
-	ClientAuthIssuers   []Issuer      `env:"CLIENT_AUTH_ISSUERS, required"`
-	SubjectTokenIssuers []Issuer      `env:"SUBJECT_TOKEN_ISSUERS, required"`
-	TokenExpiry         time.Duration `env:"TOKEN_EXPIRY, default=1h"`
+	Issuer              Issuer        `yaml:"issuer"`
+	ExpectedAudience    string        `yaml:"expectedAudience"`
+	ClientAuthIssuers   []Issuer      `yaml:"clientAuthIssuers"`
+	SubjectTokenIssuers []Issuer      `yaml:"subjectTokenIssuers"`
+	TokenExpiry         time.Duration `yaml:"tokenExpiry"`
 }
 
 func (c AuthorizationServerConfig) Validate() error {
@@ -49,6 +49,12 @@ func (c AuthorizationServerConfig) Validate() error {
 	}
 	if len(c.SubjectTokenIssuers) == 0 {
 		return fmt.Errorf("subject token issuers must not be empty")
+	}
+	if c.ExpectedAudience == "" {
+		return fmt.Errorf("expected audience must not be empty")
+	}
+	if c.TokenExpiry <= 0 {
+		return fmt.Errorf("token expiry must be positive")
 	}
 	return nil
 }
