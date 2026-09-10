@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/registration"
 	"go.yaml.in/yaml/v3"
@@ -31,11 +32,12 @@ func Load() (Config, error) {
 }
 
 func loadFile(path string) (Config, error) {
+	// #nosec G304,G703 -- CONFIG_FILE is an operator-controlled bootstrap path, not request input.
 	file, err := os.Open(path)
 	if err != nil {
 		return Config{}, fmt.Errorf("open config file: %w", err)
 	}
-	defer file.Close()
+	defer ioconvenience.CloseWithLog(file, slog.Default())
 
 	cfg := defaultConfig()
 	decoder := yaml.NewDecoder(file)
