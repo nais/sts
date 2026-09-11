@@ -26,7 +26,7 @@ type Config struct {
 func Load() (Config, error) {
 	path := os.Getenv("CONFIG_FILE")
 	if path == "" {
-		return Config{}, fmt.Errorf("CONFIG_FILE must be set")
+		path = "config.yaml"
 	}
 	return loadFile(path)
 }
