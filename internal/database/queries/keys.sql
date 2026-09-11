@@ -16,3 +16,12 @@ ORDER BY created_at DESC;
 -- name: InsertSigningKey :exec
 INSERT INTO signing_keys (kid, algorithm, private_key, activated_at)
 VALUES (@kid, @algorithm, @private_key, @activated_at);
+
+-- name: GetKeys :one
+SELECT *
+FROM rotatable_signing_keys
+LIMIT 1;
+
+-- name: InsertKey :exec
+INSERT INTO rotatable_signing_keys (id, current_key, previous_key, next_key, expiry)
+VALUES (@id, @current_key, @previous_key, @next_key, @expiry);

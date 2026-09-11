@@ -31,3 +31,13 @@ CREATE TABLE signing_keys
     activated_at TIMESTAMPTZ,
     expires_at   TIMESTAMPTZ
 );
+
+-- Keys are stored as raw JWK
+CREATE TABLE rotatable_signing_keys
+(
+    id           UUID PRIMARY KEY,
+    current_key  BYTEA       NOT NULL,
+    previous_key BYTEA       NOT NULL,
+    next_key     BYTEA       NOT NULL,
+    expiry       TIMESTAMPTZ NOT NULL
+);

@@ -155,8 +155,8 @@ func TestPostgresKeyStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(keys.Keys) != 1 {
-		t.Fatalf("public keys = %d, want 1", len(keys.Keys))
+	if len(keys.Keys) != 2 {
+		t.Fatalf("public keys = %d, want 2", len(keys.Keys))
 	}
 	if _, ok := keys.Keys[0].Key.(*rsa.PublicKey); !ok {
 		t.Errorf("public key type = %T, want *rsa.PublicKey", keys.Keys[0].Key)

@@ -6,6 +6,8 @@ package sqlgen
 import (
 	"context"
 	"time"
+
+	"uuid"
 )
 
 const getActiveSigningKey = `-- name: GetActiveSigningKey :one
@@ -29,6 +31,49 @@ func (q *Queries) GetActiveSigningKey(ctx context.Context) (SigningKey, error) {
 		&i.ExpiresAt,
 	)
 	return i, err
+}
+
+const getKeys = `-- name: GetKeys :one
+SELECT id, current_key, previous_key, next_key, expiry
+FROM rotatable_signing_keys
+LIMIT 1
+`
+
+func (q *Queries) GetKeys(ctx context.Context) (RotatableSigningKey, error) {
+	row := q.db.QueryRow(ctx, getKeys)
+	var i RotatableSigningKey
+	err := row.Scan(
+		&i.ID,
+		&i.CurrentKey,
+		&i.PreviousKey,
+		&i.NextKey,
+		&i.Expiry,
+	)
+	return i, err
+}
+
+const insertKey = `-- name: InsertKey :exec
+INSERT INTO rotatable_signing_keys (id, current_key, previous_key, next_key, expiry)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertKeyParams struct {
+	ID          uuid.UUID
+	CurrentKey  []byte
+	PreviousKey []byte
+	NextKey     []byte
+	Expiry      time.Time
+}
+
+func (q *Queries) InsertKey(ctx context.Context, arg InsertKeyParams) error {
+	_, err := q.db.Exec(ctx, insertKey,
+		arg.ID,
+		arg.CurrentKey,
+		arg.PreviousKey,
+		arg.NextKey,
+		arg.Expiry,
+	)
+	return err
 }
 
 const insertSigningKey = `-- name: InsertSigningKey :exec

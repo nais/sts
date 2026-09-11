@@ -4,6 +4,8 @@ package sqlgen
 
 import (
 	"time"
+
+	"uuid"
 )
 
 type AuthorizationPolicy struct {
@@ -21,6 +23,14 @@ type KubernetesClient struct {
 	AllowedScopes []string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+type RotatableSigningKey struct {
+	ID          uuid.UUID
+	CurrentKey  []byte
+	PreviousKey []byte
+	NextKey     []byte
+	Expiry      time.Time
 }
 
 type SigningKey struct {

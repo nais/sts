@@ -30,3 +30,5 @@ sql:
             go_type:
               type: "time.Time"
               pointer: true
+          - db_type: "uuid"
+            go_type: "uuid.UUID"
