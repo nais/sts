@@ -11,7 +11,7 @@ import (
 
 func main() {
 	ctx := context.Background()
-	cfg, err := config.Load(ctx)
+	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("loading STS config", "error", err)
 		os.Exit(1)

@@ -1,7 +1,19 @@
 tenantName: example
 
-# TODO: the service requires DATABASE_URL, but nothing provides it yet.
-# Wire it from the Secret of a CNPG-provisioned database before deploying.
+config:
+  bindAddress: :8080
+  internalBindAddress: :8081
+  # Fasit must inject the database URL and configured token issuers.
+  databaseUrl: ""
+  logLevel: info
+  logFormat: json
+  authorizationServer:
+    issuer: https://sts.external.example.cloud.nais.io
+    expectedAudience: nais
+    clientAuthIssuers: []
+    subjectTokenIssuers: []
+    tokenExpiry: "1h"
+  registrators: []
 
 image:
   repository: europe-north1-docker.pkg.dev/nais-io/nais/images/sts

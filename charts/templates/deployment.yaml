@@ -13,10 +13,11 @@ spec:
       {{- include "sts.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
       annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config-secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       labels:
         {{- include "sts.selectorLabels" . | nindent 8 }}
         app: {{ include "sts.name" . }}
@@ -36,10 +37,8 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
-            - name: ISSUER
-              value: {{ printf "https://%s" .Values.ingress.host | quote }}
-            - name: LOG_FORMAT
-              value: json
+            - name: CONFIG_FILE
+              value: /etc/sts/config.yaml
           ports:
             - name: http
               containerPort: 8080
@@ -57,6 +56,15 @@ spec:
               port: metrics
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sts
+              readOnly: true
+      volumes:
+        - name: config
+          secret:
+            secretName: {{ include "sts.fullname" . }}-config
+            defaultMode: 0440
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

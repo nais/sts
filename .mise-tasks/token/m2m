@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Get a client credentials token"
+#MISE env={CONFIG_FILE = "config.yaml"}
 #USAGE flag "-e --environment <environment>" help="The environment to use for the token request" default="env1"
 #USAGE flag "-n --namespace <namespace>" help="The namespace to use for the token request" default="namespace1"
 #USAGE flag "-w --workload <workload>" help="The workload to use for the token request" default="workload1"
@@ -7,9 +8,7 @@
 
 set -euo pipefail
 
-set -a
-source .env
-set +a
+ISSUER=$(yq -er '.authorizationServer.issuer' "${CONFIG_FILE}")
 
 ENV="${usage_environment}"
 

@@ -34,7 +34,12 @@ Server runs two listeners for public and internal use:
 - `http://localhost:8081/readyz`
 - `http://localhost:8081/metrics`
 
-Edit `.env` to override the local configuration.
+The local setup copies `config.example.yaml` to the gitignored `config.yaml`.
+Edit `config.yaml` to change the local configuration.
+
+Set `CONFIG_FILE` to use
+another file. STS reads all application configuration from that YAML file and
+rejects unknown fields.
 
 ## Performance
 

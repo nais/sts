@@ -1,0 +1,23 @@
+bindAddress: :8080
+internalBindAddress: :8081
+databaseUrl: postgres://postgres:postgres@localhost:5432/sts?sslmode=disable
+logLevel: info
+logFormat: text
+
+authorizationServer:
+  issuer: http://localhost:8080
+  expectedAudience: nais
+  clientAuthIssuers:
+    - http://localhost:3004/env1
+    - http://localhost:3004/env2
+  subjectTokenIssuers:
+    - http://localhost:3004/subject1
+    - http://localhost:3004/subject2
+  tokenExpiry: "1h"
+
+registrators:
+  - issuer: http://localhost:3004/env1
+    subject: client-registrator
+    clientJwksUri: http://localhost:3004/env1/jwks
+    requiredAlgs:
+      - RS256
