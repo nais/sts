@@ -8,15 +8,12 @@ import (
 
 type Querier interface {
 	DeleteKubernetesClient(ctx context.Context, id string) error
-	GetActiveSigningKey(ctx context.Context) (SigningKey, error)
 	GetAuthorizationPolicy(ctx context.Context, arg GetAuthorizationPolicyParams) (AuthorizationPolicy, error)
-	GetKeys(ctx context.Context) (RotatableSigningKey, error)
 	GetKubernetesClient(ctx context.Context, arg GetKubernetesClientParams) (KubernetesClient, error)
-	InsertKey(ctx context.Context, arg InsertKeyParams) error
-	InsertSigningKey(ctx context.Context, arg InsertSigningKeyParams) error
+	GetSigningKeySet(ctx context.Context) (RotatableSigningKey, error)
 	ListAuthorizationPolicies(ctx context.Context) ([]AuthorizationPolicy, error)
 	ListKubernetesClients(ctx context.Context) ([]KubernetesClient, error)
-	ListValidSigningKeys(ctx context.Context) ([]SigningKey, error)
+	SaveSigningKeySet(ctx context.Context, arg SaveSigningKeySetParams) error
 	UpsertAuthorizationPolicy(ctx context.Context, arg UpsertAuthorizationPolicyParams) error
 	UpsertKubernetesClient(ctx context.Context, arg UpsertKubernetesClientParams) error
 }

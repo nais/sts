@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
+	"slices"
+	"sync/atomic"
 	"time"
 	"uuid"
 
@@ -19,20 +19,20 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-// TODO: review this entire file...
+const (
+	// signingKeyLockID serializes key creation and rotation across replicas.
+	signingKeyLockID = 4711
 
-// signingKeyLockID guards signing key creation, so concurrent replicas create one key.
-const signingKeyLockID = 4711
+	signingKeyRetentionLeeway = 5 * time.Minute
+)
 
-type PostgresKeyStore struct {
-	pool      *pgxpool.Pool
-	queries   *sqlgen.Queries
-	cacheTTL  time.Duration
-	keyExpiry time.Duration
+var signingKeySetID = uuid.MustParse("00000000-0000-0000-0000-000000004711")
 
-	mu      sync.Mutex
-	cache   *keyCache
-	fetched time.Time
+type RotatingKeyStore struct {
+	pool     *pgxpool.Pool
+	queries  *sqlgen.Queries
+	keyTTL   time.Duration
+	snapshot atomic.Pointer[keyCache]
 }
 
 type keyCache struct {
@@ -42,41 +42,68 @@ type keyCache struct {
 	sqlgen.RotatableSigningKey
 }
 
-func NewPostgresKeyStore(ctx context.Context, pool *pgxpool.Pool, cacheTTL time.Duration) (*PostgresKeyStore, error) {
-	keystore := &PostgresKeyStore{
-		pool:      pool,
-		queries:   sqlgen.New(pool),
-		cacheTTL:  cacheTTL,
-		keyExpiry: 30 * time.Second, // TODO
+func NewRotatingKeyStore(ctx context.Context, pool *pgxpool.Pool, tokenTTL time.Duration) (*RotatingKeyStore, error) {
+	if tokenTTL <= 0 {
+		return nil, fmt.Errorf("token TTL must be positive")
 	}
 
-	err := keystore.EnsureSigningKey(ctx)
-	if err != nil {
+	keystore := &RotatingKeyStore{
+		pool:    pool,
+		queries: sqlgen.New(pool),
+		// A key remains public for one full rotation after it stops signing.
+		// This must exceed the token lifetime so every live token remains verifiable.
+		keyTTL: tokenTTL + signingKeyRetentionLeeway,
+	}
+
+	if err := keystore.ensureInitialSigningKeys(ctx); err != nil {
 		return nil, fmt.Errorf("initialize keystore: %w", err)
 	}
+	if err := keystore.refresh(ctx); err != nil {
+		return nil, fmt.Errorf("load initial signing keys: %w", err)
+	}
+
 	return keystore, nil
 }
 
-func (s *PostgresKeyStore) Signer(ctx context.Context) (jose.Signer, error) {
-	cache, err := s.load(ctx)
-	if err != nil {
-		return nil, err
+func (r *RotatingKeyStore) Run(ctx context.Context) error {
+	for {
+		current := r.snapshot.Load()
+		if current == nil {
+			return errors.New("signing key cache is not initialized")
+		}
+
+		timer := time.NewTimer(max(time.Until(current.ExpiresAt), 0))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil
+		case <-timer.C:
+			if err := r.RotateSigningKeys(ctx); err != nil {
+				return fmt.Errorf("rotate signing keys: %w", err)
+			}
+		}
 	}
-	return cache.signer, nil
 }
 
-func (s *PostgresKeyStore) PublicKeys(ctx context.Context) (*jose.JSONWebKeySet, error) {
-	cache, err := s.load(ctx)
-	if err != nil {
-		return nil, err
+func (r *RotatingKeyStore) Signer() (jose.Signer, error) {
+	current := r.snapshot.Load()
+	if current == nil {
+		return nil, errors.New("signing key cache is not initialized")
 	}
-	keys := cache.public
-	return &keys, nil
+	return current.signer, nil
 }
 
-// EnsureSigningKey creates the first signing key, so a fresh database can issue tokens.
-func (s *PostgresKeyStore) EnsureSigningKey(ctx context.Context) error {
-	tx, err := s.pool.Begin(ctx)
+func (r *RotatingKeyStore) PublicKeys() (*jose.JSONWebKeySet, error) {
+	current := r.snapshot.Load()
+	if current == nil {
+		return nil, errors.New("signing key cache is not initialized")
+	}
+	return &jose.JSONWebKeySet{Keys: slices.Clone(current.public.Keys)}, nil
+}
+
+// ensureInitialSigningKeys creates the first signing keys, so a fresh database can issue tokens.
+func (r *RotatingKeyStore) ensureInitialSigningKeys(ctx context.Context) error {
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin signing key transaction: %w", err)
 	}
@@ -86,16 +113,8 @@ func (s *PostgresKeyStore) EnsureSigningKey(ctx context.Context) error {
 		return fmt.Errorf("lock signing keys: %w", err)
 	}
 
-	queries := s.queries.WithTx(tx)
-	_, err = queries.GetActiveSigningKey(ctx)
-	if err == nil {
-		return nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("read active signing key: %w", err)
-	}
-
-	_, err = queries.GetKeys(ctx)
+	queries := r.queries.WithTx(tx)
+	_, err = queries.GetSigningKeySet(ctx)
 	if err == nil {
 		return nil
 	}
@@ -103,86 +122,131 @@ func (s *PostgresKeyStore) EnsureSigningKey(ctx context.Context) error {
 		return fmt.Errorf("read active rotatable signing key: %w", err)
 	}
 
-	// TODO: consider stronger algorithm, should be configurable and looked up from a single source of truth
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	previousKey, err := generateJWK()
 	if err != nil {
-		return fmt.Errorf("generate signing key: %w", err)
+		return err
 	}
-	der, err := x509.MarshalPKCS8PrivateKey(key)
+	currentKey, err := generateJWK()
 	if err != nil {
-		return fmt.Errorf("encode signing key: %w", err)
+		return err
 	}
-	if err := queries.InsertSigningKey(ctx, sqlgen.InsertSigningKeyParams{
-		Kid:         uuid.New().String(),
-		Algorithm:   string(jose.RS256),
-		PrivateKey:  der,
-		ActivatedAt: new(time.Now()),
-	}); err != nil {
-		return fmt.Errorf("insert signing key: %w", err)
+	nextKey, err := generateJWK()
+	if err != nil {
+		return err
 	}
 
-	previousKey, err := generateJwk()
-	if err != nil {
-		return err
-	}
-	currentKey, err := generateJwk()
-	if err != nil {
-		return err
-	}
-	nextKey, err := generateJwk()
-	if err != nil {
-		return err
-	}
-	if err := queries.InsertKey(ctx, sqlgen.InsertKeyParams{
-		ID:          uuid.New(),
+	if err = queries.SaveSigningKeySet(ctx, sqlgen.SaveSigningKeySetParams{
+		ID:          signingKeySetID,
 		CurrentKey:  currentKey,
 		PreviousKey: previousKey,
 		NextKey:     nextKey,
-		Expiry:      time.Now().Add(s.keyExpiry),
+		ExpiresAt:   time.Now().Add(r.keyTTL),
 	}); err != nil {
 		return fmt.Errorf("insert rotatable signing key: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit signing key transaction: %w", err)
+	}
+	return nil
 }
 
-func generateJwk() ([]byte, error) {
-	// TODO: review
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+// RotateSigningKeys rotates the database key set at most once and then reloads
+// this replica's snapshot. The advisory lock and expiration recheck make this
+// safe when multiple replicas call it concurrently.
+func (r *RotatingKeyStore) RotateSigningKeys(ctx context.Context) error {
+	if err := r.rotateSigningKeysInDatabase(ctx); err != nil {
+		return err
+	}
+	if err := r.refresh(ctx); err != nil {
+		return fmt.Errorf("refresh signing keys after rotation: %w", err)
+	}
+	return nil
+}
+
+func (r *RotatingKeyStore) rotateSigningKeysInDatabase(ctx context.Context) error {
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("generate signing key: %w", err)
+		return fmt.Errorf("begin signing key rotation transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", signingKeyLockID); err != nil {
+		return fmt.Errorf("lock signing keys: %w", err)
 	}
 
-	return jose.JSONWebKey{
-		Key:       key,
-		KeyID:     uuid.New().String(),
-		Algorithm: string(jose.RS256),
-		Use:       oidc.KeyUseSignature,
-	}.MarshalJSON()
+	queries := r.queries.WithTx(tx)
+	keySet, err := queries.GetSigningKeySet(ctx)
+	if err != nil {
+		return fmt.Errorf("get signing key set: %w", err)
+	}
+
+	if time.Now().Before(keySet.ExpiresAt) {
+		return nil
+	}
+
+	nextKey, err := generateJWK()
+	if err != nil {
+		return err
+	}
+
+	if err = queries.SaveSigningKeySet(ctx, sqlgen.SaveSigningKeySetParams{
+		ID:          keySet.ID,
+		CurrentKey:  keySet.NextKey,
+		PreviousKey: keySet.CurrentKey,
+		NextKey:     nextKey,
+		ExpiresAt:   time.Now().Add(r.keyTTL),
+	}); err != nil {
+		return fmt.Errorf("save rotated signing keys: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit signing key rotation: %w", err)
+	}
+	return nil
 }
 
-func (s *PostgresKeyStore) VerifySignature(ctx context.Context, jws *jose.JSONWebSignature) ([]byte, error) {
+func (r *RotatingKeyStore) VerifySignature(ctx context.Context, jws *jose.JSONWebSignature) ([]byte, error) {
 	keyID, alg := oidc.GetKeyIDAndAlg(jws)
-	keySet, err := s.PublicKeys(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get public keys: %w", err)
+	findKey := func() (jose.JSONWebKey, error) {
+		keySet, err := r.PublicKeys()
+		if err != nil {
+			return jose.JSONWebKey{}, fmt.Errorf("get public keys: %w", err)
+		}
+		return oidc.FindMatchingKey(keyID, oidc.KeyUseSignature, alg, keySet.Keys...)
 	}
-	key, err := oidc.FindMatchingKey(keyID, oidc.KeyUseSignature, alg, keySet.Keys...)
+
+	key, err := findKey()
+	if err != nil {
+		// Another replica may just have rotated. Refresh once before rejecting an
+		// unknown key so verification does not depend on notification latency.
+		if refreshErr := r.refresh(ctx); refreshErr != nil {
+			return nil, fmt.Errorf("refresh signing keys after key miss: %w", refreshErr)
+		}
+		key, err = findKey()
+		if err != nil {
+			return nil, fmt.Errorf("find verification key: %w", err)
+		}
+	}
+
+	payload, err := jws.Verify(&key)
 	if err != nil {
 		return nil, fmt.Errorf("invalid signature: %w", err)
 	}
-	return jws.Verify(&key)
+	return payload, nil
 }
 
-func (s *PostgresKeyStore) load(ctx context.Context) (*keyCache, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.cache != nil && time.Since(s.fetched) < s.cacheTTL {
-		return s.cache, nil
+func (r *RotatingKeyStore) refresh(ctx context.Context) error {
+	current, err := r.load(ctx)
+	if err != nil {
+		return err
 	}
+	r.snapshot.Store(current)
+	return nil
+}
 
-	rotatableKeys, err := s.queries.GetKeys(ctx)
+func (r *RotatingKeyStore) load(ctx context.Context) (*keyCache, error) {
+	signingKeySet, err := r.queries.GetSigningKeySet(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errors.New("no active rotatable signing key")
 	}
@@ -190,36 +254,61 @@ func (s *PostgresKeyStore) load(ctx context.Context) (*keyCache, error) {
 		return nil, fmt.Errorf("read active rotatable signing key: %w", err)
 	}
 
-	var activeKey *jose.JSONWebKey
-	err = json.Unmarshal(rotatableKeys.CurrentKey, &activeKey)
-	if err != nil {
+	var activeKey jose.JSONWebKey
+	if err := json.Unmarshal(signingKeySet.CurrentKey, &activeKey); err != nil {
 		return nil, fmt.Errorf("unmarshal current key: %w", err)
 	}
+	if activeKey.Key == nil {
+		return nil, errors.New("current signing key is empty")
+	}
 
-	var previousKey *jose.JSONWebKey
-	err = json.Unmarshal(rotatableKeys.PreviousKey, &previousKey)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal current key: %w", err)
+	var previousKey jose.JSONWebKey
+	if err := json.Unmarshal(signingKeySet.PreviousKey, &previousKey); err != nil {
+		return nil, fmt.Errorf("unmarshal previous key: %w", err)
+	}
+	if previousKey.Key == nil {
+		return nil, errors.New("previous signing key is empty")
+	}
+
+	var nextKey jose.JSONWebKey
+	if err := json.Unmarshal(signingKeySet.NextKey, &nextKey); err != nil {
+		return nil, fmt.Errorf("unmarshal next key: %w", err)
+	}
+	if nextKey.Key == nil {
+		return nil, errors.New("next signing key is empty")
+	}
+	if previousKey.KeyID == activeKey.KeyID || previousKey.KeyID == nextKey.KeyID || activeKey.KeyID == nextKey.KeyID {
+		return nil, errors.New("signing keys must have distinct key IDs")
 	}
 
 	signer, err := jose.NewSigner(jose.SigningKey{
 		Algorithm: jose.SignatureAlgorithm(activeKey.Algorithm),
-		Key:       activeKey,
+		Key:       &activeKey,
 	}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create signer: %w", err)
 	}
 
-	public := []jose.JSONWebKey{
-		previousKey.Public(),
-		activeKey.Public(),
-	}
+	return &keyCache{
+		signer: signer,
+		public: jose.JSONWebKeySet{Keys: []jose.JSONWebKey{
+			previousKey.Public(),
+			activeKey.Public(),
+			nextKey.Public(),
+		}},
+		RotatableSigningKey: signingKeySet,
+	}, nil
+}
 
-	s.cache = &keyCache{
-		signer:              signer,
-		public:              jose.JSONWebKeySet{Keys: public},
-		RotatableSigningKey: rotatableKeys,
+func generateJWK() ([]byte, error) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("generate signing key: %w", err)
 	}
-	s.fetched = time.Now()
-	return s.cache, nil
+	return jose.JSONWebKey{
+		Key:       key,
+		KeyID:     uuid.New().String(),
+		Algorithm: string(jose.RS256),
+		Use:       oidc.KeyUseSignature,
+	}.MarshalJSON()
 }

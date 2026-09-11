@@ -10,125 +10,52 @@ import (
 	"uuid"
 )
 
-const getActiveSigningKey = `-- name: GetActiveSigningKey :one
-SELECT kid, algorithm, private_key, created_at, activated_at, expires_at
-FROM signing_keys
-WHERE activated_at IS NOT NULL
-  AND (expires_at IS NULL OR expires_at > NOW())
-ORDER BY activated_at DESC
-LIMIT 1
-`
-
-func (q *Queries) GetActiveSigningKey(ctx context.Context) (SigningKey, error) {
-	row := q.db.QueryRow(ctx, getActiveSigningKey)
-	var i SigningKey
-	err := row.Scan(
-		&i.Kid,
-		&i.Algorithm,
-		&i.PrivateKey,
-		&i.CreatedAt,
-		&i.ActivatedAt,
-		&i.ExpiresAt,
-	)
-	return i, err
-}
-
-const getKeys = `-- name: GetKeys :one
-SELECT id, current_key, previous_key, next_key, expiry
+const getSigningKeySet = `-- name: GetSigningKeySet :one
+SELECT id, current_key, previous_key, next_key, expires_at, created_at, updated_at
 FROM rotatable_signing_keys
-LIMIT 1
 `
 
-func (q *Queries) GetKeys(ctx context.Context) (RotatableSigningKey, error) {
-	row := q.db.QueryRow(ctx, getKeys)
+func (q *Queries) GetSigningKeySet(ctx context.Context) (RotatableSigningKey, error) {
+	row := q.db.QueryRow(ctx, getSigningKeySet)
 	var i RotatableSigningKey
 	err := row.Scan(
 		&i.ID,
 		&i.CurrentKey,
 		&i.PreviousKey,
 		&i.NextKey,
-		&i.Expiry,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const insertKey = `-- name: InsertKey :exec
-INSERT INTO rotatable_signing_keys (id, current_key, previous_key, next_key, expiry)
+const saveSigningKeySet = `-- name: SaveSigningKeySet :exec
+INSERT INTO rotatable_signing_keys (id, current_key, previous_key, next_key, expires_at)
 VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (id) DO UPDATE
+SET current_key = EXCLUDED.current_key,
+    previous_key = EXCLUDED.previous_key,
+    next_key = EXCLUDED.next_key,
+    expires_at = EXCLUDED.expires_at,
+    updated_at = NOW()
 `
 
-type InsertKeyParams struct {
+type SaveSigningKeySetParams struct {
 	ID          uuid.UUID
 	CurrentKey  []byte
 	PreviousKey []byte
 	NextKey     []byte
-	Expiry      time.Time
+	ExpiresAt   time.Time
 }
 
-func (q *Queries) InsertKey(ctx context.Context, arg InsertKeyParams) error {
-	_, err := q.db.Exec(ctx, insertKey,
+func (q *Queries) SaveSigningKeySet(ctx context.Context, arg SaveSigningKeySetParams) error {
+	_, err := q.db.Exec(ctx, saveSigningKeySet,
 		arg.ID,
 		arg.CurrentKey,
 		arg.PreviousKey,
 		arg.NextKey,
-		arg.Expiry,
+		arg.ExpiresAt,
 	)
 	return err
-}
-
-const insertSigningKey = `-- name: InsertSigningKey :exec
-INSERT INTO signing_keys (kid, algorithm, private_key, activated_at)
-VALUES ($1, $2, $3, $4)
-`
-
-type InsertSigningKeyParams struct {
-	Kid         string
-	Algorithm   string
-	PrivateKey  []byte
-	ActivatedAt *time.Time
-}
-
-func (q *Queries) InsertSigningKey(ctx context.Context, arg InsertSigningKeyParams) error {
-	_, err := q.db.Exec(ctx, insertSigningKey,
-		arg.Kid,
-		arg.Algorithm,
-		arg.PrivateKey,
-		arg.ActivatedAt,
-	)
-	return err
-}
-
-const listValidSigningKeys = `-- name: ListValidSigningKeys :many
-SELECT kid, algorithm, private_key, created_at, activated_at, expires_at
-FROM signing_keys
-WHERE expires_at IS NULL
-   OR expires_at > NOW()
-ORDER BY created_at DESC
-`
-
-func (q *Queries) ListValidSigningKeys(ctx context.Context) ([]SigningKey, error) {
-	rows, err := q.db.Query(ctx, listValidSigningKeys)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SigningKey{}
-	for rows.Next() {
-		var i SigningKey
-		if err := rows.Scan(
-			&i.Kid,
-			&i.Algorithm,
-			&i.PrivateKey,
-			&i.CreatedAt,
-			&i.ActivatedAt,
-			&i.ExpiresAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }

@@ -30,14 +30,7 @@ type RotatableSigningKey struct {
 	CurrentKey  []byte
 	PreviousKey []byte
 	NextKey     []byte
-	Expiry      time.Time
-}
-
-type SigningKey struct {
-	Kid         string
-	Algorithm   string
-	PrivateKey  []byte
+	ExpiresAt   time.Time
 	CreatedAt   time.Time
-	ActivatedAt *time.Time
-	ExpiresAt   *time.Time
+	UpdatedAt   time.Time
 }

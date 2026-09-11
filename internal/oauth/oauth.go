@@ -162,7 +162,7 @@ func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenReq
 }
 
 func (a *AuthorizationServer) Keys(ctx context.Context) (*Response, error) {
-	keys, err := a.KeyStore.PublicKeys(ctx)
+	keys, err := a.KeyStore.PublicKeys()
 	if err != nil {
 		return nil, fmt.Errorf("get public keys: %w", err)
 	}
@@ -178,7 +178,7 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 	}
 
 	finishStep := a.Metrics.StartTokenStep(ctx, "get_signer")
-	signer, err := a.KeyStore.Signer(ctx)
+	signer, err := a.KeyStore.Signer()
 	finishStep(err)
 	if err != nil {
 		return nil, fmt.Errorf("get signer: %w", err)

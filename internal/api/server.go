@@ -91,7 +91,7 @@ func startServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 	}
 	defer clientStore.Close()
 
-	keyStore, err := store.NewPostgresKeyStore(ctx, pool, signingKeyCacheTTL)
+	keyStore, err := store.NewRotatingKeyStore(ctx, pool, cfg.AuthorizationServerConfig.TokenExpiry)
 	if err != nil {
 		return err
 	}
@@ -128,6 +128,7 @@ func startServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 		clientStore.Run(groupCtx)
 		return nil
 	})
+	group.Go(func() error { return keyStore.Run(groupCtx) })
 	group.Go(func() error { return shutdown(groupCtx, "public", publicServer) })
 	group.Go(func() error { return shutdown(groupCtx, "internal", internalServer) })
 	return group.Wait()

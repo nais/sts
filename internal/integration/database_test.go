@@ -135,32 +135,60 @@ func TestWithTx(t *testing.T) {
 func TestPostgresKeyStore(t *testing.T) {
 	ctx := t.Context()
 	pool := newTestPool(t)
-	st, err := store.NewPostgresKeyStore(ctx, pool, time.Minute)
+	st, err := store.NewRotatingKeyStore(ctx, pool, time.Minute)
 	require.NoError(t, err)
 
-	// A second call must not create another key.
-	if err := st.EnsureSigningKey(ctx); err != nil {
-		t.Fatal(err)
+	_, err = st.Signer()
+	require.NoError(t, err)
+	keys, err := st.PublicKeys()
+	require.NoError(t, err)
+	require.Len(t, keys.Keys, 3)
+	_, ok := keys.Keys[0].Key.(*rsa.PublicKey)
+	require.True(t, ok, "public key type = %T", keys.Keys[0].Key)
+
+	// A second replica must load the existing keys instead of creating another set.
+	second, err := store.NewRotatingKeyStore(ctx, pool, time.Minute)
+	require.NoError(t, err)
+	secondKeys, err := second.PublicKeys()
+	require.NoError(t, err)
+	require.Equal(t,
+		[]string{keys.Keys[0].KeyID, keys.Keys[1].KeyID, keys.Keys[2].KeyID},
+		[]string{secondKeys.Keys[0].KeyID, secondKeys.Keys[1].KeyID, secondKeys.Keys[2].KeyID},
+	)
+
+	// Force expiry and rotate concurrently. The advisory lock must allow exactly
+	// one rotation while both replicas refresh to the same three-key snapshot.
+	_, err = pool.Exec(ctx, "UPDATE rotatable_signing_keys SET expires_at = NOW() - INTERVAL '1 second'")
+	require.NoError(t, err)
+
+	var group sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, keyStore := range []*store.RotatingKeyStore{st, second} {
+		group.Go(func() {
+			errs <- keyStore.RotateSigningKeys(ctx)
+		})
+	}
+	group.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
 	}
 
-	// A third call must not create another key.
-	if err := st.EnsureSigningKey(ctx); err != nil {
-		t.Fatal(err)
-	}
+	rotatedKeys, err := st.PublicKeys()
+	require.NoError(t, err)
+	secondRotatedKeys, err := second.PublicKeys()
+	require.NoError(t, err)
+	require.Len(t, rotatedKeys.Keys, 3)
+	require.Equal(t,
+		[]string{rotatedKeys.Keys[0].KeyID, rotatedKeys.Keys[1].KeyID, rotatedKeys.Keys[2].KeyID},
+		[]string{secondRotatedKeys.Keys[0].KeyID, secondRotatedKeys.Keys[1].KeyID, secondRotatedKeys.Keys[2].KeyID},
+	)
+	require.Equal(t, keys.Keys[1].KeyID, rotatedKeys.Keys[0].KeyID)
+	require.Equal(t, keys.Keys[2].KeyID, rotatedKeys.Keys[1].KeyID)
 
-	if _, err := st.Signer(ctx); err != nil {
-		t.Fatal(err)
-	}
-	keys, err := st.PublicKeys(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(keys.Keys) != 2 {
-		t.Fatalf("public keys = %d, want 2", len(keys.Keys))
-	}
-	if _, ok := keys.Keys[0].Key.(*rsa.PublicKey); !ok {
-		t.Errorf("public key type = %T, want *rsa.PublicKey", keys.Keys[0].Key)
-	}
+	var rows int
+	require.NoError(t, pool.QueryRow(ctx, "SELECT COUNT(*) FROM rotatable_signing_keys").Scan(&rows))
+	require.Equal(t, 1, rows)
 }
 
 func TestCachedClientStoreFallsBackToPostgresOnMiss(t *testing.T) {

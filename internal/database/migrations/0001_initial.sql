@@ -21,23 +21,14 @@ CREATE TABLE authorization_policies
     PRIMARY KEY (owner_client_id, consumer_client_id)
 );
 
--- Private key material is stored as unencrypted PKCS#8 DER for now.
-CREATE TABLE signing_keys
-(
-    kid          TEXT PRIMARY KEY,
-    algorithm    TEXT        NOT NULL,
-    private_key  BYTEA       NOT NULL,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    activated_at TIMESTAMPTZ,
-    expires_at   TIMESTAMPTZ
-);
-
 -- Keys are stored as raw JWK
 CREATE TABLE rotatable_signing_keys
 (
-    id           UUID PRIMARY KEY,
+    id           UUID        NOT NULL PRIMARY KEY,
     current_key  BYTEA       NOT NULL,
     previous_key BYTEA       NOT NULL,
     next_key     BYTEA       NOT NULL,
-    expiry       TIMESTAMPTZ NOT NULL
+    expires_at   TIMESTAMPTZ NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
