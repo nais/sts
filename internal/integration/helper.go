@@ -33,23 +33,26 @@ import (
 var key crypto.PrivateKey
 
 type testFixtures struct {
-	Environment    string
-	Namespace      string
-	ClientWorkload string
-	ClientID       string
-	Target         string
-	Role           string
-	TokenExpiry    time.Duration
+	Client1     clientFixture
+	Client2     clientFixture
+	Client3     clientFixture
+	Role        string
+	TokenExpiry time.Duration
+}
+
+type clientFixture struct {
+	Environment string
+	Namespace   string
+	Workload    string
+	ID          string
 }
 
 var fixtures = testFixtures{
-	Environment:    "env1",
-	Namespace:      "namespace1",
-	ClientWorkload: "workload1",
-	ClientID:       "env1:namespace1:workload1",
-	Target:         "env1:namespace1:workload2",
-	Role:           "reader",
-	TokenExpiry:    time.Hour,
+	Client1:     clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "workload1", ID: "env1:namespace1:workload1"},
+	Client2:     clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "workload2", ID: "env1:namespace1:workload2"},
+	Client3:     clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "workload3", ID: "env1:namespace1:workload3"},
+	Role:        "reader",
+	TokenExpiry: time.Hour,
 }
 
 func init() {
@@ -226,22 +229,30 @@ func seedSts(t testing.TB, dsn string, oauthServer testServer) {
 	defer pool.Close()
 
 	queries := sqlgen.New(pool)
-	if err := queries.UpsertKubernetesClient(t.Context(), sqlgen.UpsertKubernetesClientParams{
-		ID:            fixtures.ClientID,
-		Environment:   fixtures.Environment,
-		Namespace:     fixtures.Namespace,
-		Workload:      fixtures.ClientWorkload,
-		Issuer:        oauthServer.Endpoint(fixtures.Environment),
-		AllowedScopes: []string{fixtures.Target},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := queries.UpsertAuthorizationPolicy(t.Context(), sqlgen.UpsertAuthorizationPolicyParams{
-		OwnerClientID:    fixtures.ClientID,
-		ConsumerClientID: fixtures.Target,
-		Roles:            []string{fixtures.Role},
-	}); err != nil {
-		t.Fatal(err)
+	for _, pair := range []struct {
+		client clientFixture
+		target clientFixture
+	}{
+		{client: fixtures.Client1, target: fixtures.Client2},
+		{client: fixtures.Client2, target: fixtures.Client3},
+	} {
+		if err := queries.UpsertKubernetesClient(t.Context(), sqlgen.UpsertKubernetesClientParams{
+			ID:            pair.client.ID,
+			Environment:   pair.client.Environment,
+			Namespace:     pair.client.Namespace,
+			Workload:      pair.client.Workload,
+			Issuer:        oauthServer.Endpoint(pair.client.Environment),
+			AllowedScopes: []string{pair.target.ID},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := queries.UpsertAuthorizationPolicy(t.Context(), sqlgen.UpsertAuthorizationPolicyParams{
+			OwnerClientID:    pair.client.ID,
+			ConsumerClientID: pair.target.ID,
+			Roles:            []string{fixtures.Role},
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

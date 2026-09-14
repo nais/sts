@@ -22,7 +22,7 @@ func BenchmarkSts(b *testing.B) {
 	oauthServer := startMockOAuthServer(b)
 	sts, internalSts := startSts(b, oauthServer)
 
-	clientAssertion := getKubernetesToken(b, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
+	clientAssertion := getKubernetesToken(b, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
 	subjectToken, _ := getSubjectToken(b, oauthServer, "subject1")
 
 	benchmarks := []struct {
@@ -31,11 +31,11 @@ func BenchmarkSts(b *testing.B) {
 	}{
 		{
 			name: "client_credentials",
-			form: clientCredentialsForm(clientAssertion, fixtures.Target),
+			form: clientCredentialsForm(clientAssertion, fixtures.Client2.ID),
 		},
 		{
 			name: "token_exchange",
-			form: tokenExchangeForm(clientAssertion, subjectToken, fixtures.Target),
+			form: tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID),
 		},
 	}
 

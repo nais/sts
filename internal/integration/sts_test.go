@@ -48,19 +48,19 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("registration", func(t *testing.T) {
-		registratorToken := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, "registrator1")
+		registratorToken := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, "registrator1")
 		statement := registration.SoftwareStatement{
 			ClientId: "env1:namespace1:registered-workload",
 			Workload: registration.Workload{
-				Environment: fixtures.Environment,
-				Issuer:      oauthServer.Endpoint(fixtures.Environment),
-				Namespace:   fixtures.Namespace,
+				Environment: fixtures.Client1.Environment,
+				Issuer:      oauthServer.Endpoint(fixtures.Client1.Environment),
+				Namespace:   fixtures.Client1.Namespace,
 				Name:        "registered-workload",
 			},
 			AuthorizationPolicies: []oauth.AuthorizationPolicy{
 				{
 					Owner:    "env1:namespace1:registered-workload",
-					Consumer: oauth.ClientID(fixtures.Target),
+					Consumer: oauth.ClientID(fixtures.Client2.ID),
 					Roles:    oauth.Roles{fixtures.Role},
 				},
 			},
@@ -81,8 +81,8 @@ func TestSts(t *testing.T) {
 			assert.Equal(t, request.SoftwareStatement, response.SoftwareStatement)
 
 			// Verify that both the client and its authorization policy were persisted.
-			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, statement.Workload.Name)
-			token := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Target))
+			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, statement.Workload.Name)
+			token := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
 			require.NotEmpty(t, token.AccessToken)
 		})
 
@@ -98,7 +98,7 @@ func TestSts(t *testing.T) {
 		})
 
 		t.Run("rejects unauthorized registrator", func(t *testing.T) {
-			unauthorizedToken := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, "not-a-registrator")
+			unauthorizedToken := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, "not-a-registrator")
 			request := registration.ClientRegistration{
 				ClientName:        "unauthorized",
 				SoftwareStatement: signed,
@@ -139,28 +139,29 @@ func TestSts(t *testing.T) {
 			require.Equal(t, http.StatusNoContent, status, body)
 			assert.Empty(t, body)
 
-			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, statement.Workload.Name)
-			resp := stsToken[oidc.Error](t, sts, clientCredentialsForm(clientAssertion, fixtures.Target))
+			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, statement.Workload.Name)
+			resp := stsToken[oidc.Error](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
 			assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
 			assert.Contains(t, resp.Description, "client not found")
 		})
 	})
 
 	t.Run("client credentials", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
-		form := clientCredentialsForm(clientAssertion, fixtures.Target)
+		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
+		form := clientCredentialsForm(clientAssertion, fixtures.Client2.ID)
 		resp := stsToken[oauth.AccessTokenResponse](t, sts, form)
 
 		assert.Equal(t, oidc.BearerToken, resp.TokenType)
 		assert.Empty(t, resp.IssuedTokenType)
 		assertTokenClaims(t, sts, resp, func(claims *oauth.STSTokenClaims) {
-			assert.Equal(t, fixtures.ClientID, claims.Subject)
+			assert.Equal(t, fixtures.Client1.ID, claims.Subject)
 			assert.Equal(t, oidc.GrantTypeClientCredentials, claims.GrantType)
+			assert.Nil(t, claims.Actor)
 		})
 	})
 
 	t.Run("client credentials denies unauthorized scope", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
+		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
 		form := clientCredentialsForm(clientAssertion, "env1:namespace1:unauthorized")
 		resp := stsToken[oidc.Error](t, sts, form)
 
@@ -169,8 +170,8 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("client credentials denies unregistered client", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, "unregistered")
-		form := clientCredentialsForm(clientAssertion, fixtures.Target)
+		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, "unregistered")
+		form := clientCredentialsForm(clientAssertion, fixtures.Client2.ID)
 		resp := stsToken[oidc.Error](t, sts, form)
 
 		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
@@ -178,46 +179,50 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("token exchange", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
+		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
 		subjectToken, subjectClaims := getSubjectToken(t, oauthServer, "subject1")
-		form := tokenExchangeForm(clientAssertion, subjectToken, fixtures.Target)
+		form := tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID)
 		resp := stsToken[oauth.AccessTokenResponse](t, sts, form)
 
 		assert.Equal(t, oidc.BearerToken, resp.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, resp.IssuedTokenType)
 		assertTokenExchangeClaims(t, sts, resp, subjectClaims)
+		assertTokenActor(t, sts, resp, fixtures.Client1.ID, nil)
 	})
 
 	t.Run("token exchange with STS issued token", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
+		client1Assertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
 		subjectToken, subjectClaims := getSubjectToken(t, oauthServer, "subject1")
-		form := tokenExchangeForm(clientAssertion, subjectToken, fixtures.Target)
+		form := tokenExchangeForm(client1Assertion, subjectToken, fixtures.Client2.ID)
 		resp := stsToken[oauth.AccessTokenResponse](t, sts, form)
 
 		assert.Equal(t, oidc.BearerToken, resp.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, resp.IssuedTokenType)
 		assertTokenExchangeClaims(t, sts, resp, subjectClaims)
+		firstActor := assertTokenActor(t, sts, resp, fixtures.Client1.ID, nil)
 
-		form = tokenExchangeForm(clientAssertion, resp.AccessToken, fixtures.Target)
+		client2Assertion := getKubernetesToken(t, oauthServer, fixtures.Client2.Environment, fixtures.Client2.Namespace, fixtures.Client2.Workload)
+		form = tokenExchangeForm(client2Assertion, resp.AccessToken, fixtures.Client3.ID)
 		resp = stsToken[oauth.AccessTokenResponse](t, sts, form)
 
 		assert.Equal(t, oidc.BearerToken, resp.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, resp.IssuedTokenType)
-		assertTokenExchangeClaims(t, sts, resp, subjectClaims)
+		assertTokenExchangeClaimsForTarget(t, sts, resp, subjectClaims, fixtures.Client3.ID, fixtures.Client2.ID)
+		assertTokenActorForTarget(t, sts, resp, fixtures.Client3.ID, fixtures.Client2.ID, fixtures.Client2.ID, firstActor)
 	})
 
 	t.Run("token exchange denies STS client credentials token", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
-		clientCredentialsToken := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Target))
+		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
+		clientCredentialsToken := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
 
-		resp := stsToken[oidc.Error](t, sts, tokenExchangeForm(clientAssertion, clientCredentialsToken.AccessToken, fixtures.Target))
+		resp := stsToken[oidc.Error](t, sts, tokenExchangeForm(clientAssertion, clientCredentialsToken.AccessToken, fixtures.Client2.ID))
 
 		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
 		assert.Contains(t, resp.Description, "grant_type claim is invalid")
 	})
 
 	t.Run("token exchange denies unauthorized audience", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
+		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
 		subjectToken, _ := getSubjectToken(t, oauthServer, "subject1")
 		form := tokenExchangeForm(clientAssertion, subjectToken, "env1:namespace1:unauthorized")
 		resp := stsToken[oidc.Error](t, sts, form)
@@ -227,9 +232,9 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("token exchange denies unregistered client", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, "unregistered")
+		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, "unregistered")
 		subjectToken, _ := getSubjectToken(t, oauthServer, "subject1")
-		form := tokenExchangeForm(clientAssertion, subjectToken, fixtures.Target)
+		form := tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID)
 		resp := stsToken[oidc.Error](t, sts, form)
 
 		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
@@ -237,9 +242,9 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("token exchange denies untrusted subject token issuer", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Environment, fixtures.Namespace, fixtures.ClientWorkload)
+		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
 		subjectToken, _ := getSubjectToken(t, oauthServer, "untrusted")
-		form := tokenExchangeForm(clientAssertion, subjectToken, fixtures.Target)
+		form := tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID)
 		resp := stsToken[oidc.Error](t, sts, form)
 
 		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
@@ -247,14 +252,35 @@ func TestSts(t *testing.T) {
 	})
 }
 
+func assertTokenActor(t *testing.T, sts testServer, response *oauth.AccessTokenResponse, clientID string, previous *oauth.ActorClaims) *oauth.ActorClaims {
+	return assertTokenActorForTarget(t, sts, response, fixtures.Client2.ID, fixtures.Client1.ID, clientID, previous)
+}
+
+func assertTokenActorForTarget(t *testing.T, sts testServer, response *oauth.AccessTokenResponse, target, tokenClientID, actorClientID string, previous *oauth.ActorClaims) *oauth.ActorClaims {
+	t.Helper()
+	var actor *oauth.ActorClaims
+	assertTokenClaimsForTarget(t, sts, response, target, tokenClientID, func(claims *oauth.STSTokenClaims) {
+		actor = claims.Actor
+		require.NotNil(t, actor)
+		assert.Equal(t, sts.Endpoint(), actor.Issuer)
+		assert.Equal(t, actorClientID, actor.ClientID)
+		assert.Equal(t, previous, actor.Actor)
+	})
+	return actor
+}
+
 type claimAssertions func(claims *oauth.STSTokenClaims)
 
 func assertTokenExchangeClaims(t *testing.T, sts testServer, response *oauth.AccessTokenResponse, subjectClaims *oauth.AccessTokenClaims) {
+	assertTokenExchangeClaimsForTarget(t, sts, response, subjectClaims, fixtures.Client2.ID, fixtures.Client1.ID)
+}
+
+func assertTokenExchangeClaimsForTarget(t *testing.T, sts testServer, response *oauth.AccessTokenResponse, subjectClaims *oauth.AccessTokenClaims, target, clientID string) {
 	t.Helper()
 
 	// Parse the issued token as typed STS claims and as a complete raw claim map.
 	var stsClaims *oauth.STSTokenClaims
-	issuedClaims := assertTokenClaims(t, sts, response, func(claims *oauth.STSTokenClaims) {
+	issuedClaims := assertTokenClaimsForTarget(t, sts, response, target, clientID, func(claims *oauth.STSTokenClaims) {
 		stsClaims = claims
 		assert.Equal(t, subjectClaims.Subject, claims.Subject)
 		assert.Equal(t, oidc.GrantTypeTokenExchange, claims.GrantType)
@@ -278,6 +304,10 @@ func assertTokenExchangeClaims(t *testing.T, sts testServer, response *oauth.Acc
 }
 
 func assertTokenClaims(t *testing.T, sts testServer, response *oauth.AccessTokenResponse, fn claimAssertions) *oauth.AccessTokenClaims {
+	return assertTokenClaimsForTarget(t, sts, response, fixtures.Client2.ID, fixtures.Client1.ID, fn)
+}
+
+func assertTokenClaimsForTarget(t *testing.T, sts testServer, response *oauth.AccessTokenResponse, target, clientID string, fn claimAssertions) *oauth.AccessTokenClaims {
 	t.Helper()
 	require.NotEmpty(t, response.AccessToken)
 
@@ -303,8 +333,8 @@ func assertTokenClaims(t *testing.T, sts testServer, response *oauth.AccessToken
 	require.NoError(t, json.Unmarshal(data, claims))
 
 	assert.Equal(t, sts.Endpoint(), claims.Issuer)
-	assert.Equal(t, oidc.Audience{fixtures.Target}, claims.Audience)
-	assert.Equal(t, fixtures.ClientID, claims.ClientID)
+	assert.Equal(t, oidc.Audience{target}, claims.Audience)
+	assert.Equal(t, clientID, claims.ClientID)
 	assert.Equal(t, oauth.Roles{fixtures.Role}, claims.ApplicationRoles)
 	assert.NotEmpty(t, claims.JWTID)
 
