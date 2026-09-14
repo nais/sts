@@ -39,6 +39,7 @@ func (s SoftwareStatement) validate() error {
 	if err := clientID.Validate(); err != nil {
 		return fmt.Errorf("client_id: %w", err)
 	}
+	// TODO: decide whether client_id must be derived from the workload identity or remain independent.
 	if err := oauth.Name(s.Workload.Environment).Validate(); err != nil {
 		return fmt.Errorf("workload environment: %w", err)
 	}

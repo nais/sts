@@ -69,6 +69,11 @@ func ValidateSigningAlgorithms(algorithms []string) error {
 	return nil
 }
 
+func isSupportedSigningAlgorithm(algorithm string) bool {
+	_, ok := supportedSigningAlgorithms[algorithm]
+	return ok
+}
+
 func ValidateSecureURL(value string) error {
 	parsed, err := url.Parse(value)
 	if err != nil || !parsed.IsAbs() || parsed.Host == "" {

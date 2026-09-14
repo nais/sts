@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -191,9 +190,7 @@ func externalTokenVerifier(ctx context.Context, issuer Issuer, allowedAlgorithms
 func asymmetricAlgorithms(advertised []string) []string {
 	algorithms := make([]string, 0, len(advertised))
 	for _, algorithm := range advertised {
-		if strings.HasPrefix(algorithm, "RS") ||
-			strings.HasPrefix(algorithm, "PS") ||
-			strings.HasPrefix(algorithm, "ES") {
+		if isSupportedSigningAlgorithm(algorithm) {
 			algorithms = append(algorithms, algorithm)
 		}
 	}
