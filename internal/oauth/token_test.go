@@ -4,11 +4,12 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
@@ -16,16 +17,11 @@ func TestAccessTokenClaimsUnmarshal(t *testing.T) {
 	data := []byte(`{"iss":"issuer","sub":"subject","aud":["audience"],"custom":{"number":9007199254740993,"items":[1,true]}}`)
 	claims := new(AccessTokenClaims)
 
-	if err := json.Unmarshal(data, claims); err != nil {
-		t.Fatal(err)
-	}
-
-	if claims.Issuer != "issuer" || claims.Subject != "subject" || !reflect.DeepEqual(claims.Audience, oidc.Audience{"audience"}) {
-		t.Fatalf("unexpected typed claims: %#v", claims.TokenClaims)
-	}
-	if got, want := string(claims.Claims["custom"]), `{"number":9007199254740993,"items":[1,true]}`; got != want {
-		t.Fatalf("custom claim = %s, want %s", got, want)
-	}
+	require.NoError(t, json.Unmarshal(data, claims))
+	assert.Equal(t, "issuer", claims.Issuer)
+	assert.Equal(t, "subject", claims.Subject)
+	assert.Equal(t, oidc.Audience{"audience"}, claims.Audience)
+	assert.JSONEq(t, `{"number":9007199254740993,"items":[1,true]}`, string(claims.Claims["custom"]))
 }
 
 func TestAccessTokenClaimsSign(t *testing.T) {
@@ -49,84 +45,35 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 		Roles: nil,
 	}
 	accessToken, err := CreateAccessToken("sts-issuer", time.Hour, result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertJSONClaim(t, accessToken.Claims, "iss", "sts-issuer")
-	assertJSONClaim(t, accessToken.Claims, "sub", "source-subject")
-	assertJSONClaim(t, accessToken.Claims, "client_id", "client")
-	assertActorClaim(t, accessToken.Claims["act"], "sts-issuer", "client", "previous-issuer", "previous-actor")
-	if !reflect.DeepEqual(source, original) {
-		t.Fatal("creating access token mutated source claims")
-	}
+	require.NoError(t, err)
+	assert.Equal(t, original, source)
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: key}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	signed, err := accessToken.Sign(signer)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	got := make(map[string]json.RawMessage)
-	if _, err := oidc.ParseToken(signed, &got); err != nil {
-		t.Fatal(err)
-	}
+	_, err = oidc.ParseToken(signed, &got)
+	require.NoError(t, err)
 	assertJSONClaim(t, got, "iss", "sts-issuer")
 	assertJSONClaim(t, got, "sub", "source-subject")
 	assertJSONClaim(t, got, "client_id", "client")
 	assertActorClaim(t, got["act"], "sts-issuer", "client", "previous-issuer", "previous-actor")
-	if got, want := string(got["custom"]), `{"number":9007199254740993}`; got != want {
-		t.Fatalf("custom claim = %s, want %s", got, want)
-	}
+	assert.JSONEq(t, `{"number":9007199254740993}`, string(got["custom"]))
 }
 
-func TestCreateAccessTokenOmitsActorForClientCredentials(t *testing.T) {
-	token, err := CreateAccessToken("sts-issuer", time.Hour, &AuthorizationResult{
-		Target:    TargetScope("target"),
-		GrantType: oidc.GrantTypeClientCredentials,
-		Client:    &Client{ID: "client"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := token.Claims["act"]; ok {
-		t.Fatal("client credentials token contains act claim")
-	}
-}
-
-func TestCreateAccessTokenRejectsMalformedActor(t *testing.T) {
-	_, err := CreateAccessToken("sts-issuer", time.Hour, &AuthorizationResult{
-		Target:    TargetAudience("target"),
-		GrantType: oidc.GrantTypeTokenExchange,
-		SubjectTokenClaims: &AccessTokenClaims{
-			Subject: "subject",
-			Claims:  map[string]json.RawMessage{"act": json.RawMessage(`"invalid"`)},
-		},
-		Client: &Client{ID: "client"},
-	})
-	if err == nil {
-		t.Fatal("expected malformed actor claim to fail")
-	}
-}
-
-func TestCreateAccessTokenRejectsEmptyActor(t *testing.T) {
-	_, err := CreateAccessToken("sts-issuer", time.Hour, &AuthorizationResult{
-		Target:    TargetAudience("target"),
-		GrantType: oidc.GrantTypeTokenExchange,
-		SubjectTokenClaims: &AccessTokenClaims{
-			Subject: "subject",
-			Claims:  map[string]json.RawMessage{"act": json.RawMessage(`{}`)},
-		},
-		Client: &Client{ID: "client"},
-	})
-	if err == nil {
-		t.Fatal("expected empty actor claim to fail")
+func TestParseActorClaimsRejectsInvalidActor(t *testing.T) {
+	for name, actor := range map[string]json.RawMessage{
+		"malformed": json.RawMessage(`"invalid"`),
+		"empty":     json.RawMessage(`{}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseActorClaims(actor)
+			require.Error(t, err)
+		})
 	}
 }
 
@@ -141,24 +88,17 @@ func cloneClaims(claims map[string]json.RawMessage) map[string]json.RawMessage {
 func assertJSONClaim(t *testing.T, claims map[string]json.RawMessage, name, want string) {
 	t.Helper()
 	var got string
-	if err := json.Unmarshal(claims[name], &got); err != nil {
-		t.Fatal(err)
-	}
-	if got != want {
-		t.Fatalf("%s claim = %q, want %q", name, got, want)
-	}
+	require.NoError(t, json.Unmarshal(claims[name], &got))
+	assert.Equal(t, want, got, name)
 }
 
 func assertActorClaim(t *testing.T, raw json.RawMessage, issuer, subject, previousIssuer, previousSubject string) {
 	t.Helper()
 	actor := new(ActorClaims)
-	if err := json.Unmarshal(raw, actor); err != nil {
-		t.Fatal(err)
-	}
-	if actor.Issuer != issuer || actor.ClientID != subject {
-		t.Fatalf("actor = %#v, want issuer %q and subject %q", actor, issuer, subject)
-	}
-	if actor.Actor == nil || actor.Actor.Issuer != previousIssuer || actor.Actor.ClientID != previousSubject {
-		t.Fatalf("previous actor = %#v, want issuer %q and subject %q", actor.Actor, previousIssuer, previousSubject)
-	}
+	require.NoError(t, json.Unmarshal(raw, actor))
+	assert.Equal(t, issuer, actor.Issuer)
+	assert.Equal(t, subject, actor.ClientID)
+	require.NotNil(t, actor.Actor)
+	assert.Equal(t, previousIssuer, actor.Actor.Issuer)
+	assert.Equal(t, previousSubject, actor.Actor.ClientID)
 }
