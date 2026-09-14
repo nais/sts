@@ -47,47 +47,39 @@ func TestDecodeClientRegistration(t *testing.T) {
 		wantErr bool
 	}{
 		"valid": {
-			body: `{"client_name":"client","software_statement":"statement"}`,
-			want: ClientRegistration{ClientName: "client", SoftwareStatement: "statement"},
+			body: `{"software_statement":"statement"}`,
+			want: ClientRegistration{SoftwareStatement: "statement"},
 		},
 		"unknown field": {
-			body:    `{"client_name":"client","software_statement":"statement","unknown":true}`,
+			body:    `{"software_statement":"statement","unknown":true}`,
+			wantErr: true,
+		},
+		"removed client name": {
+			body:    `{"client_name":"client","software_statement":"statement"}`,
 			wantErr: true,
 		},
 		"second JSON value": {
-			body:    `{"client_name":"client","software_statement":"statement"} {}`,
+			body:    `{"software_statement":"statement"} {}`,
 			wantErr: true,
 		},
 		"trailing malformed data": {
-			body:    `{"client_name":"client","software_statement":"statement"} trailing`,
+			body:    `{"software_statement":"statement"} trailing`,
 			wantErr: true,
 		},
 		"null": {
 			body:    `null`,
 			wantErr: true,
 		},
-		"missing client name": {
-			body:    `{"software_statement":"statement"}`,
-			wantErr: true,
-		},
-		"blank client name": {
-			body:    `{"client_name":"  ","software_statement":"statement"}`,
-			wantErr: true,
-		},
-		"client name too long": {
-			body:    `{"client_name":"` + strings.Repeat("a", maxClientNameLength+1) + `","software_statement":"statement"}`,
-			wantErr: true,
-		},
 		"missing software statement": {
-			body:    `{"client_name":"client"}`,
+			body:    `{}`,
 			wantErr: true,
 		},
 		"blank software statement": {
-			body:    `{"client_name":"client","software_statement":"  "}`,
+			body:    `{"software_statement":"  "}`,
 			wantErr: true,
 		},
 		"software statement too long": {
-			body:    `{"client_name":"client","software_statement":"` + strings.Repeat("a", maxSoftwareStatementLength+1) + `"}`,
+			body:    `{"software_statement":"` + strings.Repeat("a", maxSoftwareStatementLength+1) + `"}`,
 			wantErr: true,
 		},
 	}
@@ -110,8 +102,7 @@ func TestDecodeClientRegistration(t *testing.T) {
 
 func TestDecodeClientRegistrationRejectsOversizedBody(t *testing.T) {
 	body, err := json.Marshal(ClientRegistration{
-		ClientName:        strings.Repeat("a", maxRegistrationBodySize),
-		SoftwareStatement: "statement",
+		SoftwareStatement: strings.Repeat("a", maxRegistrationBodySize),
 	})
 	require.NoError(t, err)
 

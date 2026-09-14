@@ -69,7 +69,6 @@ func TestSts(t *testing.T) {
 
 		t.Run("accepts valid registration", func(t *testing.T) {
 			request := registration.ClientRegistration{
-				ClientName:        "registered client",
 				SoftwareStatement: signed,
 			}
 			status, body := postRegistrationRequest(t, sts, registratorToken, request)
@@ -77,7 +76,6 @@ func TestSts(t *testing.T) {
 
 			var response registration.ClientRegistrationResponse
 			require.NoError(t, json.Unmarshal(body, &response))
-			assert.Equal(t, request.ClientName, response.ClientName)
 			assert.Equal(t, request.SoftwareStatement, response.SoftwareStatement)
 
 			// Verify that both the client and its authorization policy were persisted.
@@ -88,7 +86,6 @@ func TestSts(t *testing.T) {
 
 		t.Run("rejects invalid software statement signature", func(t *testing.T) {
 			request := registration.ClientRegistration{
-				ClientName:        "invalid signature",
 				SoftwareStatement: tamperJWTSignature(t, signed),
 			}
 			status, body := postRegistrationRequest(t, sts, registratorToken, request)
@@ -100,7 +97,6 @@ func TestSts(t *testing.T) {
 		t.Run("rejects unauthorized registrator", func(t *testing.T) {
 			unauthorizedToken := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, "not-a-registrator")
 			request := registration.ClientRegistration{
-				ClientName:        "unauthorized",
 				SoftwareStatement: signed,
 			}
 			status, body := postRegistrationRequest(t, sts, unauthorizedToken, request)
@@ -111,7 +107,6 @@ func TestSts(t *testing.T) {
 
 		t.Run("rejects malformed request", func(t *testing.T) {
 			status, body := postRegistrationRequest(t, sts, registratorToken, map[string]any{
-				"client_name":        "unknown field",
 				"software_statement": signed,
 				"unknown":            true,
 			})
@@ -122,6 +117,7 @@ func TestSts(t *testing.T) {
 
 		for _, id := range []string{
 			"1client",
+			"Client",
 			"client-",
 			"client:",
 			"client_name",
