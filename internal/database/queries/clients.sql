@@ -5,6 +5,11 @@ WHERE issuer = @issuer
   AND namespace = @namespace
   AND workload = @workload;
 
+-- name: GetKubernetesClientByID :one
+SELECT *
+FROM kubernetes_clients
+WHERE id = @id;
+
 -- name: DeleteKubernetesClient :exec
 DELETE FROM kubernetes_clients
 WHERE id = @id;

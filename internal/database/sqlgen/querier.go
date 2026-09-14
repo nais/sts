@@ -10,6 +10,7 @@ type Querier interface {
 	DeleteKubernetesClient(ctx context.Context, id string) error
 	GetAuthorizationPolicy(ctx context.Context, arg GetAuthorizationPolicyParams) (AuthorizationPolicy, error)
 	GetKubernetesClient(ctx context.Context, arg GetKubernetesClientParams) (KubernetesClient, error)
+	GetKubernetesClientByID(ctx context.Context, id string) (KubernetesClient, error)
 	GetSigningKeySet(ctx context.Context) (RotatableSigningKey, error)
 	ListAuthorizationPolicies(ctx context.Context) ([]AuthorizationPolicy, error)
 	ListKubernetesClients(ctx context.Context) ([]KubernetesClient, error)

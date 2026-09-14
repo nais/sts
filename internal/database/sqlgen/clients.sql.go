@@ -66,6 +66,28 @@ func (q *Queries) GetKubernetesClient(ctx context.Context, arg GetKubernetesClie
 	return i, err
 }
 
+const getKubernetesClientByID = `-- name: GetKubernetesClientByID :one
+SELECT id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
+FROM kubernetes_clients
+WHERE id = $1
+`
+
+func (q *Queries) GetKubernetesClientByID(ctx context.Context, id string) (KubernetesClient, error) {
+	row := q.db.QueryRow(ctx, getKubernetesClientByID, id)
+	var i KubernetesClient
+	err := row.Scan(
+		&i.ID,
+		&i.Environment,
+		&i.Namespace,
+		&i.Workload,
+		&i.Issuer,
+		&i.AllowedScopes,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listAuthorizationPolicies = `-- name: ListAuthorizationPolicies :many
 SELECT owner_client_id, consumer_client_id, roles
 FROM authorization_policies

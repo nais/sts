@@ -110,6 +110,17 @@ func (c *CachedClient) Get(ctx context.Context, claims *oauth.AccessTokenClaims)
 	return toClient(row), nil
 }
 
+func (c *CachedClient) GetByID(ctx context.Context, clientID oauth.ClientID) (*oauth.Client, error) {
+	row, err := c.queries.GetKubernetesClientByID(ctx, string(clientID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get client by ID: %w", err)
+	}
+	return toClient(row), nil
+}
+
 func (c *CachedClient) Save(ctx context.Context, client *oauth.Client, policies []oauth.AuthorizationPolicy) error {
 	return database.WithTx(ctx, c.pool, func(ctx context.Context, queries *sqlgen.Queries) error {
 		if err := queries.UpsertKubernetesClient(ctx, sqlgen.UpsertKubernetesClientParams{
