@@ -81,10 +81,14 @@ func NewTokenExchangeTokenVerifier(ctx context.Context, cfg AuthorizationServerC
 	)...)
 }
 
-func NewClientAuthTokenVerifier(ctx context.Context, issuers []Issuer) (MultiIssuerTokenVerifier, error) {
-	clientAuthVerifiers, err := ExternalTokenVerifiers(ctx, issuers...)
-	if err != nil {
-		return nil, fmt.Errorf("resolving client auth verifiers: %w", err)
+func NewClientAuthTokenVerifier(ctx context.Context, issuers []Issuer, allowedAlgorithms []string) (MultiIssuerTokenVerifier, error) {
+	clientAuthVerifiers := make([]*TokenVerifier, 0, len(issuers))
+	for _, issuer := range issuers {
+		verifier, err := externalTokenVerifier(ctx, issuer, allowedAlgorithms)
+		if err != nil {
+			return nil, fmt.Errorf("resolving client auth verifiers: %w", err)
+		}
+		clientAuthVerifiers = append(clientAuthVerifiers, verifier)
 	}
 	return NewMultiIssuerTokenVerifier(clientAuthVerifiers...)
 }
@@ -159,6 +163,10 @@ func ExternalTokenVerifiers(ctx context.Context, issuers ...Issuer) ([]*TokenVer
 }
 
 func ExternalTokenVerifier(ctx context.Context, issuer Issuer) (*TokenVerifier, error) {
+	return externalTokenVerifier(ctx, issuer, nil)
+}
+
+func externalTokenVerifier(ctx context.Context, issuer Issuer, allowedAlgorithms []string) (*TokenVerifier, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	metadata, err := oauthclient.Discover(ctx, string(issuer), client)
 	if err != nil {
@@ -169,9 +177,12 @@ func ExternalTokenVerifier(ctx context.Context, issuer Issuer) (*TokenVerifier, 
 		return nil, fmt.Errorf("configured issuer does not match issuer in discovery document: got %q, want %q", metadata.Issuer, issuer)
 	}
 
-	algorithms := asymmetricAlgorithms(metadata.IDTokenSigningAlgValuesSupported)
+	algorithms := allowedAlgorithms
+	if algorithms == nil {
+		algorithms = asymmetricAlgorithms(metadata.IDTokenSigningAlgValuesSupported)
+	}
 	if len(algorithms) == 0 {
-		return nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms: %s", algorithms)
+		return nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms: %v", metadata.IDTokenSigningAlgValuesSupported)
 	}
 
 	return NewTokenVerifier(issuer, rp.NewRemoteKeySet(client, metadata.JwksURI), algorithms...)
@@ -182,10 +193,7 @@ func asymmetricAlgorithms(advertised []string) []string {
 	for _, algorithm := range advertised {
 		if strings.HasPrefix(algorithm, "RS") ||
 			strings.HasPrefix(algorithm, "PS") ||
-			strings.HasPrefix(algorithm, "ES") ||
-			algorithm == "EdDSA" || // TODO: deprecated by RFC9864
-			algorithm == "Ed25519" ||
-			algorithm == "Ed448" {
+			strings.HasPrefix(algorithm, "ES") {
 			algorithms = append(algorithms, algorithm)
 		}
 	}

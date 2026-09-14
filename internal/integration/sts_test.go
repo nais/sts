@@ -44,6 +44,7 @@ func TestSts(t *testing.T) {
 
 		assert.Equal(t, []oidc.AuthMethod{oidc.AuthMethodPrivateKeyJWT}, resp.TokenEndpointAuthMethodsSupported)
 		assert.Equal(t, []string{"RS256"}, resp.TokenEndpointAuthSigningAlgValuesSupported)
+		assert.Empty(t, resp.IDTokenSigningAlgValuesSupported)
 	})
 
 	t.Run("registration", func(t *testing.T) {

@@ -20,10 +20,9 @@ func init() {
 	Decoder = decoder
 }
 
-// TODO: can we set IDTokenSigningAlgValuesSupported when we are a plain oauth2 server?
-func DiscoveryEndpoint(endpoints *op.Endpoints, issuer Issuer) http.HandlerFunc {
+func DiscoveryEndpoint(endpoints *op.Endpoints, cfg AuthorizationServerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		i := string(issuer)
+		i := string(cfg.Issuer)
 		respond(w, r, &Response{
 			Data: &oidc.DiscoveryConfiguration{
 				Issuer:        i,
@@ -36,10 +35,7 @@ func DiscoveryEndpoint(endpoints *op.Endpoints, issuer Issuer) http.HandlerFunc 
 				TokenEndpointAuthMethodsSupported: []oidc.AuthMethod{
 					oidc.AuthMethodPrivateKeyJWT,
 				},
-				// TODO: should be set from config
-				TokenEndpointAuthSigningAlgValuesSupported: []string{"RS256"},
-				// TODO: can we set IDTokenSigningAlgValuesSupported when we are a plain oauth2 server?
-				IDTokenSigningAlgValuesSupported: []string{"RS256"},
+				TokenEndpointAuthSigningAlgValuesSupported: cfg.ClientAuthSigningAlgorithms,
 			},
 		}, nil)
 	}

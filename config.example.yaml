@@ -6,6 +6,7 @@ logFormat: text
 
 authorizationServer:
   issuer: http://localhost:8080
+  # Client assertions and registration bearer tokens use this as their sole audience.
   expectedAudience: nais
   clientAuthIssuers:
     - http://localhost:3004/env1

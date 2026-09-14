@@ -26,6 +26,8 @@ authorizationServer:
 	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
 	assert.Equal(t, "text", cfg.LogFormat)
 	assert.Equal(t, "nais", cfg.AuthorizationServerConfig.ExpectedAudience)
+	assert.Equal(t, []string{"RS256"}, cfg.AuthorizationServerConfig.ClientAuthSigningAlgorithms)
+	assert.Equal(t, time.Hour, cfg.AuthorizationServerConfig.MaxClientAuthTokenLifetime)
 	assert.Equal(t, 15*time.Minute, cfg.AuthorizationServerConfig.TokenExpiry)
 }
 

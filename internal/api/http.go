@@ -62,7 +62,7 @@ func stsApi(
 		return nil, fmt.Errorf("initialize client registration handler: %w", err)
 	}
 
-	router.Get(oauthDiscoveryEndpoint, oauth.DiscoveryEndpoint(e, authServer.Issuer))
+	router.Get(oauthDiscoveryEndpoint, oauth.DiscoveryEndpoint(e, authServer.AuthorizationServerConfig))
 	router.Post(e.Token.Relative(), authServer.TokenEndpoint())
 	router.Get(e.JwksURI.Relative(), authServer.JwksEndpoint())
 	router.Post(registrationEndpoint, registrationApi.PostEndpoint())

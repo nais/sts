@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
-	"net/url"
-	"strings"
 	"time"
 
 	stsmetrics "github.com/nais/sts/internal/metrics"
@@ -22,45 +19,8 @@ type AuthorizationServer struct {
 	AuthorizationServerConfig
 }
 
-type AuthorizationServerConfig struct {
-	Issuer              Issuer        `yaml:"issuer"`
-	ExpectedAudience    string        `yaml:"expectedAudience"`
-	ClientAuthIssuers   []Issuer      `yaml:"clientAuthIssuers"`
-	SubjectTokenIssuers []Issuer      `yaml:"subjectTokenIssuers"`
-	TokenExpiry         time.Duration `yaml:"tokenExpiry"`
-}
-
-func (c AuthorizationServerConfig) Validate() error {
-	if c.Issuer == "" {
-		return fmt.Errorf("issuer must not be empty")
-	}
-	issuer, err := url.Parse(string(c.Issuer))
-	if err != nil || !issuer.IsAbs() || issuer.Host == "" {
-		return fmt.Errorf("issuer must be an absolute URL")
-	}
-	isLoopback := func(host string) bool {
-		return strings.EqualFold(host, "localhost") || net.ParseIP(host).IsLoopback()
-	}
-	if issuer.Scheme != "https" && (issuer.Scheme != "http" || !isLoopback(issuer.Hostname())) {
-		return fmt.Errorf("issuer must use https, except for localhost or loopback http URLs")
-	}
-	if len(c.ClientAuthIssuers) == 0 {
-		return fmt.Errorf("client auth issuers must not be empty")
-	}
-	if len(c.SubjectTokenIssuers) == 0 {
-		return fmt.Errorf("subject token issuers must not be empty")
-	}
-	if c.ExpectedAudience == "" {
-		return fmt.Errorf("expected audience must not be empty")
-	}
-	if c.TokenExpiry <= 0 {
-		return fmt.Errorf("token expiry must be positive")
-	}
-	return nil
-}
-
 func NewAuthorizationServer(ctx context.Context, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore, metrics *stsmetrics.Metrics) (*AuthorizationServer, error) {
-	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx, cfg.ClientAuthIssuers)
+	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx, cfg.ClientAuthIssuers, cfg.ClientAuthSigningAlgorithms)
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}
@@ -202,13 +162,7 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 }
 
 func (a *AuthorizationServer) verifyClientAuthClaims(claims *AccessTokenClaims) error {
-	if len(claims.Audience) != 1 {
-		return oidc.ErrInvalidClient().WithDescription("audience is invalid: got %d audiences, want 1", len(claims.Audience))
-	}
-	if claims.Audience[0] != a.ExpectedAudience {
-		return oidc.ErrInvalidClient().WithDescription("audience is invalid: got %q, want %q", claims.Audience[0], a.ExpectedAudience)
-	}
-	return nil
+	return ValidateClientAuthClaims(claims, a.ExpectedAudience, a.MaxClientAuthTokenLifetime)
 }
 
 func (a *AuthorizationServer) verifyTokenExchangeClaims(claims *AccessTokenClaims) error {
@@ -226,6 +180,27 @@ func (a *AuthorizationServer) verifyTokenExchangeClaims(claims *AccessTokenClaim
 	}
 	if grantType != oidc.GrantTypeTokenExchange {
 		return oidc.ErrInvalidRequest().WithDescription("grant_type claim is invalid: got %q, want %q", grantType, oidc.GrantTypeTokenExchange)
+	}
+	return nil
+}
+
+func ValidateClientAuthClaims(claims *AccessTokenClaims, expectedAudience string, maxLifetime time.Duration) error {
+	if len(claims.Audience) != 1 || claims.Audience[0] != expectedAudience {
+		return oidc.ErrInvalidClient().WithDescription("audience is invalid")
+	}
+	issuedAt := claims.IssuedAt.AsTime()
+	if issuedAt.IsZero() {
+		return oidc.ErrInvalidClient().WithDescription("issued-at claim is missing")
+	}
+	expiration := claims.Expiration.AsTime()
+	if expiration.IsZero() {
+		return oidc.ErrInvalidClient().WithDescription("expiration claim is missing")
+	}
+	if !expiration.After(issuedAt) {
+		return oidc.ErrInvalidClient().WithDescription("expiration must be after issued-at")
+	}
+	if expiration.Sub(issuedAt) > maxLifetime+time.Minute {
+		return oidc.ErrInvalidClient().WithDescription("token lifetime exceeds maximum")
 	}
 	return nil
 }

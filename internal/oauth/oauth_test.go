@@ -1,0 +1,22 @@
+package oauth
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"github.com/zitadel/oidc/v3/pkg/oidc"
+)
+
+func TestValidateClientAuthClaimsLifetime(t *testing.T) {
+	now := time.Now().Round(time.Second)
+	claims := &AccessTokenClaims{TokenClaims: oidc.TokenClaims{
+		Audience:   oidc.Audience{"expected"},
+		IssuedAt:   oidc.FromTime(now),
+		Expiration: oidc.FromTime(now.Add(time.Hour + time.Minute)),
+	}}
+	require.NoError(t, ValidateClientAuthClaims(claims, "expected", time.Hour))
+
+	claims.Expiration = oidc.FromTime(now.Add(time.Hour + time.Minute + time.Second))
+	require.ErrorContains(t, ValidateClientAuthClaims(claims, "expected", time.Hour), "token lifetime exceeds maximum")
+}

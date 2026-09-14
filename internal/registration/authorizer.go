@@ -15,6 +15,8 @@ import (
 type Authorizer struct {
 	Registrators       []*Registrator
 	ClientAuthVerifier oauth.MultiIssuerTokenVerifier
+	ExpectedAudience   string
+	MaxTokenLifetime   time.Duration
 }
 
 type Registrator struct {
@@ -26,7 +28,7 @@ type Registrator struct {
 
 func CreateAuthorizer(ctx context.Context, authServerCfg oauth.AuthorizationServerConfig, config ...*ClientRegistratorConfig) (*Authorizer, error) {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
-	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, authServerCfg.ClientAuthIssuers)
+	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, authServerCfg.ClientAuthIssuers, authServerCfg.ClientAuthSigningAlgorithms)
 	if err != nil {
 		return nil, err
 	}
@@ -42,6 +44,8 @@ func CreateAuthorizer(ctx context.Context, authServerCfg oauth.AuthorizationServ
 	return &Authorizer{
 		Registrators:       r,
 		ClientAuthVerifier: verifier,
+		ExpectedAudience:   authServerCfg.ExpectedAudience,
+		MaxTokenLifetime:   authServerCfg.MaxClientAuthTokenLifetime,
 	}, nil
 }
 
@@ -51,8 +55,7 @@ func (a *Authorizer) Authorize(r *http.Request) (*Registrator, error) {
 		return nil, oidc.ErrUnauthorizedClient().WithDescription("missing bearer token")
 	}
 	claims, err := a.ClientAuthVerifier.Verify(r.Context(), token, func(claims *oauth.AccessTokenClaims) error {
-		// TODO: verify extra claims for authorized client registrators
-		return nil
+		return oauth.ValidateClientAuthClaims(claims, a.ExpectedAudience, a.MaxTokenLifetime)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("verify client auth token: %w", err)
