@@ -166,6 +166,11 @@ func (a *AuthorizationServer) verifyClientAuthClaims(claims *AccessTokenClaims) 
 }
 
 func (a *AuthorizationServer) verifyTokenExchangeClaims(claims *AccessTokenClaims) error {
+	if rawActor, ok := claims.Claims["act"]; ok {
+		if _, err := parseActorClaims(rawActor); err != nil {
+			return oidc.ErrInvalidRequest().WithDescription("act claim is invalid")
+		}
+	}
 	if claims.Issuer != string(a.Issuer) {
 		return nil
 	}

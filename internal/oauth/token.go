@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"time"
 	"uuid"
@@ -17,13 +18,19 @@ type STSTokenClaims struct {
 	Audience         oidc.Audience              `json:"aud"`
 	ClientID         string                     `json:"client_id"`
 	JWTID            string                     `json:"jti"`
-	Actor            *oidc.ActorClaims          `json:"act,omitempty"`
+	Actor            *ActorClaims               `json:"act,omitempty"`
 	Expiration       oidc.Time                  `json:"exp"`
 	IssuedAt         oidc.Time                  `json:"iat"`
 	NotBefore        oidc.Time                  `json:"nbf"`
 	ApplicationRoles Roles                      `json:"urn:nais:roles,omitempty"`
 	GrantType        oidc.GrantType             `json:"urn:nais:grant_type,omitempty"` // TODO: add human-readable alias (m2m, tokenx/obo)
 	Claims           map[string]json.RawMessage `json:"-"`
+}
+
+type ActorClaims struct {
+	Actor    *ActorClaims `json:"act,omitempty"`
+	Issuer   string       `json:"iss,omitempty"`
+	ClientID string       `json:"client_id"`
 }
 
 func (s *STSTokenClaims) ExpiresIn() time.Duration {
@@ -59,9 +66,20 @@ func CreateAccessToken(issuer Issuer, expiresIn time.Duration, result *Authoriza
 		subjectTokenClaims = result.SubjectTokenClaims.Claims
 	}
 
-	// TODO: figure out what to set in actor
-	var actor *oidc.ActorClaims
-	_ = actor
+	var actor *ActorClaims
+	if result.GrantType == oidc.GrantTypeTokenExchange {
+		actor = &ActorClaims{
+			Issuer:   string(issuer),
+			ClientID: result.Client.ID,
+		}
+		if raw, ok := subjectTokenClaims["act"]; ok {
+			previous, err := parseActorClaims(raw)
+			if err != nil {
+				return nil, fmt.Errorf("decode subject token actor claim: %w", err)
+			}
+			actor.Actor = previous
+		}
+	}
 
 	jti := uuid.New().String()
 	now := time.Now()
@@ -93,6 +111,17 @@ func CreateAccessToken(issuer Issuer, expiresIn time.Duration, result *Authoriza
 	stsTokenClaims.Claims = claims
 
 	return &stsTokenClaims, nil
+}
+
+func parseActorClaims(raw json.RawMessage) (*ActorClaims, error) {
+	actor := new(ActorClaims)
+	if err := json.Unmarshal(raw, actor); err != nil {
+		return nil, err
+	}
+	if actor.ClientID == "" {
+		return nil, fmt.Errorf("client ID is missing")
+	}
+	return actor, nil
 }
 
 func mergeClaims(base map[string]json.RawMessage, authoritative any) (map[string]json.RawMessage, error) {
