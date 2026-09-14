@@ -42,7 +42,7 @@ func (s SoftwareStatement) validate() error {
 	if err := oauth.Name(s.Workload.Environment).Validate(); err != nil {
 		return fmt.Errorf("workload environment: %w", err)
 	}
-	if err := validateURL(s.Workload.Issuer); err != nil {
+	if err := oauth.ValidateSecureURL(s.Workload.Issuer); err != nil {
 		return fmt.Errorf("workload issuer: %w", err)
 	}
 	if err := oauth.Name(s.Workload.Namespace).Validate(); err != nil {
