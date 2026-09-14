@@ -49,6 +49,7 @@ func TestSts(t *testing.T) {
 
 	t.Run("registration", func(t *testing.T) {
 		registratorToken := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, "registrator1")
+		otherRegistratorToken := getKubernetesToken(t, oauthServer, "env2", fixtures.Client1.Namespace, "registrator2")
 		statement := registration.SoftwareStatement{
 			ClientId: "env1:namespace1:registered-workload",
 			Workload: registration.Workload{
@@ -82,6 +83,45 @@ func TestSts(t *testing.T) {
 			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, statement.Workload.Name)
 			token := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
 			require.NotEmpty(t, token.AccessToken)
+		})
+
+		t.Run("rejects registration for unauthorized workload issuer", func(t *testing.T) {
+			unauthorized := statement
+			unauthorized.AuthorizationPolicies = append([]oauth.AuthorizationPolicy(nil), statement.AuthorizationPolicies...)
+			unauthorized.ClientId = "env2:namespace1:unauthorized-workload"
+			unauthorized.Workload.Environment = "env2"
+			unauthorized.Workload.Issuer = oauthServer.Endpoint("env2")
+			unauthorized.AuthorizationPolicies[0].Owner = oauth.ClientID(unauthorized.ClientId)
+			status, _ := postRegistrationRequest(t, sts, registratorToken, registration.ClientRegistration{
+				SoftwareStatement: signSoftwareStatement(t, unauthorized),
+			})
+			assert.Equal(t, http.StatusForbidden, status)
+		})
+
+		t.Run("rejects replacement without authority over existing issuer", func(t *testing.T) {
+			replacement := statement
+			replacement.Workload.Environment = "env2"
+			replacement.Workload.Issuer = oauthServer.Endpoint("env2")
+			status, _ := postRegistrationRequest(t, sts, otherRegistratorToken, registration.ClientRegistration{
+				SoftwareStatement: signSoftwareStatement(t, replacement),
+			})
+			assert.Equal(t, http.StatusForbidden, status)
+		})
+
+		t.Run("does not delete registration outside issuer authority", func(t *testing.T) {
+			status, body := deleteRegistrationRequest(t, sts, otherRegistratorToken, string(statement.ClientId))
+			require.Equal(t, http.StatusNoContent, status, body)
+			assert.Empty(t, body)
+
+			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, statement.Workload.Name)
+			token := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
+			require.NotEmpty(t, token.AccessToken)
+		})
+
+		t.Run("deletes missing registration", func(t *testing.T) {
+			status, body := deleteRegistrationRequest(t, sts, registratorToken, "env1:namespace1:missing")
+			require.Equal(t, http.StatusNoContent, status, body)
+			assert.Empty(t, body)
 		})
 
 		t.Run("rejects invalid software statement signature", func(t *testing.T) {

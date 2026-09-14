@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,68 +13,73 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-type Authorizer struct {
-	Registrators       []*Registrator
-	ClientAuthVerifier oauth.MultiIssuerTokenVerifier
-	ExpectedAudience   string
-	MaxTokenLifetime   time.Duration
+type Registrators struct {
+	byIdentity         map[registratorIdentity]*Registrator
+	clientAuthVerifier oauth.MultiIssuerTokenVerifier
+	expectedAudience   string
+	maxTokenLifetime   time.Duration
+}
+
+type registratorIdentity struct {
+	issuer  string
+	subject string
 }
 
 type Registrator struct {
-	AuthIssuer   string
-	AuthSubject  string
-	RequiredAlgs []string
-	KeySet       oidc.KeySet
+	AuthIssuer             string
+	AuthSubject            string
+	RequiredAlgs           []string
+	ManagedWorkloadIssuers []string
+	KeySet                 oidc.KeySet
 }
 
-func CreateAuthorizer(ctx context.Context, authServerCfg oauth.AuthorizationServerConfig, config ...*ClientRegistratorConfig) (*Authorizer, error) {
+func NewRegistrators(ctx context.Context, authServerCfg oauth.AuthorizationServerConfig, config ...*ClientRegistratorConfig) (*Registrators, error) {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, authServerCfg.ClientAuthIssuers, authServerCfg.ClientAuthSigningAlgorithms)
 	if err != nil {
 		return nil, err
 	}
-	r := make([]*Registrator, len(config))
-	for i, cfg := range config {
-		r[i] = &Registrator{
-			AuthIssuer:   cfg.Issuer,
-			AuthSubject:  cfg.Subject,
-			RequiredAlgs: cfg.RequiredAlgs,
-			KeySet:       rp.NewRemoteKeySet(httpClient, cfg.ClientJwksUri),
+	registrators := make(map[registratorIdentity]*Registrator, len(config))
+	for _, cfg := range config {
+		registrators[registratorIdentity{issuer: cfg.Issuer, subject: cfg.Subject}] = &Registrator{
+			AuthIssuer:             cfg.Issuer,
+			AuthSubject:            cfg.Subject,
+			RequiredAlgs:           cfg.RequiredAlgs,
+			ManagedWorkloadIssuers: cfg.managedWorkloadIssuers(),
+			KeySet:                 rp.NewRemoteKeySet(httpClient, cfg.ClientJwksUri),
 		}
 	}
-	return &Authorizer{
-		Registrators:       r,
-		ClientAuthVerifier: verifier,
-		ExpectedAudience:   authServerCfg.ExpectedAudience,
-		MaxTokenLifetime:   authServerCfg.MaxClientAuthTokenLifetime,
+	return &Registrators{
+		byIdentity:         registrators,
+		clientAuthVerifier: verifier,
+		expectedAudience:   authServerCfg.ExpectedAudience,
+		maxTokenLifetime:   authServerCfg.MaxClientAuthTokenLifetime,
 	}, nil
 }
 
-func (a *Authorizer) Authorize(r *http.Request) (*Registrator, error) {
-	token, ok := bearerToken(r)
+func (r *Registrator) Manages(issuer string) bool {
+	return slices.Contains(r.ManagedWorkloadIssuers, issuer)
+}
+
+func (r *Registrator) CanManageClient(client *oauth.Client) bool {
+	return client != nil && r.Manages(client.Issuer)
+}
+
+func (r *Registrators) Authenticate(request *http.Request) (*Registrator, error) {
+	token, ok := bearerToken(request)
 	if !ok {
 		return nil, oidc.ErrUnauthorizedClient().WithDescription("missing bearer token")
 	}
-	claims, err := a.ClientAuthVerifier.Verify(r.Context(), token, func(claims *oauth.AccessTokenClaims) error {
-		return oauth.ValidateClientAuthClaims(claims, a.ExpectedAudience, a.MaxTokenLifetime)
+	claims, err := r.clientAuthVerifier.Verify(request.Context(), token, func(claims *oauth.AccessTokenClaims) error {
+		return oauth.ValidateClientAuthClaims(claims, r.expectedAudience, r.maxTokenLifetime)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("verify client auth token: %w", err)
 	}
 
-	return a.GetRegistrator(claims)
-}
-
-func (a *Authorizer) GetRegistrator(authTokenClaims *oauth.AccessTokenClaims) (*Registrator, error) {
-	var registrator *Registrator
-	for _, client := range a.Registrators {
-		if authTokenClaims.Issuer == client.AuthIssuer && authTokenClaims.Subject == client.AuthSubject {
-			registrator = client
-			break
-		}
-	}
+	registrator := r.byIdentity[registratorIdentity{issuer: claims.Issuer, subject: claims.Subject}]
 	if registrator == nil {
-		return nil, fmt.Errorf("could not find registrator for issuer %q and subject %q", authTokenClaims.Issuer, authTokenClaims.Subject)
+		return nil, fmt.Errorf("could not find registrator for issuer %q and subject %q", claims.Issuer, claims.Subject)
 	}
 	return registrator, nil
 }

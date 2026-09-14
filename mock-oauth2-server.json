@@ -32,10 +32,17 @@
           "requestParam": "grant_type",
           "match": "client_credentials",
           "claims": {
-            "sub": "${client_id}",
+            "sub": "system:serviceaccount:${ns}:${workload}",
             "aud": [
               "nais"
-            ]
+            ],
+            "kubernetes.io": {
+              "namespace": "${ns}",
+              "serviceaccount": {
+                "name": "${workload}",
+                "uid": "899c0fe1-9312-4433-aa53-10a9da1b56db"
+              }
+            }
           }
         }
       ]

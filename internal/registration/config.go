@@ -2,19 +2,26 @@ package registration
 
 import (
 	"fmt"
-	"net"
-	"net/url"
-	"strings"
+
+	"github.com/nais/sts/internal/oauth"
 )
 
 type ClientRegistratorConfig struct {
-	Issuer        string   `json:"issuer" yaml:"issuer"`
-	Subject       string   `json:"subject" yaml:"subject"`
-	ClientJwksUri string   `json:"client_jwks_uri" yaml:"clientJwksUri"`
-	RequiredAlgs  []string `json:"required_algs" yaml:"requiredAlgs"`
+	Issuer                 string   `yaml:"issuer"`
+	Subject                string   `yaml:"subject"`
+	ClientJwksUri          string   `yaml:"clientJwksUri"`
+	RequiredAlgs           []string `yaml:"requiredAlgs"`
+	ManagedWorkloadIssuers []string `yaml:"managedWorkloadIssuers"`
 }
 
 type ClientRegistrators []*ClientRegistratorConfig
+
+func (r *ClientRegistratorConfig) managedWorkloadIssuers() []string {
+	if len(r.ManagedWorkloadIssuers) == 0 {
+		return []string{r.Issuer}
+	}
+	return r.ManagedWorkloadIssuers
+}
 
 func (r ClientRegistrators) Validate() error {
 	for i, registrator := range r {
@@ -24,27 +31,26 @@ func (r ClientRegistrators) Validate() error {
 		if registrator.Subject == "" {
 			return fmt.Errorf("registrator %d subject must not be empty", i)
 		}
-		if err := validateURL(registrator.Issuer); err != nil {
+		if err := oauth.ValidateSecureURL(registrator.Issuer); err != nil {
 			return fmt.Errorf("registrator %d issuer: %w", i, err)
 		}
-		if err := validateURL(registrator.ClientJwksUri); err != nil {
+		if err := oauth.ValidateSecureURL(registrator.ClientJwksUri); err != nil {
 			return fmt.Errorf("registrator %d client JWKS URI: %w", i, err)
 		}
-		if len(registrator.RequiredAlgs) == 0 {
-			return fmt.Errorf("registrator %d required algorithms must not be empty", i)
+		if err := oauth.ValidateSigningAlgorithms(registrator.RequiredAlgs); err != nil {
+			return fmt.Errorf("registrator %d required algorithms: %w", i, err)
 		}
-	}
-	return nil
-}
-
-func validateURL(value string) error {
-	parsed, err := url.Parse(value)
-	if err != nil || !parsed.IsAbs() || parsed.Host == "" {
-		return fmt.Errorf("must be an absolute URL")
-	}
-	isLoopback := strings.EqualFold(parsed.Hostname(), "localhost") || net.ParseIP(parsed.Hostname()).IsLoopback()
-	if parsed.Scheme != "https" && (parsed.Scheme != "http" || !isLoopback) {
-		return fmt.Errorf("must use https, except for localhost or loopback http URLs")
+		managedIssuers := registrator.managedWorkloadIssuers()
+		seenIssuers := make(map[string]struct{}, len(managedIssuers))
+		for _, issuer := range managedIssuers {
+			if err := oauth.ValidateSecureURL(issuer); err != nil {
+				return fmt.Errorf("registrator %d managed workload issuer %q: %w", i, issuer, err)
+			}
+			if _, ok := seenIssuers[issuer]; ok {
+				return fmt.Errorf("registrator %d duplicate managed workload issuer %q", i, issuer)
+			}
+			seenIssuers[issuer] = struct{}{}
+		}
 	}
 	return nil
 }

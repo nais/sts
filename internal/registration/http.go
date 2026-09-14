@@ -16,19 +16,21 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
+var errIssuerAuthority = errors.New("registrator is not authorized for workload issuer")
+
 type Api struct {
-	authorizer *Authorizer
-	store      oauth.ClientStore
+	registrators *Registrators
+	store        oauth.ClientStore
 }
 
 func NewApi(ctx context.Context, registrators ClientRegistrators, authServerCfg oauth.AuthorizationServerConfig, store oauth.ClientStore) (*Api, error) {
-	authorizer, err := CreateAuthorizer(ctx, authServerCfg, registrators...)
+	registry, err := NewRegistrators(ctx, authServerCfg, registrators...)
 	if err != nil {
 		return nil, err
 	}
 	return &Api{
-		authorizer: authorizer,
-		store:      store,
+		registrators: registry,
+		store:        store,
 	}, nil
 }
 
@@ -38,7 +40,7 @@ func (a *Api) PostEndpoint() http.HandlerFunc {
 			return withHTTPStatus(err, http.StatusUnsupportedMediaType)
 		}
 
-		client, err := a.AuthorizeRequest(r)
+		registrator, err := a.AuthenticateRequest(r)
 		if err != nil {
 			return withHTTPStatus(fmt.Errorf("unauthorized: %w", err), http.StatusUnauthorized)
 		}
@@ -50,13 +52,15 @@ func (a *Api) PostEndpoint() http.HandlerFunc {
 			}
 			return withHTTPStatus(fmt.Errorf("invalid request body"), http.StatusBadRequest)
 		}
-		ss, err := client.VerifySoftwareStatement(r.Context(), registration.SoftwareStatement)
+		ss, err := registrator.VerifySoftwareStatement(r.Context(), registration.SoftwareStatement)
 		if err != nil {
 			return withHTTPStatus(fmt.Errorf("invalid software statement: %w", err), http.StatusBadRequest)
 		}
 
-		err = a.SaveRegistration(r.Context(), ss)
-		if err != nil {
+		if err := a.SaveRegistration(r.Context(), registrator, ss); err != nil {
+			if errors.Is(err, errIssuerAuthority) {
+				return withHTTPStatus(errors.New("registrator is not authorized for registration"), http.StatusForbidden)
+			}
 			// TODO: log error and return a generic error message to avoid leaking sensitive information
 			return withHTTPStatus(fmt.Errorf("failed to save registration: %w", err), http.StatusInternalServerError)
 		}
@@ -70,7 +74,7 @@ func (a *Api) PostEndpoint() http.HandlerFunc {
 
 func (a *Api) DeleteEndpoint() http.HandlerFunc {
 	return errorAwareHandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
-		_, err := a.AuthorizeRequest(r)
+		registrator, err := a.AuthenticateRequest(r)
 		if err != nil {
 			return withHTTPStatus(fmt.Errorf("unauthorized: %w", err), http.StatusUnauthorized)
 		}
@@ -78,6 +82,15 @@ func (a *Api) DeleteEndpoint() http.HandlerFunc {
 		clientID := oauth.ClientID(chi.URLParam(r, "id"))
 		if err := clientID.Validate(); err != nil {
 			return withHTTPStatus(err, http.StatusBadRequest)
+		}
+
+		authorized, err := a.AuthorizeRequest(r.Context(), registrator, clientID)
+		if err != nil {
+			return withHTTPStatus(fmt.Errorf("failed to find registration: %w", err), http.StatusInternalServerError)
+		}
+		if !authorized {
+			w.WriteHeader(http.StatusNoContent)
+			return nil
 		}
 
 		if err := a.store.Delete(r.Context(), clientID); err != nil {
@@ -90,14 +103,31 @@ func (a *Api) DeleteEndpoint() http.HandlerFunc {
 	})
 }
 
-func (a *Api) AuthorizeRequest(r *http.Request) (*Registrator, error) {
-	return a.authorizer.Authorize(r)
+func (a *Api) AuthenticateRequest(r *http.Request) (*Registrator, error) {
+	return a.registrators.Authenticate(r)
 }
 
-func (a *Api) SaveRegistration(ctx context.Context, s *SoftwareStatement) error {
-	// TODO: sanitize fields in software statement before inserting into db
+func (a *Api) AuthorizeRequest(ctx context.Context, registrator *Registrator, clientID oauth.ClientID) (bool, error) {
+	client, err := a.store.GetByID(ctx, clientID)
+	if err != nil {
+		return false, err
+	}
+	return registrator.CanManageClient(client), nil
+}
+
+func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s *SoftwareStatement) error {
 	if err := s.validate(); err != nil {
 		return err
+	}
+	if !registrator.Manages(s.Workload.Issuer) {
+		return errIssuerAuthority
+	}
+	existing, err := a.store.GetByID(ctx, oauth.ClientID(s.ClientId))
+	if err != nil {
+		return err
+	}
+	if existing != nil && !registrator.Manages(existing.Issuer) {
+		return errIssuerAuthority
 	}
 	return a.store.Save(ctx, &oauth.Client{
 		ID:            s.ClientId,
