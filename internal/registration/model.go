@@ -26,9 +26,14 @@ type ClientRegistrationResponse struct {
 }
 
 type SoftwareStatement struct {
-	ClientId              string                      `json:"client_id"`
-	Workload              Workload                    `json:"workload"`
-	AuthorizationPolicies []oauth.AuthorizationPolicy `json:"authorization_policies"`
+	ClientId              string                `json:"client_id"`
+	Workload              Workload              `json:"workload"`
+	AuthorizationPolicies []AuthorizationPolicy `json:"authorization_policies"`
+}
+
+type AuthorizationPolicy struct {
+	Consumer string   `json:"consumer"`
+	Roles    []string `json:"roles"`
 }
 
 // SetSignatureAlgorithm no-op, required to satisfy the oidc.ClaimsSignature interface when using oidc.CheckSignature
@@ -55,13 +60,11 @@ func (s SoftwareStatement) validate() error {
 
 	policies := make(map[string]struct{}, len(s.AuthorizationPolicies))
 	for i, policy := range s.AuthorizationPolicies {
-		if policy.Owner != clientID {
-			return fmt.Errorf("authorization policy %d owner must equal client_id", i)
-		}
-		if err := policy.Consumer.Validate(); err != nil {
+		consumer := oauth.ClientID(policy.Consumer)
+		if err := consumer.Validate(); err != nil {
 			return fmt.Errorf("authorization policy %d consumer: %w", i, err)
 		}
-		key := string(policy.Consumer)
+		key := policy.Consumer
 		if _, ok := policies[key]; ok {
 			return fmt.Errorf("authorization policy %d is duplicated", i)
 		}

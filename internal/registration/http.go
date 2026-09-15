@@ -110,6 +110,14 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 	if s.Workload.Issuer != registrator.AuthIssuer {
 		return oauth.ErrRegistrationUnauthorized
 	}
+	policies := make([]oauth.AuthorizationPolicy, len(s.AuthorizationPolicies))
+	for i, policy := range s.AuthorizationPolicies {
+		policies[i] = oauth.AuthorizationPolicy{
+			Owner:    oauth.ClientID(s.ClientId),
+			Consumer: oauth.ClientID(policy.Consumer),
+			Roles:    oauth.Roles(policy.Roles),
+		}
+	}
 	err := a.store.Save(ctx, &oauth.Client{
 		ID:            s.ClientId,
 		Environment:   s.Workload.Environment,
@@ -117,7 +125,7 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 		Workload:      s.Workload.Name,
 		Issuer:        s.Workload.Issuer,
 		AllowedScopes: []string{},
-	}, s.AuthorizationPolicies, registrator.AuthIssuer)
+	}, policies, registrator.AuthIssuer)
 	return err
 }
 

@@ -60,11 +60,10 @@ func TestSts(t *testing.T) {
 				Namespace:   fixtures.Client1.Namespace,
 				Name:        "registered-workload",
 			},
-			AuthorizationPolicies: []oauth.AuthorizationPolicy{
+			AuthorizationPolicies: []registration.AuthorizationPolicy{
 				{
-					Owner:    "env1:namespace1:registered-workload",
-					Consumer: oauth.ClientID(fixtures.Client2.ID),
-					Roles:    oauth.Roles{fixtures.Role},
+					Consumer: fixtures.Client2.ID,
+					Roles:    []string{fixtures.Role},
 				},
 			},
 		}
@@ -89,11 +88,10 @@ func TestSts(t *testing.T) {
 			another := statement
 			another.ClientId = "env1:namespace1:another-workload"
 			another.Workload.Name = "another-workload"
-			another.AuthorizationPolicies = []oauth.AuthorizationPolicy{
+			another.AuthorizationPolicies = []registration.AuthorizationPolicy{
 				{
-					Owner:    oauth.ClientID(another.ClientId),
-					Consumer: oauth.ClientID(fixtures.Client2.ID),
-					Roles:    oauth.Roles{fixtures.Role},
+					Consumer: fixtures.Client2.ID,
+					Roles:    []string{fixtures.Role},
 				},
 			}
 
@@ -116,7 +114,6 @@ func TestSts(t *testing.T) {
 			unauthorized.ClientId = "env2:namespace1:unauthorized-workload"
 			unauthorized.Workload.Environment = "env2"
 			unauthorized.Workload.Issuer = oauthServer.Endpoint("env2")
-			unauthorized.AuthorizationPolicies[0].Owner = oauth.ClientID(unauthorized.ClientId)
 			status, response := postRegistration[oidc.Error](t, sts, registratorToken, registration.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, unauthorized),
 			})
@@ -128,7 +125,6 @@ func TestSts(t *testing.T) {
 			collision := statement
 			collision.AuthorizationPolicies = slices.Clone(statement.AuthorizationPolicies)
 			collision.ClientId = "env1:namespace1:other-client"
-			collision.AuthorizationPolicies[0].Owner = oauth.ClientID(collision.ClientId)
 			status, response := postRegistration[oidc.Error](t, sts, registratorToken, registration.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, collision),
 			})

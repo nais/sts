@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nais/sts/internal/oauth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,10 +17,9 @@ func TestSoftwareStatementValidate(t *testing.T) {
 				Namespace:   "team-a",
 				Name:        "workload-1",
 			},
-			AuthorizationPolicies: []oauth.AuthorizationPolicy{{
-				Owner:    "client-1",
+			AuthorizationPolicies: []AuthorizationPolicy{{
 				Consumer: "client-2",
-				Roles:    oauth.Roles{"reader", "writer"},
+				Roles:    []string{"reader", "writer"},
 			}},
 		}
 	}
@@ -51,10 +49,6 @@ func TestSoftwareStatementValidate(t *testing.T) {
 			mutate:  func(s *SoftwareStatement) { s.Workload.Issuer = "http://issuer.example" },
 			wantErr: "workload issuer",
 		},
-		"different policy owner": {
-			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Owner = "other-client" },
-			wantErr: "owner must equal client_id",
-		},
 		"invalid consumer": {
 			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Consumer = "Client-2" },
 			wantErr: "consumer",
@@ -62,7 +56,7 @@ func TestSoftwareStatementValidate(t *testing.T) {
 		"duplicate policy": {
 			mutate: func(s *SoftwareStatement) {
 				duplicate := s.AuthorizationPolicies[0]
-				duplicate.Roles = oauth.Roles{"other"}
+				duplicate.Roles = []string{"other"}
 				s.AuthorizationPolicies = append(s.AuthorizationPolicies, duplicate)
 			},
 			wantErr: "duplicated",
@@ -72,17 +66,17 @@ func TestSoftwareStatementValidate(t *testing.T) {
 			wantErr: "roles must not be empty",
 		},
 		"invalid role": {
-			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = oauth.Roles{"team:reader"} },
+			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = []string{"team:reader"} },
 			wantErr: "role 0 is invalid",
 		},
 		"role too long": {
 			mutate: func(s *SoftwareStatement) {
-				s.AuthorizationPolicies[0].Roles = oauth.Roles{strings.Repeat("a", maxRoleLength+1)}
+				s.AuthorizationPolicies[0].Roles = []string{strings.Repeat("a", maxRoleLength+1)}
 			},
 			wantErr: "role 0 is too long",
 		},
 		"duplicate role": {
-			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = oauth.Roles{"reader", "reader"} },
+			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = []string{"reader", "reader"} },
 			wantErr: "role \"reader\" is duplicated",
 		},
 	}
