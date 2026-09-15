@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -130,8 +131,7 @@ func (c *CachedClient) Save(ctx context.Context, client *oauth.Client, policies 
 			}
 			return oauth.ErrRegistrationConflict
 		}
-		// TODO: is this a reliable error?
-		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.ConstraintName == "kubernetes_clients_workload_namespace_issuer_key" {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgerrcode.UniqueViolation {
 			return oauth.ErrRegistrationConflict
 		}
 		if err != nil {
