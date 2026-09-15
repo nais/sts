@@ -64,8 +64,29 @@ func TestNewPoolMigratesPostgres(t *testing.T) {
 	defer pool.Close()
 }
 
-func TestWithTx(t *testing.T) {
+func TestDatabase(t *testing.T) {
 	pool := newTestPool(t)
+
+	t.Run("transactions", func(t *testing.T) {
+		testWithTx(t, pool)
+	})
+	t.Run("key store", func(t *testing.T) {
+		resetDatabase(t, pool)
+		testPostgresKeyStore(t, pool)
+	})
+	t.Run("client cache", func(t *testing.T) {
+		resetDatabase(t, pool)
+		testCachedClientStore(t, pool)
+	})
+	t.Run("registration store", func(t *testing.T) {
+		resetDatabase(t, pool)
+		testClientRegistrationStore(t, pool)
+	})
+}
+
+func testWithTx(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+
 	queries := sqlgen.New(pool)
 
 	params := func(workload string) sqlgen.UpsertKubernetesClientParams {
@@ -88,7 +109,8 @@ func TestWithTx(t *testing.T) {
 
 	t.Run("commits on success", func(t *testing.T) {
 		err := database.WithTx(t.Context(), pool, func(ctx context.Context, queries *sqlgen.Queries) error {
-			return queries.UpsertKubernetesClient(ctx, params("committed"))
+			_, err := queries.UpsertKubernetesClient(ctx, params("committed"))
+			return err
 		})
 		require.NoError(t, err)
 
@@ -99,7 +121,8 @@ func TestWithTx(t *testing.T) {
 	t.Run("rolls back on error", func(t *testing.T) {
 		wantErr := errors.New("fail transaction")
 		err := database.WithTx(t.Context(), pool, func(ctx context.Context, queries *sqlgen.Queries) error {
-			require.NoError(t, queries.UpsertKubernetesClient(ctx, params("rolled-back")))
+			_, err := queries.UpsertKubernetesClient(ctx, params("rolled-back"))
+			require.NoError(t, err)
 			return wantErr
 		})
 		require.ErrorIs(t, err, wantErr)
@@ -113,13 +136,15 @@ func TestWithTx(t *testing.T) {
 		err := database.WithTx(t.Context(), pool, func(ctx context.Context, queries *sqlgen.Queries) error {
 			outerTx, ok := database.Tx(ctx)
 			require.True(t, ok)
-			require.NoError(t, queries.UpsertKubernetesClient(ctx, params("outer")))
+			_, err := queries.UpsertKubernetesClient(ctx, params("outer"))
+			require.NoError(t, err)
 
 			require.NoError(t, database.WithTx(ctx, pool, func(ctx context.Context, queries *sqlgen.Queries) error {
 				innerTx, ok := database.Tx(ctx)
 				require.True(t, ok)
 				require.Same(t, outerTx, innerTx)
-				return queries.UpsertKubernetesClient(ctx, params("inner"))
+				_, err := queries.UpsertKubernetesClient(ctx, params("inner"))
+				return err
 			}))
 			return wantErr
 		})
@@ -132,9 +157,10 @@ func TestWithTx(t *testing.T) {
 	})
 }
 
-func TestPostgresKeyStore(t *testing.T) {
+func testPostgresKeyStore(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+
 	ctx := t.Context()
-	pool := newTestPool(t)
 	st, err := store.NewRotatingKeyStore(ctx, pool, time.Minute)
 	require.NoError(t, err)
 
@@ -191,44 +217,188 @@ func TestPostgresKeyStore(t *testing.T) {
 	require.Equal(t, 1, rows)
 }
 
-func TestCachedClientStoreFallsBackToPostgresOnMiss(t *testing.T) {
-	pool := newTestPool(t)
-	cached, err := store.NewCachedClientStore(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	require.NoError(t, err)
-	defer cached.Close()
+func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
 
-	direct := store.NewClientStore(pool)
-	require.NoError(t, direct.Save(t.Context(), testClient("scope")))
+	t.Run("falls back to Postgres on miss", func(t *testing.T) {
+		resetClients(t, pool)
+		cached, err := store.NewCachedClientStore(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		require.NoError(t, err)
+		defer cached.Close()
 
-	client, err := cached.Get(t.Context(), testClientClaims())
-	require.NoError(t, err)
-	require.Equal(t, []string{"scope"}, client.AllowedScopes)
+		direct := store.NewClientStore(pool)
+		require.NoError(t, direct.Save(t.Context(), testClient("scope")))
+
+		client, err := cached.Get(t.Context(), testClientClaims())
+		require.NoError(t, err)
+		require.Equal(t, []string{"scope"}, client.AllowedScopes)
+	})
+
+	t.Run("refreshes after notification", func(t *testing.T) {
+		resetClients(t, pool)
+		direct := store.NewClientStore(pool)
+		require.NoError(t, direct.Save(t.Context(), testClient("old-scope")))
+
+		cached, err := store.NewCachedClientStore(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			cached.Run(ctx)
+		}()
+		defer func() {
+			cancel()
+			<-done
+		}()
+
+		require.NoError(t, direct.Save(t.Context(), testClient("new-scope")))
+		require.Eventually(t, func() bool {
+			client, err := cached.Get(t.Context(), testClientClaims())
+			return err == nil && len(client.AllowedScopes) == 1 && client.AllowedScopes[0] == "new-scope"
+		}, 5*time.Second, 10*time.Millisecond)
+	})
 }
 
-func TestCachedClientStoreRefreshesAfterNotification(t *testing.T) {
-	pool := newTestPool(t)
-	direct := store.NewClientStore(pool)
-	require.NoError(t, direct.Save(t.Context(), testClient("old-scope")))
+func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
 
-	cached, err := store.NewCachedClientStore(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	clients, err := store.NewCachedClientStore(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	require.NoError(t, err)
+	defer clients.Close()
+	queries := sqlgen.New(pool)
 
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		cached.Run(ctx)
-	}()
-	defer func() {
-		cancel()
-		<-done
-	}()
+	run := func(name string, test func(*testing.T)) {
+		t.Run(name, func(t *testing.T) {
+			resetClients(t, pool)
+			test(t)
+		})
+	}
 
-	require.NoError(t, direct.Save(t.Context(), testClient("new-scope")))
-	require.Eventually(t, func() bool {
-		client, err := cached.Get(t.Context(), testClientClaims())
-		return err == nil && len(client.AllowedScopes) == 1 && client.AllowedScopes[0] == "new-scope"
-	}, 5*time.Second, 10*time.Millisecond)
+	run("replaces policies and scopes", func(t *testing.T) {
+		client := testClient("old-scope")
+		oldPolicies := []oauth.AuthorizationPolicy{
+			{Owner: oauth.ClientID(client.ID), Consumer: "old-consumer", Roles: oauth.Roles{"old-role"}},
+			{Owner: oauth.ClientID(client.ID), Consumer: "retained-consumer", Roles: oauth.Roles{"old-role"}},
+		}
+		require.NoError(t, clients.Save(t.Context(), client, oldPolicies, client.Issuer))
+
+		replacement := testClient("new-scope")
+		newPolicies := []oauth.AuthorizationPolicy{
+			{Owner: oauth.ClientID(client.ID), Consumer: "retained-consumer", Roles: oauth.Roles{"new-role"}},
+			{Owner: oauth.ClientID(client.ID), Consumer: "new-consumer", Roles: oauth.Roles{"new-role"}},
+		}
+		require.NoError(t, clients.Save(t.Context(), replacement, newPolicies, client.Issuer))
+
+		assertStoredRegistration(t, queries, client.ID, replacement.AllowedScopes, []sqlgen.AuthorizationPolicy{
+			{OwnerClientID: client.ID, ConsumerClientID: "new-consumer", Roles: []string{"new-role"}},
+			{OwnerClientID: client.ID, ConsumerClientID: "retained-consumer", Roles: []string{"new-role"}},
+		})
+	})
+
+	run("rolls back on policy failure", func(t *testing.T) {
+		client := testClient("old-scope")
+		oldPolicies := []oauth.AuthorizationPolicy{{Owner: oauth.ClientID(client.ID), Consumer: "consumer", Roles: oauth.Roles{"old-role"}}}
+		require.NoError(t, clients.Save(t.Context(), client, oldPolicies, client.Issuer))
+
+		replacement := testClient("new-scope")
+		// The store must remain atomic even if a caller bypasses software-statement validation.
+		invalidPolicies := []oauth.AuthorizationPolicy{{Owner: oauth.ClientID(client.ID), Consumer: "invalid\x00consumer", Roles: oauth.Roles{"new-role"}}}
+		require.Error(t, clients.Save(t.Context(), replacement, invalidPolicies, client.Issuer))
+
+		assertStoredRegistration(t, queries, client.ID, client.AllowedScopes, []sqlgen.AuthorizationPolicy{
+			{OwnerClientID: client.ID, ConsumerClientID: "consumer", Roles: []string{"old-role"}},
+		})
+	})
+
+	run("rejects immutable identity changes", func(t *testing.T) {
+		client := testClient("old-scope")
+		policies := []oauth.AuthorizationPolicy{{Owner: oauth.ClientID(client.ID), Consumer: "consumer", Roles: oauth.Roles{"old-role"}}}
+		require.NoError(t, clients.Save(t.Context(), client, policies, client.Issuer))
+
+		for name, test := range map[string]struct {
+			mutate  func(*oauth.Client)
+			wantErr error
+		}{
+			"environment": {func(client *oauth.Client) { client.Environment = "new-environment" }, oauth.ErrRegistrationConflict},
+			"namespace":   {func(client *oauth.Client) { client.Namespace = "new-namespace" }, oauth.ErrRegistrationConflict},
+			"workload":    {func(client *oauth.Client) { client.Workload = "new-workload" }, oauth.ErrRegistrationConflict},
+			"issuer":      {func(client *oauth.Client) { client.Issuer = "https://new-issuer.example" }, oauth.ErrRegistrationUnauthorized},
+		} {
+			t.Run(name, func(t *testing.T) {
+				replacement := testClient("new-scope")
+				test.mutate(replacement)
+				require.ErrorIs(t, clients.Save(t.Context(), replacement, nil, client.Issuer), test.wantErr)
+			})
+		}
+
+		queries := sqlgen.New(pool)
+		stored, err := queries.GetKubernetesClientByIDForUpdate(t.Context(), client.ID)
+		require.NoError(t, err)
+		require.Equal(t, client.Issuer, stored.Issuer)
+		require.Equal(t, client.AllowedScopes, stored.AllowedScopes)
+		storedPolicies, err := queries.ListAuthorizationPolicies(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, []sqlgen.AuthorizationPolicy{
+			{OwnerClientID: client.ID, ConsumerClientID: "consumer", Roles: []string{"old-role"}},
+		}, storedPolicies)
+	})
+
+	run("rejects workload collision", func(t *testing.T) {
+		client := testClient("scope")
+		require.NoError(t, clients.Save(t.Context(), client, nil, client.Issuer))
+
+		colliding := testClient("other-scope")
+		colliding.ID = "other-client"
+		require.ErrorIs(t, clients.Save(t.Context(), colliding, nil, client.Issuer), oauth.ErrRegistrationConflict)
+
+		queries := sqlgen.New(pool)
+		stored, err := queries.GetKubernetesClientByIDForUpdate(t.Context(), client.ID)
+		require.NoError(t, err)
+		require.Equal(t, client.AllowedScopes, stored.AllowedScopes)
+		_, err = queries.GetKubernetesClientByIDForUpdate(t.Context(), colliding.ID)
+		require.ErrorIs(t, err, pgx.ErrNoRows)
+	})
+
+	run("rejects issuer outside authority", func(t *testing.T) {
+		client := testClient("scope")
+		require.ErrorIs(t, clients.Save(t.Context(), client, nil, "https://other.example"), oauth.ErrRegistrationUnauthorized)
+
+		_, err := queries.GetKubernetesClientByIDForUpdate(t.Context(), client.ID)
+		require.ErrorIs(t, err, pgx.ErrNoRows)
+	})
+
+	run("deletes clients", func(t *testing.T) {
+		require.NoError(t, clients.Delete(t.Context(), "missing", "https://issuer.example"))
+
+		client := testClient("scope")
+		require.NoError(t, clients.Save(t.Context(), client, nil, client.Issuer))
+		require.ErrorIs(t, clients.Delete(t.Context(), oauth.ClientID(client.ID), "https://other.example"), oauth.ErrRegistrationUnauthorized)
+		require.NoError(t, clients.Delete(t.Context(), oauth.ClientID(client.ID), client.Issuer))
+	})
+}
+
+func assertStoredRegistration(t *testing.T, queries *sqlgen.Queries, clientID string, scopes []string, policies []sqlgen.AuthorizationPolicy) {
+	t.Helper()
+	stored, err := queries.GetKubernetesClientByIDForUpdate(t.Context(), clientID)
+	require.NoError(t, err)
+	require.Equal(t, scopes, stored.AllowedScopes)
+	storedPolicies, err := queries.ListAuthorizationPolicies(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, policies, storedPolicies)
+}
+
+func resetDatabase(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	_, err := pool.Exec(t.Context(), "TRUNCATE authorization_policies, kubernetes_clients, rotatable_signing_keys")
+	require.NoError(t, err)
+}
+
+func resetClients(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	_, err := pool.Exec(t.Context(), "TRUNCATE authorization_policies, kubernetes_clients")
+	require.NoError(t, err)
 }
 
 func testClient(scopes ...string) *oauth.Client {

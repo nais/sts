@@ -236,7 +236,7 @@ func seedSts(t testing.TB, dsn string, oauthServer testServer) {
 		{client: fixtures.Client1, target: fixtures.Client2},
 		{client: fixtures.Client2, target: fixtures.Client3},
 	} {
-		if err := queries.UpsertKubernetesClient(t.Context(), sqlgen.UpsertKubernetesClientParams{
+		if _, err := queries.UpsertKubernetesClient(t.Context(), sqlgen.UpsertKubernetesClientParams{
 			ID:            pair.client.ID,
 			Environment:   pair.client.Environment,
 			Namespace:     pair.client.Namespace,

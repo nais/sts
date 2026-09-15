@@ -98,6 +98,20 @@ func TestSts(t *testing.T) {
 			assert.Equal(t, http.StatusForbidden, status)
 		})
 
+		t.Run("rejects workload identity collision", func(t *testing.T) {
+			collision := statement
+			collision.AuthorizationPolicies = append([]oauth.AuthorizationPolicy(nil), statement.AuthorizationPolicies...)
+			collision.ClientId = "env1:namespace1:other-client"
+			collision.AuthorizationPolicies[0].Owner = oauth.ClientID(collision.ClientId)
+			status, body := postRegistrationRequest(t, sts, registratorToken, registration.ClientRegistration{
+				SoftwareStatement: signSoftwareStatement(t, collision),
+			})
+			require.Equal(t, http.StatusConflict, status, body)
+			var response oidc.Error
+			require.NoError(t, json.Unmarshal(body, &response))
+			assert.Equal(t, oidc.InvalidClient, response.ErrorType)
+		})
+
 		t.Run("rejects replacement without authority over existing issuer", func(t *testing.T) {
 			replacement := statement
 			replacement.Workload.Environment = "env2"
@@ -110,8 +124,10 @@ func TestSts(t *testing.T) {
 
 		t.Run("does not delete registration outside issuer authority", func(t *testing.T) {
 			status, body := deleteRegistrationRequest(t, sts, otherRegistratorToken, string(statement.ClientId))
-			require.Equal(t, http.StatusNoContent, status, body)
-			assert.Empty(t, body)
+			require.Equal(t, http.StatusForbidden, status, body)
+			var response oidc.Error
+			require.NoError(t, json.Unmarshal(body, &response))
+			assert.Equal(t, oidc.InvalidClient, response.ErrorType)
 
 			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, statement.Workload.Name)
 			token := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
