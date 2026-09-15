@@ -131,6 +131,32 @@ func testWithTx(t *testing.T, pool *pgxpool.Pool) {
 		require.ErrorIs(t, err, pgx.ErrNoRows)
 	})
 
+	t.Run("read-only snapshot applies transaction options", func(t *testing.T) {
+		result, err := database.WithReadOnlySnapshot(t.Context(), pool, func(ctx context.Context, _ *sqlgen.Queries) (string, error) {
+			tx, ok := database.Tx(ctx)
+			require.True(t, ok)
+
+			var isolation, readOnly string
+			require.NoError(t, tx.QueryRow(ctx, "SHOW transaction_isolation").Scan(&isolation))
+			require.NoError(t, tx.QueryRow(ctx, "SHOW transaction_read_only").Scan(&readOnly))
+			require.Equal(t, "repeatable read", isolation)
+			require.Equal(t, "on", readOnly)
+			return "snapshot", nil
+		})
+		require.NoError(t, err)
+		require.Equal(t, "snapshot", result)
+	})
+
+	t.Run("read-only snapshot rejects nesting", func(t *testing.T) {
+		err := database.WithTx(t.Context(), pool, func(ctx context.Context, _ *sqlgen.Queries) error {
+			_, err := database.WithReadOnlySnapshot(ctx, pool, func(context.Context, *sqlgen.Queries) (struct{}, error) {
+				return struct{}{}, nil
+			})
+			return err
+		})
+		require.EqualError(t, err, "read-only snapshot cannot run inside an existing transaction")
+	})
+
 	t.Run("nested calls reuse outer transaction", func(t *testing.T) {
 		wantErr := errors.New("fail outer transaction")
 		err := database.WithTx(t.Context(), pool, func(ctx context.Context, queries *sqlgen.Queries) error {

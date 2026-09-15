@@ -36,16 +36,25 @@ var _ oauth.ClientStore = (*CachedClient)(nil)
 
 // CachedClient serves clients and policies from an atomically replaced snapshot.
 type CachedClient struct {
-	pool     *pgxpool.Pool
-	queries  *sqlgen.Queries
-	snapshot *cache.Snapshot[*clientSnapshot]
-	listener *cache.PostgresListener
-	log      *slog.Logger
+	pool            *pgxpool.Pool
+	queries         *sqlgen.Queries
+	snapshot        *cache.Snapshot[*clientSnapshot]
+	listener        *cache.PostgresListener
+	refreshInterval time.Duration
+	log             *slog.Logger
 }
 
 func NewCachedClientStore(ctx context.Context, pool *pgxpool.Pool, refreshInterval time.Duration, log *slog.Logger) (*CachedClient, error) {
-	store := &CachedClient{pool: pool, queries: sqlgen.New(pool), log: log}
-	snapshot, err := cache.NewSnapshot(store.load, refreshInterval)
+	if refreshInterval <= 0 {
+		return nil, fmt.Errorf("snapshot refresh interval must be positive")
+	}
+	store := &CachedClient{
+		pool:            pool,
+		queries:         sqlgen.New(pool),
+		refreshInterval: refreshInterval,
+		log:             log,
+	}
+	snapshot, err := cache.NewSnapshot(database.ReadOnlySnapshotLoader(pool, loadClientSnapshot))
 	if err != nil {
 		return nil, err
 	}
@@ -84,9 +93,11 @@ func (c *CachedClient) Run(ctx context.Context) {
 		c.listener.Run(ctx)
 	})
 
-	c.snapshot.Run(ctx, func(err error) {
+	if err := c.snapshot.RunPeriodic(ctx, c.refreshInterval, func(err error) {
 		c.log.Error("refresh client cache snapshot", "error", err)
-	})
+	}); err != nil {
+		c.log.Error("run client cache snapshot", "error", err)
+	}
 	listener.Wait()
 }
 
@@ -221,17 +232,7 @@ func (c *CachedClient) getPolicyFromPostgres(ctx context.Context, key policyKey)
 	return row.Roles, nil
 }
 
-func (c *CachedClient) load(ctx context.Context) (*clientSnapshot, error) {
-	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{
-		IsoLevel:   pgx.RepeatableRead,
-		AccessMode: pgx.ReadOnly,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("begin client cache snapshot: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	queries := sqlgen.New(tx)
+func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSnapshot, error) {
 	clients, err := queries.ListKubernetesClients(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list Kubernetes clients: %w", err)
@@ -239,9 +240,6 @@ func (c *CachedClient) load(ctx context.Context) (*clientSnapshot, error) {
 	policies, err := queries.ListAuthorizationPolicies(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list authorization policies: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit client cache snapshot: %w", err)
 	}
 
 	result := &clientSnapshot{

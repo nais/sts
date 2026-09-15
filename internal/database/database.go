@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -73,24 +74,54 @@ func WithTx(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, *s
 	if tx, ok := Tx(ctx); ok {
 		return fn(ctx, sqlgen.New(tx))
 	}
+	_, err := withTxResult(ctx, pool, pgx.TxOptions{}, func(ctx context.Context, queries *sqlgen.Queries) (struct{}, error) {
+		return struct{}{}, fn(ctx, queries)
+	})
+	return err
+}
 
-	tx, err := pool.Begin(ctx)
+// WithReadOnlySnapshot loads a value in a read-only transaction where every
+// query sees the same database snapshot. It rejects nesting because an existing
+// transaction may not provide those guarantees.
+func WithReadOnlySnapshot[T any](ctx context.Context, pool *pgxpool.Pool, load func(context.Context, *sqlgen.Queries) (T, error)) (T, error) {
+	var zero T
+	if _, ok := Tx(ctx); ok {
+		return zero, errors.New("read-only snapshot cannot run inside an existing transaction")
+	}
+	result, err := withTxResult(ctx, pool, pgx.TxOptions{
+		IsoLevel:   pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly,
+	}, load)
 	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
+		return zero, fmt.Errorf("read-only snapshot: %w", err)
 	}
+	return result, nil
+}
 
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
-
-	if err := fn(context.WithValue(ctx, txContextKey{}, tx), sqlgen.New(tx)); err != nil {
-		return err
+// ReadOnlySnapshotLoader adapts a query loader for use by a cache or another
+// component that loads values using only a context.
+func ReadOnlySnapshotLoader[T any](pool *pgxpool.Pool, load func(context.Context, *sqlgen.Queries) (T, error)) func(context.Context) (T, error) {
+	return func(ctx context.Context) (T, error) {
+		return WithReadOnlySnapshot(ctx, pool, load)
 	}
+}
 
+func withTxResult[T any](ctx context.Context, pool *pgxpool.Pool, options pgx.TxOptions, fn func(context.Context, *sqlgen.Queries) (T, error)) (T, error) {
+	var zero T
+	tx, err := pool.BeginTx(ctx, options)
+	if err != nil {
+		return zero, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	result, err := fn(context.WithValue(ctx, txContextKey{}, tx), sqlgen.New(tx))
+	if err != nil {
+		return zero, err
+	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit tx: %w", err)
+		return zero, fmt.Errorf("commit tx: %w", err)
 	}
-	return nil
+	return result, nil
 }
 
 type gooseLogger struct {

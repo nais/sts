@@ -14,13 +14,15 @@ func TestSnapshotRefreshesWhenTriggered(t *testing.T) {
 	var loaded atomic.Int64
 	snapshot, err := NewSnapshot(func(context.Context) (int64, error) {
 		return loaded.Add(1), nil
-	}, time.Hour)
+	})
 	require.NoError(t, err)
 	require.NoError(t, snapshot.Initialize(t.Context()))
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	go snapshot.Run(ctx, nil)
+	go func() {
+		_ = snapshot.RunPeriodic(ctx, time.Hour, nil)
+	}()
 
 	snapshot.Trigger()
 	require.Eventually(t, func() bool {
@@ -33,13 +35,15 @@ func TestSnapshotRefreshesPeriodically(t *testing.T) {
 	var loaded atomic.Int64
 	snapshot, err := NewSnapshot(func(context.Context) (int64, error) {
 		return loaded.Add(1), nil
-	}, time.Millisecond)
+	})
 	require.NoError(t, err)
 	require.NoError(t, snapshot.Initialize(t.Context()))
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	go snapshot.Run(ctx, nil)
+	go func() {
+		_ = snapshot.RunPeriodic(ctx, time.Millisecond, nil)
+	}()
 
 	require.Eventually(t, func() bool {
 		value, ok := snapshot.Current()
@@ -55,14 +59,16 @@ func TestSnapshotKeepsCurrentValueWhenRefreshFails(t *testing.T) {
 			return "", loadErr
 		}
 		return "initial", nil
-	}, time.Hour)
+	})
 	require.NoError(t, err)
 	require.NoError(t, snapshot.Initialize(t.Context()))
 
 	errors := make(chan error, 1)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	go snapshot.Run(ctx, func(err error) { errors <- err })
+	go func() {
+		_ = snapshot.RunPeriodic(ctx, time.Hour, func(err error) { errors <- err })
+	}()
 
 	fail.Store(true)
 	snapshot.Trigger()
@@ -70,4 +76,74 @@ func TestSnapshotKeepsCurrentValueWhenRefreshFails(t *testing.T) {
 	value, ok := snapshot.Current()
 	require.True(t, ok)
 	require.Equal(t, "initial", value)
+}
+
+func TestSnapshotSerializesRefreshes(t *testing.T) {
+	var calls atomic.Int64
+	started := make(chan struct{}, 2)
+	release := make(chan struct{}, 2)
+	snapshot, err := NewSnapshot(func(context.Context) (int64, error) {
+		call := calls.Add(1)
+		if call == 1 {
+			return call, nil
+		}
+		started <- struct{}{}
+		<-release
+		return call, nil
+	})
+	require.NoError(t, err)
+	require.NoError(t, snapshot.Initialize(t.Context()))
+
+	errs := make(chan error, 2)
+	go func() { errs <- snapshot.Refresh(t.Context()) }()
+	<-started
+	go func() { errs <- snapshot.Refresh(t.Context()) }()
+
+	select {
+	case <-started:
+		t.Fatal("concurrent snapshot loaders were running")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	release <- struct{}{}
+	<-started
+	release <- struct{}{}
+	require.NoError(t, <-errs)
+	require.NoError(t, <-errs)
+}
+
+func TestSnapshotRefreshWaitRespectsContext(t *testing.T) {
+	var calls atomic.Int64
+	started := make(chan struct{})
+	release := make(chan struct{})
+	snapshot, err := NewSnapshot(func(context.Context) (int64, error) {
+		call := calls.Add(1)
+		if call > 1 {
+			close(started)
+			<-release
+		}
+		return call, nil
+	})
+	require.NoError(t, err)
+	require.NoError(t, snapshot.Initialize(t.Context()))
+
+	first := make(chan error, 1)
+	go func() { first <- snapshot.Refresh(t.Context()) }()
+	<-started
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, snapshot.Refresh(ctx), context.Canceled)
+	require.EqualValues(t, 2, calls.Load())
+
+	close(release)
+	require.NoError(t, <-first)
+}
+
+func TestSnapshotRejectsInvalidRefreshInterval(t *testing.T) {
+	snapshot, err := NewSnapshot(func(context.Context) (string, error) {
+		return "value", nil
+	})
+	require.NoError(t, err)
+	require.EqualError(t, snapshot.RunPeriodic(t.Context(), 0, nil), "snapshot refresh interval must be positive")
 }
