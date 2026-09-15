@@ -13,10 +13,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nais/sts/internal/oauth"
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 )
-
-var errIssuerAuthority = errors.New("registrator is not authorized for workload issuer")
 
 type Api struct {
 	registrators *Registrators
@@ -58,8 +57,11 @@ func (a *Api) PostEndpoint() http.HandlerFunc {
 		}
 
 		if err := a.SaveRegistration(r.Context(), registrator, ss); err != nil {
-			if errors.Is(err, errIssuerAuthority) {
+			if errors.Is(err, oauth.ErrRegistrationUnauthorized) {
 				return withHTTPStatus(errors.New("registrator is not authorized for registration"), http.StatusForbidden)
+			}
+			if errors.Is(err, oauth.ErrRegistrationConflict) {
+				return withHTTPStatus(oidc.ErrInvalidClient().WithDescription("registration conflicts with existing client"), http.StatusConflict)
 			}
 			// TODO: log error and return a generic error message to avoid leaking sensitive information
 			return withHTTPStatus(fmt.Errorf("failed to save registration: %w", err), http.StatusInternalServerError)
@@ -84,18 +86,12 @@ func (a *Api) DeleteEndpoint() http.HandlerFunc {
 			return withHTTPStatus(err, http.StatusBadRequest)
 		}
 
-		authorized, err := a.AuthorizeRequest(r.Context(), registrator, clientID)
+		err = a.store.Delete(r.Context(), clientID, registrator.AuthIssuer)
 		if err != nil {
-			return withHTTPStatus(fmt.Errorf("failed to find registration: %w", err), http.StatusInternalServerError)
-		}
-		if !authorized {
-			w.WriteHeader(http.StatusNoContent)
-			return nil
-		}
-
-		if err := a.store.Delete(r.Context(), clientID); err != nil {
-			// TODO: handle without leaking internal stuff (e.g. not found)
-			return withHTTPStatus(fmt.Errorf("failed to delete registration: %w", err), http.StatusBadRequest)
+			if errors.Is(err, oauth.ErrRegistrationUnauthorized) {
+				return withHTTPStatus(oidc.ErrInvalidClient().WithDescription("registrator is not authorized to delete client"), http.StatusForbidden)
+			}
+			return withHTTPStatus(fmt.Errorf("failed to delete registration: %w", err), http.StatusInternalServerError)
 		}
 
 		w.WriteHeader(http.StatusNoContent)
@@ -107,36 +103,22 @@ func (a *Api) AuthenticateRequest(r *http.Request) (*Registrator, error) {
 	return a.registrators.Authenticate(r)
 }
 
-func (a *Api) AuthorizeRequest(ctx context.Context, registrator *Registrator, clientID oauth.ClientID) (bool, error) {
-	client, err := a.store.GetByID(ctx, clientID)
-	if err != nil {
-		return false, err
-	}
-	return registrator.CanManageClient(client), nil
-}
-
 func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s *SoftwareStatement) error {
 	if err := s.validate(); err != nil {
 		return err
 	}
-	if !registrator.Manages(s.Workload.Issuer) {
-		return errIssuerAuthority
+	if s.Workload.Issuer != registrator.AuthIssuer {
+		return oauth.ErrRegistrationUnauthorized
 	}
-	existing, err := a.store.GetByID(ctx, oauth.ClientID(s.ClientId))
-	if err != nil {
-		return err
-	}
-	if existing != nil && !registrator.Manages(existing.Issuer) {
-		return errIssuerAuthority
-	}
-	return a.store.Save(ctx, &oauth.Client{
+	err := a.store.Save(ctx, &oauth.Client{
 		ID:            s.ClientId,
 		Environment:   s.Workload.Environment,
 		Namespace:     s.Workload.Namespace,
 		Workload:      s.Workload.Name,
 		Issuer:        s.Workload.Issuer,
 		AllowedScopes: []string{},
-	}, s.AuthorizationPolicies)
+	}, s.AuthorizationPolicies, registrator.AuthIssuer)
+	return err
 }
 
 func withHTTPStatus(err error, status int) error {

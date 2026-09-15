@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/cache"
 	"github.com/nais/sts/internal/database"
@@ -88,10 +89,6 @@ func (c *CachedClient) Run(ctx context.Context) {
 	listener.Wait()
 }
 
-func (c *CachedClient) Delete(ctx context.Context, clientID oauth.ClientID) error {
-	return c.queries.DeleteKubernetesClient(ctx, string(clientID))
-}
-
 func (c *CachedClient) Get(ctx context.Context, claims *oauth.AccessTokenClaims) (*oauth.Client, error) {
 	key, err := clientKeyFromClaims(claims)
 	if err != nil {
@@ -110,38 +107,67 @@ func (c *CachedClient) Get(ctx context.Context, claims *oauth.AccessTokenClaims)
 	return toClient(row), nil
 }
 
-func (c *CachedClient) GetByID(ctx context.Context, clientID oauth.ClientID) (*oauth.Client, error) {
-	row, err := c.queries.GetKubernetesClientByID(ctx, string(clientID))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+func (c *CachedClient) Save(ctx context.Context, client *oauth.Client, policies []oauth.AuthorizationPolicy, authoritativeIssuer string) error {
+	if client.Issuer != authoritativeIssuer {
+		return oauth.ErrRegistrationUnauthorized
 	}
-	if err != nil {
-		return nil, fmt.Errorf("get client by ID: %w", err)
-	}
-	return toClient(row), nil
-}
-
-func (c *CachedClient) Save(ctx context.Context, client *oauth.Client, policies []oauth.AuthorizationPolicy) error {
 	return database.WithTx(ctx, c.pool, func(ctx context.Context, queries *sqlgen.Queries) error {
-		if err := queries.UpsertKubernetesClient(ctx, sqlgen.UpsertKubernetesClientParams{
+		_, err := queries.UpsertKubernetesClient(ctx, sqlgen.UpsertKubernetesClientParams{
 			ID:            client.ID,
 			Environment:   client.Environment,
 			Namespace:     client.Namespace,
 			Workload:      client.Workload,
 			Issuer:        client.Issuer,
 			AllowedScopes: client.AllowedScopes,
-		}); err != nil {
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			existing, getErr := queries.GetKubernetesClientByIDForUpdate(ctx, client.ID)
+			if getErr != nil {
+				return fmt.Errorf("get conflicting client: %w", getErr)
+			}
+			if existing.Issuer != authoritativeIssuer {
+				return oauth.ErrRegistrationUnauthorized
+			}
+			return oauth.ErrRegistrationConflict
+		}
+		// TODO: is this a reliable error?
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.ConstraintName == "kubernetes_clients_workload_namespace_issuer_key" {
+			return oauth.ErrRegistrationConflict
+		}
+		if err != nil {
 			return fmt.Errorf("upsert client: %w", err)
+		}
+		if err := queries.DeleteAuthorizationPolicies(ctx, client.ID); err != nil {
+			return fmt.Errorf("delete authorization policies: %w", err)
 		}
 
 		for _, policy := range policies {
 			if err := queries.UpsertAuthorizationPolicy(ctx, sqlgen.UpsertAuthorizationPolicyParams{
-				OwnerClientID:    string(policy.Owner),
+				OwnerClientID:    client.ID,
 				ConsumerClientID: string(policy.Consumer),
 				Roles:            policy.Roles,
 			}); err != nil {
 				return fmt.Errorf("upsert authorization policy: %w", err)
 			}
+		}
+		return nil
+	})
+}
+
+func (c *CachedClient) Delete(ctx context.Context, clientID oauth.ClientID, authoritativeIssuer string) error {
+	return database.WithTx(ctx, c.pool, func(ctx context.Context, queries *sqlgen.Queries) error {
+		client, err := queries.GetKubernetesClientByIDForUpdate(ctx, string(clientID))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("get client for deletion: %w", err)
+		}
+		if client.Issuer != authoritativeIssuer {
+			return oauth.ErrRegistrationUnauthorized
+		}
+		if err := queries.DeleteKubernetesClient(ctx, string(clientID)); err != nil {
+			return fmt.Errorf("delete client: %w", err)
 		}
 		return nil
 	})

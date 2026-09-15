@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -26,11 +25,10 @@ type registratorIdentity struct {
 }
 
 type Registrator struct {
-	AuthIssuer             string
-	AuthSubject            string
-	RequiredAlgs           []string
-	ManagedWorkloadIssuers []string
-	KeySet                 oidc.KeySet
+	AuthIssuer   string
+	AuthSubject  string
+	RequiredAlgs []string
+	KeySet       oidc.KeySet
 }
 
 func NewRegistrators(ctx context.Context, authServerCfg oauth.AuthorizationServerConfig, config ...*ClientRegistratorConfig) (*Registrators, error) {
@@ -42,11 +40,10 @@ func NewRegistrators(ctx context.Context, authServerCfg oauth.AuthorizationServe
 	registrators := make(map[registratorIdentity]*Registrator, len(config))
 	for _, cfg := range config {
 		registrators[registratorIdentity{issuer: cfg.Issuer, subject: cfg.Subject}] = &Registrator{
-			AuthIssuer:             cfg.Issuer,
-			AuthSubject:            cfg.Subject,
-			RequiredAlgs:           cfg.RequiredAlgs,
-			ManagedWorkloadIssuers: cfg.managedWorkloadIssuers(),
-			KeySet:                 rp.NewRemoteKeySet(httpClient, cfg.ClientJwksUri),
+			AuthIssuer:   cfg.Issuer,
+			AuthSubject:  cfg.Subject,
+			RequiredAlgs: cfg.RequiredAlgs,
+			KeySet:       rp.NewRemoteKeySet(httpClient, cfg.ClientJwksUri),
 		}
 	}
 	return &Registrators{
@@ -55,14 +52,6 @@ func NewRegistrators(ctx context.Context, authServerCfg oauth.AuthorizationServe
 		expectedAudience:   authServerCfg.ExpectedAudience,
 		maxTokenLifetime:   authServerCfg.MaxClientAuthTokenLifetime,
 	}, nil
-}
-
-func (r *Registrator) Manages(issuer string) bool {
-	return slices.Contains(r.ManagedWorkloadIssuers, issuer)
-}
-
-func (r *Registrator) CanManageClient(client *oauth.Client) bool {
-	return client != nil && r.Manages(client.Issuer)
 }
 
 func (r *Registrators) Authenticate(request *http.Request) (*Registrator, error) {

@@ -7,21 +7,13 @@ import (
 )
 
 type ClientRegistratorConfig struct {
-	Issuer                 string   `yaml:"issuer"`
-	Subject                string   `yaml:"subject"`
-	ClientJwksUri          string   `yaml:"clientJwksUri"`
-	RequiredAlgs           []string `yaml:"requiredAlgs"`
-	ManagedWorkloadIssuers []string `yaml:"managedWorkloadIssuers"`
+	Issuer        string   `yaml:"issuer"`
+	Subject       string   `yaml:"subject"`
+	ClientJwksUri string   `yaml:"clientJwksUri"`
+	RequiredAlgs  []string `yaml:"requiredAlgs"`
 }
 
 type ClientRegistrators []*ClientRegistratorConfig
-
-func (r *ClientRegistratorConfig) managedWorkloadIssuers() []string {
-	if len(r.ManagedWorkloadIssuers) == 0 {
-		return []string{r.Issuer}
-	}
-	return r.ManagedWorkloadIssuers
-}
 
 func (r ClientRegistrators) Validate() error {
 	for i, registrator := range r {
@@ -39,17 +31,6 @@ func (r ClientRegistrators) Validate() error {
 		}
 		if err := oauth.ValidateSigningAlgorithms(registrator.RequiredAlgs); err != nil {
 			return fmt.Errorf("registrator %d required algorithms: %w", i, err)
-		}
-		managedIssuers := registrator.managedWorkloadIssuers()
-		seenIssuers := make(map[string]struct{}, len(managedIssuers))
-		for _, issuer := range managedIssuers {
-			if err := oauth.ValidateSecureURL(issuer); err != nil {
-				return fmt.Errorf("registrator %d managed workload issuer %q: %w", i, issuer, err)
-			}
-			if _, ok := seenIssuers[issuer]; ok {
-				return fmt.Errorf("registrator %d duplicate managed workload issuer %q", i, issuer)
-			}
-			seenIssuers[issuer] = struct{}{}
 		}
 	}
 	return nil

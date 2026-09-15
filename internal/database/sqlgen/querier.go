@@ -7,16 +7,17 @@ import (
 )
 
 type Querier interface {
+	DeleteAuthorizationPolicies(ctx context.Context, ownerClientID string) error
 	DeleteKubernetesClient(ctx context.Context, id string) error
 	GetAuthorizationPolicy(ctx context.Context, arg GetAuthorizationPolicyParams) (AuthorizationPolicy, error)
 	GetKubernetesClient(ctx context.Context, arg GetKubernetesClientParams) (KubernetesClient, error)
-	GetKubernetesClientByID(ctx context.Context, id string) (KubernetesClient, error)
+	GetKubernetesClientByIDForUpdate(ctx context.Context, id string) (KubernetesClient, error)
 	GetSigningKeySet(ctx context.Context) (RotatableSigningKey, error)
 	ListAuthorizationPolicies(ctx context.Context) ([]AuthorizationPolicy, error)
 	ListKubernetesClients(ctx context.Context) ([]KubernetesClient, error)
 	SaveSigningKeySet(ctx context.Context, arg SaveSigningKeySetParams) error
 	UpsertAuthorizationPolicy(ctx context.Context, arg UpsertAuthorizationPolicyParams) error
-	UpsertKubernetesClient(ctx context.Context, arg UpsertKubernetesClientParams) error
+	UpsertKubernetesClient(ctx context.Context, arg UpsertKubernetesClientParams) (KubernetesClient, error)
 }
 
 var _ Querier = (*Queries)(nil)

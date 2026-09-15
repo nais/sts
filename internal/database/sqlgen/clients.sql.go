@@ -7,6 +7,16 @@ import (
 	"context"
 )
 
+const deleteAuthorizationPolicies = `-- name: DeleteAuthorizationPolicies :exec
+DELETE FROM authorization_policies
+WHERE owner_client_id = $1
+`
+
+func (q *Queries) DeleteAuthorizationPolicies(ctx context.Context, ownerClientID string) error {
+	_, err := q.db.Exec(ctx, deleteAuthorizationPolicies, ownerClientID)
+	return err
+}
+
 const deleteKubernetesClient = `-- name: DeleteKubernetesClient :exec
 DELETE FROM kubernetes_clients
 WHERE id = $1
@@ -66,14 +76,15 @@ func (q *Queries) GetKubernetesClient(ctx context.Context, arg GetKubernetesClie
 	return i, err
 }
 
-const getKubernetesClientByID = `-- name: GetKubernetesClientByID :one
+const getKubernetesClientByIDForUpdate = `-- name: GetKubernetesClientByIDForUpdate :one
 SELECT id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
 FROM kubernetes_clients
 WHERE id = $1
+FOR UPDATE
 `
 
-func (q *Queries) GetKubernetesClientByID(ctx context.Context, id string) (KubernetesClient, error) {
-	row := q.db.QueryRow(ctx, getKubernetesClientByID, id)
+func (q *Queries) GetKubernetesClientByIDForUpdate(ctx context.Context, id string) (KubernetesClient, error) {
+	row := q.db.QueryRow(ctx, getKubernetesClientByIDForUpdate, id)
 	var i KubernetesClient
 	err := row.Scan(
 		&i.ID,
@@ -166,11 +177,16 @@ func (q *Queries) UpsertAuthorizationPolicy(ctx context.Context, arg UpsertAutho
 	return err
 }
 
-const upsertKubernetesClient = `-- name: UpsertKubernetesClient :exec
+const upsertKubernetesClient = `-- name: UpsertKubernetesClient :one
 INSERT INTO kubernetes_clients (id, environment, namespace, workload, issuer, allowed_scopes)
 VALUES ($1, $2, $3, $4, $5, $6::TEXT[]) ON CONFLICT (id) DO
 UPDATE SET allowed_scopes = EXCLUDED.allowed_scopes,
     updated_at = NOW()
+WHERE kubernetes_clients.environment = EXCLUDED.environment
+  AND kubernetes_clients.namespace = EXCLUDED.namespace
+  AND kubernetes_clients.workload = EXCLUDED.workload
+  AND kubernetes_clients.issuer = EXCLUDED.issuer
+RETURNING id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
 `
 
 type UpsertKubernetesClientParams struct {
@@ -182,8 +198,8 @@ type UpsertKubernetesClientParams struct {
 	AllowedScopes []string
 }
 
-func (q *Queries) UpsertKubernetesClient(ctx context.Context, arg UpsertKubernetesClientParams) error {
-	_, err := q.db.Exec(ctx, upsertKubernetesClient,
+func (q *Queries) UpsertKubernetesClient(ctx context.Context, arg UpsertKubernetesClientParams) (KubernetesClient, error) {
+	row := q.db.QueryRow(ctx, upsertKubernetesClient,
 		arg.ID,
 		arg.Environment,
 		arg.Namespace,
@@ -191,5 +207,16 @@ func (q *Queries) UpsertKubernetesClient(ctx context.Context, arg UpsertKubernet
 		arg.Issuer,
 		arg.AllowedScopes,
 	)
-	return err
+	var i KubernetesClient
+	err := row.Scan(
+		&i.ID,
+		&i.Environment,
+		&i.Namespace,
+		&i.Workload,
+		&i.Issuer,
+		&i.AllowedScopes,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

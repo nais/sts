@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -36,11 +37,13 @@ func (c ClientID) Validate() error {
 
 type ClientStore interface {
 	AuthorizeTarget(ctx context.Context, clientID ClientID, target Target) (Roles, error)
-	Delete(ctx context.Context, clientID ClientID) error
+	Delete(ctx context.Context, clientID ClientID, authoritativeIssuer string) error
 	Get(ctx context.Context, clientAuthClaims *AccessTokenClaims) (*Client, error)
-	GetByID(ctx context.Context, clientID ClientID) (*Client, error)
-	Save(ctx context.Context, client *Client, policies []AuthorizationPolicy) error
+	Save(ctx context.Context, client *Client, policies []AuthorizationPolicy, authoritativeIssuer string) error
 }
+
+var ErrRegistrationUnauthorized = errors.New("registrator is not authorized for client")
+var ErrRegistrationConflict = errors.New("registration conflicts with existing client")
 
 type KeyStore interface {
 	Signer() (jose.Signer, error)

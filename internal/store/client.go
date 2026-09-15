@@ -25,7 +25,7 @@ type clientKey struct {
 }
 
 func (s *Client) Save(ctx context.Context, client *oauth.Client) error {
-	return s.queries.UpsertKubernetesClient(ctx, sqlgen.UpsertKubernetesClientParams{
+	_, err := s.queries.UpsertKubernetesClient(ctx, sqlgen.UpsertKubernetesClientParams{
 		ID:            client.ID,
 		Environment:   client.Environment,
 		Namespace:     client.Namespace,
@@ -33,6 +33,7 @@ func (s *Client) Save(ctx context.Context, client *oauth.Client) error {
 		Issuer:        client.Issuer,
 		AllowedScopes: client.AllowedScopes,
 	})
+	return err
 }
 
 func clientKeyFromClaims(claims *oauth.AccessTokenClaims) (clientKey, error) {
