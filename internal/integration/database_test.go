@@ -184,7 +184,7 @@ func testPostgresKeyStore(t *testing.T, pool *pgxpool.Pool) {
 
 	// Force expiry and rotate concurrently. The advisory lock must allow exactly
 	// one rotation while both replicas refresh to the same three-key snapshot.
-	_, err = pool.Exec(ctx, "UPDATE rotatable_signing_keys SET expires_at = NOW() - INTERVAL '1 second'")
+	_, err = pool.Exec(ctx, "UPDATE rotatable_signing_keys SET expires_at = $1", time.Now().Add(-time.Hour))
 	require.NoError(t, err)
 
 	var group sync.WaitGroup
