@@ -25,9 +25,12 @@ func NewAuthorizationServer(ctx context.Context, cfg AuthorizationServerConfig, 
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}
 
-	tokenExchangeVerifier, err := NewTokenExchangeTokenVerifier(ctx, cfg, keyStore)
-	if err != nil {
-		return nil, fmt.Errorf("creating token exchange verifier: %w", err)
+	var tokenExchangeVerifier MultiIssuerTokenVerifier
+	if len(cfg.SubjectTokenIssuers) > 0 {
+		tokenExchangeVerifier, err = NewTokenExchangeTokenVerifier(ctx, cfg, keyStore)
+		if err != nil {
+			return nil, fmt.Errorf("creating token exchange verifier: %w", err)
+		}
 	}
 
 	return &AuthorizationServer{

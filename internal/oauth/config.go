@@ -31,9 +31,6 @@ func (c AuthorizationServerConfig) Validate() error {
 	if err := ValidateSigningAlgorithms(c.ClientAuthSigningAlgorithms); err != nil {
 		return fmt.Errorf("client auth signing algorithms: %w", err)
 	}
-	if len(c.SubjectTokenIssuers) == 0 {
-		return fmt.Errorf("subject token issuers must not be empty")
-	}
 	if c.ExpectedAudience == "" {
 		return fmt.Errorf("expected audience must not be empty")
 	}

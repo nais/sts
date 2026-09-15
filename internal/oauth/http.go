@@ -23,15 +23,16 @@ func init() {
 func DiscoveryEndpoint(endpoints *op.Endpoints, cfg AuthorizationServerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		i := string(cfg.Issuer)
+		grantTypes := []oidc.GrantType{oidc.GrantTypeClientCredentials}
+		if len(cfg.SubjectTokenIssuers) > 0 {
+			grantTypes = append(grantTypes, oidc.GrantTypeTokenExchange)
+		}
 		respond(w, r, &Response{
 			Data: &oidc.DiscoveryConfiguration{
-				Issuer:        i,
-				TokenEndpoint: endpoints.Token.Absolute(i),
-				JwksURI:       endpoints.JwksURI.Absolute(i),
-				GrantTypesSupported: []oidc.GrantType{
-					oidc.GrantTypeClientCredentials,
-					oidc.GrantTypeTokenExchange,
-				},
+				Issuer:              i,
+				TokenEndpoint:       endpoints.Token.Absolute(i),
+				JwksURI:             endpoints.JwksURI.Absolute(i),
+				GrantTypesSupported: grantTypes,
 				TokenEndpointAuthMethodsSupported: []oidc.AuthMethod{
 					oidc.AuthMethodPrivateKeyJWT,
 				},
@@ -71,7 +72,14 @@ func (a *AuthorizationServer) TokenEndpoint() http.HandlerFunc {
 		case oidc.GrantTypeClientCredentials:
 			request, err = decodeRequest[ClientCredentialsRequest](Decoder, r, true)
 		case oidc.GrantTypeTokenExchange:
-			request, err = decodeRequest[TokenExchangeRequest](Decoder, r, true)
+			if len(a.SubjectTokenIssuers) == 0 {
+				err = op.NewStatusError(
+					oidc.ErrUnsupportedGrantType().WithDescription("%s not supported", grantType),
+					http.StatusBadRequest,
+				)
+			} else {
+				request, err = decodeRequest[TokenExchangeRequest](Decoder, r, true)
+			}
 		case "":
 			err = oidc.ErrInvalidRequest().WithDescription("grant_type missing")
 		default:
