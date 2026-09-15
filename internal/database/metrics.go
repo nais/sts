@@ -148,7 +148,7 @@ func (m *databaseMetrics) TraceAcquireEnd(ctx context.Context, _ *pgxpool.Pool, 
 }
 
 func queryOperation(query string) string {
-	for _, line := range strings.Split(query, "\n") {
+	for line := range strings.SplitSeq(query, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "--") {
 			continue
@@ -169,7 +169,7 @@ func queryOperation(query string) string {
 }
 
 func querySummary(query, fallback string) string {
-	for _, line := range strings.Split(query, "\n") {
+	for line := range strings.SplitSeq(query, "\n") {
 		line = strings.TrimSpace(line)
 		name, ok := strings.CutPrefix(line, "-- name:")
 		if !ok {

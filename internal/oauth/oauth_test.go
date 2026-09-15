@@ -19,11 +19,10 @@ func TestVerifyTokenExchangeClaimsRejectsMalformedActor(t *testing.T) {
 
 func TestValidateClientAuthClaimsLifetime(t *testing.T) {
 	now := time.Now().Round(time.Second)
-	claims := &AccessTokenClaims{TokenClaims: oidc.TokenClaims{
+	claims := &AccessTokenClaims{
 		Audience:   oidc.Audience{"expected"},
 		IssuedAt:   oidc.FromTime(now),
-		Expiration: oidc.FromTime(now.Add(time.Hour + time.Minute)),
-	}}
+		Expiration: oidc.FromTime(now.Add(time.Hour + time.Minute))}
 	require.NoError(t, ValidateClientAuthClaims(claims, "expected", time.Hour))
 
 	claims.Expiration = oidc.FromTime(now.Add(time.Hour + time.Minute + time.Second))

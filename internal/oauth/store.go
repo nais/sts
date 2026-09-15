@@ -27,7 +27,7 @@ func (n Name) Validate() error {
 }
 
 func (c ClientID) Validate() error {
-	for _, part := range strings.Split(string(c), ":") {
+	for part := range strings.SplitSeq(string(c), ":") {
 		if err := Name(part).Validate(); err != nil {
 			return fmt.Errorf("invalid client ID")
 		}

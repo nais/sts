@@ -113,7 +113,7 @@ func parseBenchmarks(path string) ([]benchmarkResult, error) {
 		return nil, fmt.Errorf("read benchmark output: %w", err)
 	}
 	var results []benchmarkResult
-	for _, line := range strings.Split(string(contents), "\n") {
+	for line := range strings.SplitSeq(string(contents), "\n") {
 		match := benchmarkLine.FindStringSubmatch(line)
 		if match == nil {
 			continue
