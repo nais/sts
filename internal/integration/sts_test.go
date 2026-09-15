@@ -9,8 +9,10 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"mime"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -68,15 +70,13 @@ func TestSts(t *testing.T) {
 		}
 		signed := signSoftwareStatement(t, statement)
 
+		// These subtests share one registration from creation through deletion.
 		t.Run("accepts valid registration", func(t *testing.T) {
 			request := registration.ClientRegistration{
 				SoftwareStatement: signed,
 			}
-			status, body := postRegistrationRequest(t, sts, registratorToken, request)
-			require.Equal(t, http.StatusOK, status, body)
-
-			var response registration.ClientRegistrationResponse
-			require.NoError(t, json.Unmarshal(body, &response))
+			status, response := postRegistration[registration.ClientRegistrationResponse](t, sts, registratorToken, request)
+			require.Equal(t, http.StatusOK, status, response)
 			assert.Equal(t, request.SoftwareStatement, response.SoftwareStatement)
 
 			// Verify that both the client and its authorization policy were persisted.
@@ -85,30 +85,54 @@ func TestSts(t *testing.T) {
 			require.NotEmpty(t, token.AccessToken)
 		})
 
+		t.Run("registers another client", func(t *testing.T) {
+			another := statement
+			another.ClientId = "env1:namespace1:another-workload"
+			another.Workload.Name = "another-workload"
+			another.AuthorizationPolicies = []oauth.AuthorizationPolicy{
+				{
+					Owner:    oauth.ClientID(another.ClientId),
+					Consumer: oauth.ClientID(fixtures.Client2.ID),
+					Roles:    oauth.Roles{fixtures.Role},
+				},
+			}
+
+			status, response := postRegistration[registration.ClientRegistrationResponse](t, sts, registratorToken, registration.ClientRegistration{
+				SoftwareStatement: signSoftwareStatement(t, another),
+			})
+			require.Equal(t, http.StatusOK, status, response)
+
+			clientAssertion := getKubernetesToken(t, oauthServer, another.Workload.Environment, another.Workload.Namespace, another.Workload.Name)
+			token := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
+			require.NotEmpty(t, token.AccessToken)
+
+			status, _ = deleteRegistration[oidc.Error](t, sts, registratorToken, another.ClientId)
+			require.Equal(t, http.StatusNoContent, status)
+		})
+
 		t.Run("rejects registration for unauthorized workload issuer", func(t *testing.T) {
 			unauthorized := statement
-			unauthorized.AuthorizationPolicies = append([]oauth.AuthorizationPolicy(nil), statement.AuthorizationPolicies...)
+			unauthorized.AuthorizationPolicies = slices.Clone(statement.AuthorizationPolicies)
 			unauthorized.ClientId = "env2:namespace1:unauthorized-workload"
 			unauthorized.Workload.Environment = "env2"
 			unauthorized.Workload.Issuer = oauthServer.Endpoint("env2")
 			unauthorized.AuthorizationPolicies[0].Owner = oauth.ClientID(unauthorized.ClientId)
-			status, _ := postRegistrationRequest(t, sts, registratorToken, registration.ClientRegistration{
+			status, response := postRegistration[oidc.Error](t, sts, registratorToken, registration.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, unauthorized),
 			})
-			assert.Equal(t, http.StatusForbidden, status)
+			require.Equal(t, http.StatusForbidden, status, response)
+			assert.Contains(t, response.Description, "not authorized")
 		})
 
 		t.Run("rejects workload identity collision", func(t *testing.T) {
 			collision := statement
-			collision.AuthorizationPolicies = append([]oauth.AuthorizationPolicy(nil), statement.AuthorizationPolicies...)
+			collision.AuthorizationPolicies = slices.Clone(statement.AuthorizationPolicies)
 			collision.ClientId = "env1:namespace1:other-client"
 			collision.AuthorizationPolicies[0].Owner = oauth.ClientID(collision.ClientId)
-			status, body := postRegistrationRequest(t, sts, registratorToken, registration.ClientRegistration{
+			status, response := postRegistration[oidc.Error](t, sts, registratorToken, registration.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, collision),
 			})
-			require.Equal(t, http.StatusConflict, status, body)
-			var response oidc.Error
-			require.NoError(t, json.Unmarshal(body, &response))
+			require.Equal(t, http.StatusConflict, status, response)
 			assert.Equal(t, oidc.InvalidClient, response.ErrorType)
 		})
 
@@ -116,17 +140,16 @@ func TestSts(t *testing.T) {
 			replacement := statement
 			replacement.Workload.Environment = "env2"
 			replacement.Workload.Issuer = oauthServer.Endpoint("env2")
-			status, _ := postRegistrationRequest(t, sts, otherRegistratorToken, registration.ClientRegistration{
+			status, response := postRegistration[oidc.Error](t, sts, otherRegistratorToken, registration.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, replacement),
 			})
-			assert.Equal(t, http.StatusForbidden, status)
+			require.Equal(t, http.StatusForbidden, status, response)
+			assert.Contains(t, response.Description, "not authorized")
 		})
 
 		t.Run("does not delete registration outside issuer authority", func(t *testing.T) {
-			status, body := deleteRegistrationRequest(t, sts, otherRegistratorToken, string(statement.ClientId))
-			require.Equal(t, http.StatusForbidden, status, body)
-			var response oidc.Error
-			require.NoError(t, json.Unmarshal(body, &response))
+			status, response := deleteRegistration[oidc.Error](t, sts, otherRegistratorToken, statement.ClientId)
+			require.Equal(t, http.StatusForbidden, status, response)
 			assert.Equal(t, oidc.InvalidClient, response.ErrorType)
 
 			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, statement.Workload.Name)
@@ -135,19 +158,17 @@ func TestSts(t *testing.T) {
 		})
 
 		t.Run("deletes missing registration", func(t *testing.T) {
-			status, body := deleteRegistrationRequest(t, sts, registratorToken, "env1:namespace1:missing")
-			require.Equal(t, http.StatusNoContent, status, body)
-			assert.Empty(t, body)
+			status, _ := deleteRegistration[oidc.Error](t, sts, registratorToken, "env1:namespace1:missing")
+			require.Equal(t, http.StatusNoContent, status)
 		})
 
 		t.Run("rejects invalid software statement signature", func(t *testing.T) {
 			request := registration.ClientRegistration{
 				SoftwareStatement: tamperJWTSignature(t, signed),
 			}
-			status, body := postRegistrationRequest(t, sts, registratorToken, request)
-			assert.Equal(t, http.StatusBadRequest, status)
-			// TODO: assert that this is a json response
-			assert.Contains(t, string(body), "invalid software statement")
+			status, response := postRegistration[oidc.Error](t, sts, registratorToken, request)
+			require.Equal(t, http.StatusBadRequest, status, response)
+			assert.Contains(t, response.Description, "invalid software statement")
 		})
 
 		t.Run("rejects unauthorized registrator", func(t *testing.T) {
@@ -155,20 +176,45 @@ func TestSts(t *testing.T) {
 			request := registration.ClientRegistration{
 				SoftwareStatement: signed,
 			}
-			status, body := postRegistrationRequest(t, sts, unauthorizedToken, request)
-			assert.Equal(t, http.StatusUnauthorized, status)
-			// TODO: assert that this is a json response
-			assert.Contains(t, string(body), "unauthorized")
+			status, response := postRegistration[oidc.Error](t, sts, unauthorizedToken, request)
+			require.Equal(t, http.StatusUnauthorized, status, response)
+			assert.Contains(t, response.Description, "unauthorized")
 		})
 
 		t.Run("rejects malformed request", func(t *testing.T) {
-			status, body := postRegistrationRequest(t, sts, registratorToken, map[string]any{
+			status, response := postRegistration[oidc.Error](t, sts, registratorToken, map[string]any{
 				"software_statement": signed,
 				"unknown":            true,
 			})
-			assert.Equal(t, http.StatusBadRequest, status)
-			// TODO: assert that this is a json response
-			assert.Contains(t, string(body), "invalid request body")
+			require.Equal(t, http.StatusBadRequest, status, response)
+			assert.Contains(t, response.Description, "invalid request body")
+		})
+
+		t.Run("rejects unsupported content type", func(t *testing.T) {
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, sts.Endpoint("registration", "client"), strings.NewReader("{}"))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "text/plain")
+			req.Header.Set("Authorization", "Bearer "+registratorToken)
+
+			status, response := registrationRequest[oidc.Error](t, req)
+			require.Equal(t, http.StatusUnsupportedMediaType, status, response)
+			assert.Contains(t, response.Description, "content type must be application/json")
+		})
+
+		t.Run("rejects oversized request", func(t *testing.T) {
+			status, response := postRegistration[oidc.Error](t, sts, registratorToken, registration.ClientRegistration{
+				SoftwareStatement: strings.Repeat("x", 65<<10),
+			})
+			require.Equal(t, http.StatusRequestEntityTooLarge, status, response)
+			assert.Contains(t, response.Description, "request body too large")
+		})
+
+		t.Run("rejects missing bearer token", func(t *testing.T) {
+			status, response := postRegistration[oidc.Error](t, sts, "", registration.ClientRegistration{
+				SoftwareStatement: signed,
+			})
+			require.Equal(t, http.StatusUnauthorized, status, response)
+			assert.Contains(t, response.Description, "missing bearer token")
 		})
 
 		for _, id := range []string{
@@ -180,16 +226,15 @@ func TestSts(t *testing.T) {
 			"client.name",
 		} {
 			t.Run("rejects invalid client ID "+id, func(t *testing.T) {
-				status, body := deleteRegistrationRequest(t, sts, registratorToken, id)
-				assert.Equal(t, http.StatusBadRequest, status)
-				assert.Contains(t, string(body), "invalid client ID")
+				status, response := deleteRegistration[oidc.Error](t, sts, registratorToken, id)
+				require.Equal(t, http.StatusBadRequest, status, response)
+				assert.Contains(t, response.Description, "invalid client ID")
 			})
 		}
 
 		t.Run("deletes registration with valid client ID", func(t *testing.T) {
-			status, body := deleteRegistrationRequest(t, sts, registratorToken, string(statement.ClientId))
-			require.Equal(t, http.StatusNoContent, status, body)
-			assert.Empty(t, body)
+			status, _ := deleteRegistration[oidc.Error](t, sts, registratorToken, statement.ClientId)
+			require.Equal(t, http.StatusNoContent, status)
 
 			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, statement.Workload.Name)
 			resp := stsToken[oidc.Error](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
@@ -516,7 +561,7 @@ func tamperJWTSignature(t testing.TB, token string) string {
 	return strings.Join(parts, ".")
 }
 
-func postRegistrationRequest(t testing.TB, sts testServer, token string, body any) (int, []byte) {
+func postRegistration[T any](t testing.TB, sts testServer, token string, body any) (int, *T) {
 	t.Helper()
 	data, err := json.Marshal(body)
 	require.NoError(t, err)
@@ -526,29 +571,43 @@ func postRegistrationRequest(t testing.TB, sts testServer, token string, body an
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer ioconvenience.CloseWithLog(resp.Body, slog.Default())
-
-	responseBody, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	return resp.StatusCode, responseBody
+	return registrationRequest[T](t, req)
 }
 
-func deleteRegistrationRequest(t testing.TB, sts testServer, token, id string) (int, []byte) {
+func deleteRegistration[T any](t testing.TB, sts testServer, token, id string) (int, *T) {
 	t.Helper()
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, sts.Endpoint("registration", "client", id), nil)
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
 
+	return registrationRequest[T](t, req)
+}
+
+func registrationRequest[T any](t testing.TB, req *http.Request) (int, *T) {
+	t.Helper()
+
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer ioconvenience.CloseWithLog(resp.Body, slog.Default())
 
-	responseBody, err := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNoContent {
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Empty(t, body)
+		return resp.StatusCode, nil
+	}
+
+	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	require.NoError(t, err)
-	return resp.StatusCode, responseBody
+	require.Equal(t, "application/json", mediaType)
+
+	response := new(T)
+	decoder := json.NewDecoder(resp.Body)
+	require.NoError(t, decoder.Decode(response))
+	var trailing any
+	require.ErrorIs(t, decoder.Decode(&trailing), io.EOF)
+	return resp.StatusCode, response
 }
 
 func post[T any](t testing.TB, endpoint string, form url.Values) *T {
