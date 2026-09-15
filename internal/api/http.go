@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nais/sts/internal/config"
@@ -31,6 +32,13 @@ func stsApi(
 	keyStore oauth.KeyStore,
 	provider *stsmetrics.Provider,
 ) (http.Handler, error) {
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			return fmt.Errorf("redirect to %q is not allowed", req.URL)
+		},
+	}
+
 	e := &op.Endpoints{
 		Token:   op.NewEndpoint(tokenEndpoint),
 		JwksURI: op.NewEndpoint(jwksEndpoint),
@@ -53,11 +61,11 @@ func stsApi(
 		otelchi.WithRequestMethodInSpanName(true),
 	))
 
-	authServer, err := oauth.NewAuthorizationServer(ctx, cfg.AuthorizationServerConfig, clientStore, keyStore, provider.Metrics())
+	authServer, err := oauth.NewAuthorizationServer(ctx, httpClient, cfg.AuthorizationServerConfig, clientStore, keyStore, provider.Metrics())
 	if err != nil {
 		return nil, fmt.Errorf("initialize authorization server: %w", err)
 	}
-	registrationApi, err := registration.NewApi(ctx, cfg.Registrators, cfg.AuthorizationServerConfig, clientStore)
+	registrationApi, err := registration.NewApi(ctx, httpClient, cfg.Registrators, cfg.AuthorizationServerConfig, clientStore)
 	if err != nil {
 		return nil, fmt.Errorf("initialize client registration handler: %w", err)
 	}

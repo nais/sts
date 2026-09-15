@@ -22,8 +22,8 @@ type Api struct {
 	store        oauth.ClientStore
 }
 
-func NewApi(ctx context.Context, registrators ClientRegistrators, authServerCfg oauth.AuthorizationServerConfig, store oauth.ClientStore) (*Api, error) {
-	registry, err := NewRegistrators(ctx, authServerCfg, registrators...)
+func NewApi(ctx context.Context, httpClient *http.Client, registrators ClientRegistrators, authServerCfg oauth.AuthorizationServerConfig, store oauth.ClientStore) (*Api, error) {
+	registry, err := NewRegistrators(ctx, httpClient, authServerCfg, registrators...)
 	if err != nil {
 		return nil, err
 	}

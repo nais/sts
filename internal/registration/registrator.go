@@ -31,9 +31,8 @@ type Registrator struct {
 	KeySet       oidc.KeySet
 }
 
-func NewRegistrators(ctx context.Context, authServerCfg oauth.AuthorizationServerConfig, config ...*ClientRegistratorConfig) (*Registrators, error) {
-	httpClient := &http.Client{Timeout: 10 * time.Second}
-	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, authServerCfg.ClientAuthIssuers, authServerCfg.ClientAuthSigningAlgorithms)
+func NewRegistrators(ctx context.Context, httpClient *http.Client, authServerCfg oauth.AuthorizationServerConfig, config ...*ClientRegistratorConfig) (*Registrators, error) {
+	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, authServerCfg.ClientAuthIssuers, authServerCfg.ClientAuthSigningAlgorithms)
 	if err != nil {
 		return nil, err
 	}

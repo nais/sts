@@ -518,7 +518,7 @@ func getSubjectToken(t testing.TB, oauthServer testServer, issuer string) (strin
 		"redirect_uri":  {redirectURI},
 	})
 
-	subjectTokenVerifier, err := oauth.ExternalTokenVerifier(t.Context(), oauth.Issuer(oauthServer.Endpoint(issuer)))
+	subjectTokenVerifier, err := oauth.ExternalTokenVerifier(t.Context(), http.DefaultClient, oauth.Issuer(oauthServer.Endpoint(issuer)))
 	require.NoError(t, err)
 
 	verifier, err := oauth.NewMultiIssuerTokenVerifier(subjectTokenVerifier)

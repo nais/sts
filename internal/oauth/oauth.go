@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	stsmetrics "github.com/nais/sts/internal/metrics"
@@ -19,15 +20,15 @@ type AuthorizationServer struct {
 	AuthorizationServerConfig
 }
 
-func NewAuthorizationServer(ctx context.Context, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore, metrics *stsmetrics.Metrics) (*AuthorizationServer, error) {
-	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx, cfg.ClientAuthIssuers, cfg.ClientAuthSigningAlgorithms)
+func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore, metrics *stsmetrics.Metrics) (*AuthorizationServer, error) {
+	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx, httpClient, cfg.ClientAuthIssuers, cfg.ClientAuthSigningAlgorithms)
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}
 
 	var tokenExchangeVerifier MultiIssuerTokenVerifier
 	if len(cfg.SubjectTokenIssuers) > 0 {
-		tokenExchangeVerifier, err = NewTokenExchangeTokenVerifier(ctx, cfg, keyStore)
+		tokenExchangeVerifier, err = NewTokenExchangeTokenVerifier(ctx, httpClient, cfg, keyStore)
 		if err != nil {
 			return nil, fmt.Errorf("creating token exchange verifier: %w", err)
 		}

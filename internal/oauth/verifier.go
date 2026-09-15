@@ -65,8 +65,8 @@ func NewMultiIssuerTokenVerifier(verifiers ...*TokenVerifier) (MultiIssuerTokenV
 	return verifier, nil
 }
 
-func NewTokenExchangeTokenVerifier(ctx context.Context, cfg AuthorizationServerConfig, keyStore KeyStore) (MultiIssuerTokenVerifier, error) {
-	subjectTokenVerifiers, err := ExternalTokenVerifiers(ctx, cfg.SubjectTokenIssuers...)
+func NewTokenExchangeTokenVerifier(ctx context.Context, httpClient *http.Client, cfg AuthorizationServerConfig, keyStore KeyStore) (MultiIssuerTokenVerifier, error) {
+	subjectTokenVerifiers, err := ExternalTokenVerifiers(ctx, httpClient, cfg.SubjectTokenIssuers...)
 	if err != nil {
 		return nil, fmt.Errorf("resolving subject token verifiers: %w", err)
 	}
@@ -80,10 +80,10 @@ func NewTokenExchangeTokenVerifier(ctx context.Context, cfg AuthorizationServerC
 	)...)
 }
 
-func NewClientAuthTokenVerifier(ctx context.Context, issuers []Issuer, allowedAlgorithms []string) (MultiIssuerTokenVerifier, error) {
+func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, issuers []Issuer, allowedAlgorithms []string) (MultiIssuerTokenVerifier, error) {
 	clientAuthVerifiers := make([]*TokenVerifier, 0, len(issuers))
 	for _, issuer := range issuers {
-		verifier, err := externalTokenVerifier(ctx, issuer, allowedAlgorithms)
+		verifier, err := externalTokenVerifier(ctx, httpClient, issuer, allowedAlgorithms)
 		if err != nil {
 			return nil, fmt.Errorf("resolving client auth verifiers: %w", err)
 		}
@@ -149,10 +149,10 @@ func InternalTokenVerifier(cfg AuthorizationServerConfig, keyStore KeyStore) (*T
 	)
 }
 
-func ExternalTokenVerifiers(ctx context.Context, issuers ...Issuer) ([]*TokenVerifier, error) {
+func ExternalTokenVerifiers(ctx context.Context, httpClient *http.Client, issuers ...Issuer) ([]*TokenVerifier, error) {
 	result := make([]*TokenVerifier, 0, len(issuers))
 	for _, issuer := range issuers {
-		ti, err := ExternalTokenVerifier(ctx, issuer)
+		ti, err := ExternalTokenVerifier(ctx, httpClient, issuer)
 		if err != nil {
 			return nil, err
 		}
@@ -161,13 +161,12 @@ func ExternalTokenVerifiers(ctx context.Context, issuers ...Issuer) ([]*TokenVer
 	return result, nil
 }
 
-func ExternalTokenVerifier(ctx context.Context, issuer Issuer) (*TokenVerifier, error) {
-	return externalTokenVerifier(ctx, issuer, nil)
+func ExternalTokenVerifier(ctx context.Context, httpClient *http.Client, issuer Issuer) (*TokenVerifier, error) {
+	return externalTokenVerifier(ctx, httpClient, issuer, nil)
 }
 
-func externalTokenVerifier(ctx context.Context, issuer Issuer, allowedAlgorithms []string) (*TokenVerifier, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
-	metadata, err := oauthclient.Discover(ctx, string(issuer), client)
+func externalTokenVerifier(ctx context.Context, httpClient *http.Client, issuer Issuer, allowedAlgorithms []string) (*TokenVerifier, error) {
+	metadata, err := oauthclient.Discover(ctx, string(issuer), httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("discover metadata from issuer %q: %w", issuer, err)
 	}
@@ -184,7 +183,7 @@ func externalTokenVerifier(ctx context.Context, issuer Issuer, allowedAlgorithms
 		return nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms: %v", metadata.IDTokenSigningAlgValuesSupported)
 	}
 
-	return NewTokenVerifier(issuer, rp.NewRemoteKeySet(client, metadata.JwksURI), algorithms...)
+	return NewTokenVerifier(issuer, rp.NewRemoteKeySet(httpClient, metadata.JwksURI), algorithms...)
 }
 
 func asymmetricAlgorithms(advertised []string) []string {
