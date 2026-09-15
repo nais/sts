@@ -18,6 +18,16 @@ type ClientRegistration struct {
 	SoftwareStatement string `json:"software_statement"`
 }
 
+func (r ClientRegistration) validate() error {
+	if strings.TrimSpace(r.SoftwareStatement) == "" {
+		return errors.New("software_statement is required")
+	}
+	if len(r.SoftwareStatement) > maxSoftwareStatementLength {
+		return errors.New("software_statement is too long")
+	}
+	return nil
+}
+
 type ClientRegistrationResponse struct {
 	ClientRegistration
 	// TODO: review whether registration response metadata should be populated or removed.
@@ -29,6 +39,13 @@ type SoftwareStatement struct {
 	ClientId              string                `json:"client_id"`
 	Workload              Workload              `json:"workload"`
 	AuthorizationPolicies []AuthorizationPolicy `json:"authorization_policies"`
+}
+
+type Workload struct {
+	Environment string `json:"environment"`
+	Issuer      string `json:"issuer"`
+	Namespace   string `json:"namespace"`
+	Name        string `json:"workload"`
 }
 
 type AuthorizationPolicy struct {
@@ -86,23 +103,6 @@ func (s SoftwareStatement) validate() error {
 			}
 			roles[role] = struct{}{}
 		}
-	}
-	return nil
-}
-
-type Workload struct {
-	Environment string `json:"environment"`
-	Issuer      string `json:"issuer"`
-	Namespace   string `json:"namespace"`
-	Name        string `json:"workload"`
-}
-
-func (r ClientRegistration) validate() error {
-	if strings.TrimSpace(r.SoftwareStatement) == "" {
-		return errors.New("software_statement is required")
-	}
-	if len(r.SoftwareStatement) > maxSoftwareStatementLength {
-		return errors.New("software_statement is too long")
 	}
 	return nil
 }
