@@ -1,131 +1,78 @@
-# sts
+# nais-sts
 
 Nais Security Token Service (STS) is an OAuth 2.1 authorization server for
-workloads running on Nais.
+Kubernetes workloads running on Nais.
 
-STS issues short-lived security tokens for exactly one audience. Callers must be:
+STS issues short-lived access tokens to clients for exactly one target audience.
+Clients must authenticate with workload identity assertions and have access through an authorization policy.
 
-- authenticated with workload identity assertions and
-- be granted access through audience's access rules
-
-The service will support:
+The service supports:
 
 - [RFC 6749 Client Credentials](https://datatracker.ietf.org/doc/html/rfc6749#section-4.4) for machine-to-machine access
-- [RFC 8693 Token Exchange](https://datatracker.ietf.org/doc/html/rfc8693) for on-behalf-of flows
+- [RFC 8693 Token Exchange](https://datatracker.ietf.org/doc/html/rfc8693) for on-behalf-of flows when subject-token issuers are configured
+
+## How it works
+
+```text
+              Kubernetes API server (workload issuer)
+                    /                      \
+  issues identity token                issues identity token
+                ▼                            ▼
+          Registrator                     Client
+                │                            │
+ registers clients and policies    requests or exchanges token
+                │                   with identity token
+                └──────────► STS ◄───────────┘
+                             │
+                         issues token
+                             ▼
+                           Client ── presents token ──► Target
+```
+
+1. The **Kubernetes API server** acts as the workload issuer. It issues projected
+   service account tokens that workloads use to authenticate with STS.
+2. A **registrator** registers clients and their authorization policies with
+   STS. It can register clients only for its configured workload issuer.
+3. A **client** is a registered Kubernetes workload that requests tokens. It
+   acts as an OAuth [client](https://www.rfc-editor.org/rfc/rfc6749#section-1.1).
+4. An **authorization policy** states which target a client can request and
+   which roles its token receives.
+5. **STS** authenticates the client, checks its policy, and issues a token for
+   one target. Token exchange also requires a subject token from an accepted issuer.
+6. A **target** is the intended audience of the token. The receiving service
+   validates the token before accepting it.
 
 ## Documentation
 
-- [Client registration](docs/registration.md)
+- [Architecture](docs/architecture.md): storage, caches, and signing keys
+- [Configuration](docs/configuration.md): YAML settings and deployment values
+- [Client registration](docs/registration.md): register clients and policies
+- [Client usage](docs/usage.md): request tokens with client credentials or token exchange
+- [Benchmarks](docs/benchmarks.md): run and interpret local benchmarks
 
-## Development
+## Local development
 
-Use [mise](https://mise.jdx.dev/):
-
-```shell
-mise tasks
-```
-
-Start the service locally:
+Install [mise](https://mise.jdx.dev/), then run:
 
 ```shell
 mise run local
 ```
 
-Server runs two listeners for public and internal use:
+Endpoints:
 
-- `http://localhost:8080/.well-known/oauth-authorization-server`
-- `http://localhost:8081/healthz`
-- `http://localhost:8081/readyz`
-- `http://localhost:8081/metrics`
+- http://localhost:8080/.well-known/oauth-authorization-server
+- http://localhost:8081/healthz
+- http://localhost:8081/readyz
+- http://localhost:8081/metrics
 
-The local setup copies `config.example.yaml` to the gitignored `config.yaml`.
-Edit `config.yaml` to change the local configuration.
+Try the token flows:
 
-Set `CONFIG_FILE` to use
-another file. STS reads all application configuration from that YAML file and
-rejects unknown fields.
+- `mise run token:m2m`: get a client credentials token.
+- `mise run token:obo`: exchange a subject token.
 
-### Database migrations
+Configuration:
 
-To squash applied migrations, run `mise run squash-migrations`. Before the first
-deployment, pass `0001` to restart numbering. Reset the local database after
-renumbering. Do not renumber migrations after deployment.
+- Local setup copies `config.example.yaml` to the gitignored `config.yaml` if absent.
+- Edit `config.yaml` for local settings. See [configuration](docs/configuration.md).
 
-## Performance
-
-Run the end-to-end STS token endpoint benchmarks with:
-
-```shell
-mise run test:benchmark
-```
-
-Generate a standalone HTML report with endpoint timings, allocations, database
-query timings, and token-processing step timings:
-
-```shell
-mise run test:benchmark-report
-open benchmark-report/index.html
-```
-
-The report task runs each grant type separately so its captured OpenTelemetry
-metrics can be attributed to the corresponding endpoint benchmark. Raw Go
-output and Prometheus snapshots are kept in `benchmark-report/` alongside the
-HTML report. Set `STS_BENCHMARK_REPORT_DIR` to use another output directory.
-
-The benchmark starts PostgreSQL and the mock issuer to create fixture JWTs, then
-measures only steady-state HTTP requests to the STS `/token` endpoint. Fixture
-creation and one cache-warming STS request are outside the timer. Client
-credentials and token exchange are reported separately.
-
-Metrics use the OpenTelemetry API and are exported in Prometheus format on the
-internal `/metrics` endpoint. They include:
-
-- standard `http_server_*` request duration, active request, and body-size
-  metrics from `otelchi`;
-- `sts_token_step_duration_seconds`, labeled by outcome and issuance step:
-  client assertion verification, client lookup, subject-token verification,
-  target authorization, signing-key retrieval, and token signing;
-- `sts_database_queries_total` and the standard
-  `db_client_operation_duration_seconds`, labeled by SQL operation, outcome,
-  and low-cardinality sqlc query name (for example `GetKubernetesClient` or
-  `GetAuthorizationPolicy`);
-- standard `db_client_connection_count`, `db_client_connection_max`, and
-  `db_client_connection_wait_time_seconds` pool metrics, plus acquisition counts.
-
-These metrics separate database, connection-pool, verification/key retrieval,
-and signing costs when deciding where optimization or caching is useful.
-
-### Local observability and traffic
-
-With STS running through `mise run local`, start the Prometheus and Grafana
-services declared in `docker-compose.yaml`:
-
-```shell
-mise run local:observability
-```
-
-Open the provisioned STS dashboard at
-[http://localhost:3000/d/sts-local-performance](http://localhost:3000/d/sts-local-performance).
-Prometheus is available at [http://localhost:9090](http://localhost:9090).
-Both services are behind the Compose `observability` profile and are not started
-by the normal local setup.
-
-Generate an even mix of client credentials and token exchange requests until
-Ctrl-C:
-
-```shell
-mise run local:traffic
-```
-
-The default is 100 requests per second with eight workers, which should leave a
-development machine responsive. The rate, concurrency, duration, and flow are
-configurable:
-
-```shell
-mise run local:traffic --rate 500 --workers 16 --duration 5m
-mise run local:traffic --rate 0 --workers 8 --flow token_exchange
-```
-
-A rate of `0` removes pacing; concurrency remains bounded by `--workers`. The
-traffic generator refreshes its mock fixture tokens every 30 minutes and prints
-request rate, errors, and latency every five seconds.
+Run `mise tasks` for all commands.
