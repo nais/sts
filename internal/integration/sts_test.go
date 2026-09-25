@@ -210,7 +210,7 @@ func TestSts(t *testing.T) {
 				SoftwareStatement: signed,
 			})
 			require.Equal(t, http.StatusUnauthorized, status, response)
-			assert.Contains(t, response.Description, "missing bearer token")
+			assert.Equal(t, "unauthorized", response.Description)
 		})
 
 		for _, id := range []string{

@@ -41,7 +41,7 @@ func (a *Api) PostEndpoint() http.HandlerFunc {
 
 		registrator, err := a.AuthenticateRequest(r)
 		if err != nil {
-			return withHTTPStatus(fmt.Errorf("unauthorized: %w", err), http.StatusUnauthorized)
+			return withLoggedHTTPStatus(r.Context(), "unauthorized", err, http.StatusUnauthorized)
 		}
 
 		registration, err := decodeClientRegistration(w, r)
@@ -53,7 +53,7 @@ func (a *Api) PostEndpoint() http.HandlerFunc {
 		}
 		ss, err := registrator.VerifySoftwareStatement(r.Context(), registration.SoftwareStatement)
 		if err != nil {
-			return withHTTPStatus(fmt.Errorf("invalid software statement: %w", err), http.StatusBadRequest)
+			return withLoggedHTTPStatus(r.Context(), "invalid software statement", err, http.StatusBadRequest)
 		}
 
 		if err := a.SaveRegistration(r.Context(), registrator, ss); err != nil {
@@ -63,8 +63,7 @@ func (a *Api) PostEndpoint() http.HandlerFunc {
 			if errors.Is(err, oauth.ErrRegistrationConflict) {
 				return withHTTPStatus(oidc.ErrInvalidClient().WithDescription("registration conflicts with existing client"), http.StatusConflict)
 			}
-			// TODO: log error and return a generic error message to avoid leaking sensitive information
-			return withHTTPStatus(fmt.Errorf("failed to save registration: %w", err), http.StatusInternalServerError)
+			return withLoggedHTTPStatus(r.Context(), "failed to save registration", err, http.StatusInternalServerError)
 		}
 
 		respond(w, &ClientRegistrationResponse{
@@ -78,7 +77,7 @@ func (a *Api) DeleteEndpoint() http.HandlerFunc {
 	return errorAwareHandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
 		registrator, err := a.AuthenticateRequest(r)
 		if err != nil {
-			return withHTTPStatus(fmt.Errorf("unauthorized: %w", err), http.StatusUnauthorized)
+			return withLoggedHTTPStatus(r.Context(), "unauthorized", err, http.StatusUnauthorized)
 		}
 
 		clientID := oauth.ClientID(chi.URLParam(r, "id"))
@@ -91,7 +90,7 @@ func (a *Api) DeleteEndpoint() http.HandlerFunc {
 			if errors.Is(err, oauth.ErrRegistrationUnauthorized) {
 				return withHTTPStatus(oidc.ErrInvalidClient().WithDescription("registrator is not authorized to delete client"), http.StatusForbidden)
 			}
-			return withHTTPStatus(fmt.Errorf("failed to delete registration: %w", err), http.StatusInternalServerError)
+			return withLoggedHTTPStatus(r.Context(), "failed to delete registration", err, http.StatusInternalServerError)
 		}
 
 		w.WriteHeader(http.StatusNoContent)
@@ -131,6 +130,15 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 
 func withHTTPStatus(err error, status int) error {
 	return op.NewStatusError(err, status)
+}
+
+func withLoggedHTTPStatus(ctx context.Context, message string, err error, status int) error {
+	level := slog.LevelWarn
+	if status == http.StatusInternalServerError {
+		level = slog.LevelError
+	}
+	slog.Log(ctx, level, message, "error", err)
+	return withHTTPStatus(errors.New(message), status)
 }
 
 func errorAwareHandlerFunc(f func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
