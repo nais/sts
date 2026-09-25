@@ -1,0 +1,189 @@
+# Client registration
+
+STS registers Kubernetes workload clients on its public listener.
+
+This API borrows from [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html),
+but does not fully implement it or [RFC 7592](https://www.rfc-editor.org/rfc/rfc7592.html).
+
+## Endpoints
+
+| Method   | Path                           | Result                                                          |
+|----------|--------------------------------|-----------------------------------------------------------------|
+| `POST`   | `/v1/registration/client`      | Create or replace a client; return `200 OK`.                    |
+| `DELETE` | `/v1/registration/client/{id}` | Delete a client; return `204 No Content` even if it is missing. |
+
+## Authentication
+
+Send `Authorization: Bearer <token>` with either request. For example, given
+this STS configuration:
+
+```yaml
+authorizationServer:
+  expectedAudience: nais
+  maxClientAuthTokenLifetime: 1h
+  clientAuthIssuers:
+    - https://issuer.example.com/env1
+
+registrators:
+  - issuer: https://issuer.example.com/env1
+    subject: client-registrator
+    clientJwksUri: https://registrator.example.com/jwks
+    requiredAlgs: [RS256]
+```
+
+The bearer token's decoded claims look like this:
+
+```json
+{
+  "iss": "https://issuer.example.com/env1",
+  "sub": "client-registrator",
+  "aud": "nais",
+  "iat": 1790000000,
+  "exp": 1790003600
+}
+```
+
+STS checks the bearer token against the configuration:
+
+- `iss` matches `registrators[0].issuer` and appears in `clientAuthIssuers`.
+- `sub` matches `registrators[0].subject`.
+- `aud` contains only `expectedAudience`: `nais`.
+- `iat` and `exp` are valid timestamps.
+  - `iat` must be in the past.
+  - `exp` must be in the future
+  - The lifetime (`exp` - `iat`) cannot exceed `maxClientAuthTokenLifetime` plus the allowed skew of 1 minute. In this example, 1 hour and 1 minute.
+
+## Software statement
+
+The registrator must create and sign a [software statement](https://www.rfc-editor.org/rfc/rfc7591.html#section-2.3).
+
+### Claims
+
+The signed JWT contains these claims:
+
+```json
+{
+  "client_id": "env1:namespace1:my-workload",
+  "workload": {
+    "environment": "env1",
+    "issuer": "https://issuer.example.com/env1",
+    "namespace": "namespace1",
+    "workload": "my-workload"
+  },
+  "authorization_policies": [
+    {
+      "consumer": "env1:namespace1:target",
+      "roles": ["reader"]
+    }
+  ]
+}
+```
+
+| Claim | Description |
+| --- | --- |
+| `client_id` | Identifier chosen for the client. Here, `env1:namespace1:my-workload`. |
+| `workload.environment` | Environment where the workload runs. |
+| `workload.issuer` | Issuer of the workload's identity token. It must match the registrator's `issuer`. |
+| `workload.namespace` | Kubernetes namespace of the workload. |
+| `workload.workload` | Kubernetes service account name of the workload. |
+| `authorization_policies` | Rules for which target clients and roles this client can request. |
+| `authorization_policies[].consumer` | Target client's `client_id`. |
+| `authorization_policies[].roles` | Roles this client can request from that target. |
+
+In this example, `my-workload` can request the `reader` role from
+`env1:namespace1:target`. A registrator cannot manage another issuer's clients.
+
+### Public key
+
+The configured `clientJwksUri` must point to an endpoint that serves a [JWKS](https://www.rfc-editor.org/rfc/rfc7517.html#section-5)
+containing the corresponding public key used to sign the statement.
+
+For the configuration above:
+
+```http
+GET /jwks HTTP/1.1
+Host: registrator.example.com
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "kid": "registration-key-1",
+      "use": "sig",
+      "alg": "RS256",
+      "n": "<omitted for brevity>",
+      "e": "AQAB"
+    }
+  ]
+}
+```
+
+The JWT header's `kid` must match a published key.
+Its `alg` must match one of the registrator's `requiredAlgs`. In this example, it must be `RS256`.
+
+## Create or replace a client
+
+### Request
+
+```http
+POST /v1/registration/client HTTP/1.1
+Authorization: Bearer <registrator token>
+Content-Type: application/json
+
+{
+  "software_statement": "<signed JWT>"
+}
+```
+
+On a repeated `POST` for the same client:
+
+- STS replaces its authorization policies.
+- The following fields are immutable:
+  - `client_id`
+  - `workload.environment`
+  - `workload.namespace`
+  - `workload.workload`
+  - `workload.issuer`
+- A conflicting client ID or workload identity returns an error.
+
+### Response
+
+Both creation and replacement return:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "client_id": "env1:namespace1:my-workload",
+  "software_statement": "<signed JWT>"
+}
+```
+
+STS returns the supplied JWT and takes `client_id` from its verified claims.
+
+## Delete a client
+
+### Request
+
+```http
+DELETE /v1/registration/client/env1:namespace1:my-workload HTTP/1.1
+Authorization: Bearer <registrator token>
+```
+
+### Response
+
+Deleted or already absent:
+
+```http
+HTTP/1.1 204 No Content
+```
+
+Owned by another issuer:
+
+```http
+HTTP/1.1 403 Forbidden
+```
