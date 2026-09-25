@@ -68,6 +68,7 @@ func (a *Api) PostEndpoint() http.HandlerFunc {
 
 		respond(w, &ClientRegistrationResponse{
 			ClientRegistration: registration,
+			ClientID:           ss.ClientId,
 		})
 		return nil
 	})

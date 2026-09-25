@@ -22,7 +22,7 @@ const (
 	oauthDiscoveryEndpoint = "/.well-known/oauth-authorization-server"
 	tokenEndpoint          = "/token"
 	jwksEndpoint           = "/jwks"
-	registrationEndpoint   = "/registration/client"
+	registrationEndpoint   = "/v1/registration/client"
 )
 
 func stsApi(

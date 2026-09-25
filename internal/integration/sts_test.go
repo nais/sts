@@ -76,12 +76,22 @@ func TestSts(t *testing.T) {
 			}
 			status, response := postRegistration[registration.ClientRegistrationResponse](t, sts, registratorToken, request)
 			require.Equal(t, http.StatusOK, status, response)
-			assert.Equal(t, request.SoftwareStatement, response.SoftwareStatement)
+			assert.Equal(t, statement.ClientId, response.ClientID)
+			assert.Equal(t, signed, response.SoftwareStatement)
 
 			// Verify that both the client and its authorization policy were persisted.
 			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, statement.Workload.Name)
 			token := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
 			require.NotEmpty(t, token.AccessToken)
+		})
+
+		t.Run("replaces registration", func(t *testing.T) {
+			status, response := postRegistration[registration.ClientRegistrationResponse](t, sts, registratorToken, registration.ClientRegistration{
+				SoftwareStatement: signed,
+			})
+			require.Equal(t, http.StatusOK, status, response)
+			assert.Equal(t, statement.ClientId, response.ClientID)
+			assert.Equal(t, signed, response.SoftwareStatement)
 		})
 
 		t.Run("registers another client", func(t *testing.T) {
@@ -187,7 +197,7 @@ func TestSts(t *testing.T) {
 		})
 
 		t.Run("rejects unsupported content type", func(t *testing.T) {
-			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, sts.Endpoint("registration", "client"), strings.NewReader("{}"))
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, sts.Endpoint("v1", "registration", "client"), strings.NewReader("{}"))
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", "text/plain")
 			req.Header.Set("Authorization", "Bearer "+registratorToken)
@@ -562,7 +572,7 @@ func postRegistration[T any](t testing.TB, sts testServer, token string, body an
 	data, err := json.Marshal(body)
 	require.NoError(t, err)
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, sts.Endpoint("registration", "client"), bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, sts.Endpoint("v1", "registration", "client"), bytes.NewReader(data))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -573,7 +583,7 @@ func postRegistration[T any](t testing.TB, sts testServer, token string, body an
 func deleteRegistration[T any](t testing.TB, sts testServer, token, id string) (int, *T) {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, sts.Endpoint("registration", "client", id), nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, sts.Endpoint("v1", "registration", "client", id), nil)
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
 

@@ -33,7 +33,7 @@ func TestWithLoggedHTTPStatus(t *testing.T) {
 			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 			t.Cleanup(func() { slog.SetDefault(previous) })
 
-			request := httptest.NewRequest(http.MethodPost, "/registration/client", nil)
+			request := httptest.NewRequest(http.MethodPost, "/v1/registration/client", nil)
 			response := httptest.NewRecorder()
 			op.WriteError(response, request, withLoggedHTTPStatus(request.Context(), test.message, errors.New("private detail"), test.status), slog.Default())
 
@@ -62,7 +62,7 @@ func TestValidateJSONContentType(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/registration/client", nil)
+			request := httptest.NewRequest(http.MethodPost, "/v1/registration/client", nil)
 			if test.contentType != "" {
 				request.Header.Set("Content-Type", test.contentType)
 			}
@@ -123,7 +123,7 @@ func TestDecodeClientRegistration(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/registration/client", strings.NewReader(test.body))
+			request := httptest.NewRequest(http.MethodPost, "/v1/registration/client", strings.NewReader(test.body))
 			response := httptest.NewRecorder()
 
 			got, err := decodeClientRegistration(response, request)
@@ -143,7 +143,7 @@ func TestDecodeClientRegistrationRejectsOversizedBody(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	request := httptest.NewRequest(http.MethodPost, "/registration/client", strings.NewReader(string(body)))
+	request := httptest.NewRequest(http.MethodPost, "/v1/registration/client", strings.NewReader(string(body)))
 	response := httptest.NewRecorder()
 
 	_, err = decodeClientRegistration(response, request)
@@ -153,6 +153,6 @@ func TestDecodeClientRegistrationRejectsOversizedBody(t *testing.T) {
 }
 
 func TestUnsupportedMediaTypeError(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/registration/client", nil)
+	request := httptest.NewRequest(http.MethodPost, "/v1/registration/client", nil)
 	require.Error(t, validateContentType(request))
 }

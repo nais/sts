@@ -30,9 +30,7 @@ func (r ClientRegistration) validate() error {
 
 type ClientRegistrationResponse struct {
 	ClientRegistration
-	// TODO: review whether registration response metadata should be populated or removed.
-	GrantTypes              []string `json:"grant_types"`
-	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	ClientID string `json:"client_id"`
 }
 
 type SoftwareStatement struct {
