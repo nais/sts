@@ -22,7 +22,7 @@ func BenchmarkSts(b *testing.B) {
 	oauthServer := startMockOAuthServer(b)
 	sts, internalSts := startSts(b, oauthServer)
 
-	clientAssertion := getKubernetesToken(b, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
+	clientAssertion := getClientToken(b, oauthServer, fixtures.Client1)
 	subjectToken, _ := getSubjectToken(b, oauthServer, "subject1")
 
 	benchmarks := []struct {

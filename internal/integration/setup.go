@@ -33,11 +33,12 @@ import (
 var key crypto.PrivateKey
 
 type testFixtures struct {
-	Client1     clientFixture
-	Client2     clientFixture
-	Client3     clientFixture
-	Role        string
-	TokenExpiry time.Duration
+	Client1          clientFixture
+	Client2          clientFixture
+	Client3          clientFixture
+	RegisteredTarget clientFixture
+	Role             string
+	TokenExpiry      time.Duration
 }
 
 type clientFixture struct {
@@ -48,11 +49,12 @@ type clientFixture struct {
 }
 
 var fixtures = testFixtures{
-	Client1:     clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "workload1", ID: "env1:namespace1:workload1"},
-	Client2:     clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "workload2", ID: "env1:namespace1:workload2"},
-	Client3:     clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "workload3", ID: "env1:namespace1:workload3"},
-	Role:        "reader",
-	TokenExpiry: time.Hour,
+	Client1:          clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "workload1", ID: "env1:namespace1:workload1"},
+	Client2:          clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "workload2", ID: "env1:namespace1:workload2"},
+	Client3:          clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "workload3", ID: "env1:namespace1:workload3"},
+	RegisteredTarget: clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "registered-workload", ID: "env1:namespace1:registered-workload"},
+	Role:             "reader",
+	TokenExpiry:      time.Hour,
 }
 
 func init() {
@@ -229,26 +231,28 @@ func seedSts(t testing.TB, dsn string, oauthServer testServer) {
 	defer pool.Close()
 
 	queries := sqlgen.New(pool)
-	for _, pair := range []struct {
-		client clientFixture
-		target clientFixture
-	}{
-		{client: fixtures.Client1, target: fixtures.Client2},
-		{client: fixtures.Client2, target: fixtures.Client3},
-	} {
+	for _, client := range []clientFixture{fixtures.Client1, fixtures.Client2, fixtures.Client3} {
 		if _, err := queries.UpsertKubernetesClient(t.Context(), sqlgen.UpsertKubernetesClientParams{
-			ID:            pair.client.ID,
-			Environment:   pair.client.Environment,
-			Namespace:     pair.client.Namespace,
-			Workload:      pair.client.Workload,
-			Issuer:        oauthServer.Endpoint(pair.client.Environment),
-			AllowedScopes: []string{pair.target.ID},
+			ID:            client.ID,
+			Environment:   client.Environment,
+			Namespace:     client.Namespace,
+			Workload:      client.Workload,
+			Issuer:        oauthServer.Endpoint(client.Environment),
+			AllowedScopes: []string{},
 		}); err != nil {
 			t.Fatal(err)
 		}
+	}
+	for _, pair := range []struct {
+		consumer clientFixture
+		target   clientFixture
+	}{
+		{consumer: fixtures.Client1, target: fixtures.Client2},
+		{consumer: fixtures.Client2, target: fixtures.Client3},
+	} {
 		if err := queries.UpsertAuthorizationPolicy(t.Context(), sqlgen.UpsertAuthorizationPolicyParams{
-			OwnerClientID:    pair.client.ID,
-			ConsumerClientID: pair.target.ID,
+			OwnerClientID:    pair.target.ID,
+			ConsumerClientID: pair.consumer.ID,
 			Roles:            []string{fixtures.Role},
 		}); err != nil {
 			t.Fatal(err)

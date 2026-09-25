@@ -67,8 +67,8 @@ func run(ctx context.Context) error {
 
 	queries := sqlgen.New(pool)
 	if err := queries.UpsertAuthorizationPolicy(ctx, sqlgen.UpsertAuthorizationPolicyParams{
-		OwnerClientID:    "env1:namespace1:workload1",
-		ConsumerClientID: "env1:namespace1:workload2",
+		OwnerClientID:    "env1:namespace1:workload2",
+		ConsumerClientID: "env1:namespace1:workload1",
 		Roles:            []string{"reader"},
 	}); err != nil {
 		return err

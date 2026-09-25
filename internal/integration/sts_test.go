@@ -50,19 +50,19 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("registration", func(t *testing.T) {
-		registratorToken := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, "registrator1")
-		otherRegistratorToken := getKubernetesToken(t, oauthServer, "env2", fixtures.Client1.Namespace, "registrator2")
+		registratorToken := getKubernetesToken(t, oauthServer, fixtures.RegisteredTarget.Environment, fixtures.RegisteredTarget.Namespace, "registrator1")
+		otherRegistratorToken := getKubernetesToken(t, oauthServer, "env2", fixtures.RegisteredTarget.Namespace, "registrator2")
 		statement := registration.SoftwareStatement{
-			ClientId: "env1:namespace1:registered-workload",
+			ClientId: fixtures.RegisteredTarget.ID,
 			Workload: registration.Workload{
-				Environment: fixtures.Client1.Environment,
-				Issuer:      oauthServer.Endpoint(fixtures.Client1.Environment),
-				Namespace:   fixtures.Client1.Namespace,
-				Name:        "registered-workload",
+				Environment: fixtures.RegisteredTarget.Environment,
+				Issuer:      oauthServer.Endpoint(fixtures.RegisteredTarget.Environment),
+				Namespace:   fixtures.RegisteredTarget.Namespace,
+				Name:        fixtures.RegisteredTarget.Workload,
 			},
 			AuthorizationPolicies: []registration.AuthorizationPolicy{
 				{
-					Consumer: fixtures.Client2.ID,
+					Consumer: fixtures.Client1.ID,
 					Roles:    []string{fixtures.Role},
 				},
 			},
@@ -79,18 +79,36 @@ func TestSts(t *testing.T) {
 			assert.Equal(t, statement.ClientId, response.ClientID)
 			assert.Equal(t, signed, response.SoftwareStatement)
 
-			// Verify that both the client and its authorization policy were persisted.
-			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, statement.Workload.Name)
-			token := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
+			// Client1 can request a token targeting registered-workload with client credentials.
+			clientAssertion := getClientToken(t, oauthServer, fixtures.Client1)
+			token := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, statement.ClientId))
 			require.NotEmpty(t, token.AccessToken)
+
+			// Client1 can request a token targeting registered-workload with token exchange.
+			subjectToken, _ := getSubjectToken(t, oauthServer, "subject1")
+			exchanged := stsToken[oauth.AccessTokenResponse](t, sts, tokenExchangeForm(clientAssertion, subjectToken, statement.ClientId))
+			require.NotEmpty(t, exchanged.AccessToken)
 		})
 
 		t.Run("replaces registration", func(t *testing.T) {
+			// Replacing registered-workload's policies removes Client1's grant.
+			withoutGrant := statement
+			withoutGrant.AuthorizationPolicies = nil
 			status, response := postRegistration[registration.ClientRegistrationResponse](t, sts, registratorToken, registration.ClientRegistration{
-				SoftwareStatement: signed,
+				SoftwareStatement: signSoftwareStatement(t, withoutGrant),
 			})
 			require.Equal(t, http.StatusOK, status, response)
 			assert.Equal(t, statement.ClientId, response.ClientID)
+
+			// Wait for the cache to stop authorizing Client1 for registered-workload.
+			clientAssertion := getClientToken(t, oauthServer, fixtures.Client1)
+			assertTokenDenialAfterRefresh(t, sts, clientCredentialsForm(clientAssertion, statement.ClientId), "authorization policy not found")
+
+			// Restore registered-workload's grant to Client1 for later tests.
+			status, response = postRegistration[registration.ClientRegistrationResponse](t, sts, registratorToken, registration.ClientRegistration{
+				SoftwareStatement: signed,
+			})
+			require.Equal(t, http.StatusOK, status, response)
 			assert.Equal(t, signed, response.SoftwareStatement)
 		})
 
@@ -100,7 +118,7 @@ func TestSts(t *testing.T) {
 			another.Workload.Name = "another-workload"
 			another.AuthorizationPolicies = []registration.AuthorizationPolicy{
 				{
-					Consumer: fixtures.Client2.ID,
+					Consumer: fixtures.Client3.ID,
 					Roles:    []string{fixtures.Role},
 				},
 			}
@@ -110,11 +128,40 @@ func TestSts(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, status, response)
 
-			clientAssertion := getKubernetesToken(t, oauthServer, another.Workload.Environment, another.Workload.Namespace, another.Workload.Name)
-			token := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
+			clientAssertion := getClientToken(t, oauthServer, fixtures.Client3)
+			token := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, another.ClientId))
 			require.NotEmpty(t, token.AccessToken)
 
 			status, _ = deleteRegistration[oidc.Error](t, sts, registratorToken, another.ClientId)
+			require.Equal(t, http.StatusNoContent, status)
+		})
+
+		t.Run("consumer cannot grant itself access to another target", func(t *testing.T) {
+			selfGrant := statement
+			selfGrant.ClientId = "env1:namespace1:self-grant-workload"
+			selfGrant.Workload.Name = "self-grant-workload"
+			selfGrant.AuthorizationPolicies = []registration.AuthorizationPolicy{
+				{Consumer: fixtures.Client3.ID, Roles: []string{fixtures.Role}},
+			}
+
+			status, response := postRegistration[registration.ClientRegistrationResponse](t, sts, registratorToken, registration.ClientRegistration{
+				SoftwareStatement: signSoftwareStatement(t, selfGrant),
+			})
+			require.Equal(t, http.StatusOK, status, response)
+
+			// A policy owned by the consumer cannot authorize client credentials for Client3.
+			clientAssertion := getKubernetesToken(t, oauthServer, selfGrant.Workload.Environment, selfGrant.Workload.Namespace, selfGrant.Workload.Name)
+			denied := stsToken[oidc.Error](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client3.ID))
+			assert.Equal(t, oidc.InvalidClient, denied.ErrorType)
+			assert.Contains(t, denied.Description, "authorization policy not found")
+
+			// A policy owned by the consumer cannot authorize token exchange for Client3.
+			subjectToken, _ := getSubjectToken(t, oauthServer, "subject1")
+			denied = stsToken[oidc.Error](t, sts, tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client3.ID))
+			assert.Equal(t, oidc.InvalidClient, denied.ErrorType)
+			assert.Contains(t, denied.Description, "authorization policy not found")
+
+			status, _ = deleteRegistration[oidc.Error](t, sts, registratorToken, selfGrant.ClientId)
 			require.Equal(t, http.StatusNoContent, status)
 		})
 
@@ -157,10 +204,6 @@ func TestSts(t *testing.T) {
 			status, response := deleteRegistration[oidc.Error](t, sts, otherRegistratorToken, statement.ClientId)
 			require.Equal(t, http.StatusForbidden, status, response)
 			assert.Equal(t, oidc.InvalidClient, response.ErrorType)
-
-			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, statement.Workload.Name)
-			token := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
-			require.NotEmpty(t, token.AccessToken)
 		})
 
 		t.Run("deletes missing registration", func(t *testing.T) {
@@ -252,15 +295,18 @@ func TestSts(t *testing.T) {
 			status, _ := deleteRegistration[oidc.Error](t, sts, registratorToken, statement.ClientId)
 			require.Equal(t, http.StatusNoContent, status)
 
-			clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, statement.Workload.Name)
-			resp := stsToken[oidc.Error](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
-			assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
-			assert.Contains(t, resp.Description, "client not found")
+			// registered-workload cannot request a token after its registration is deleted.
+			deletedClientAssertion := getClientToken(t, oauthServer, fixtures.RegisteredTarget)
+			assertTokenDenialAfterRefresh(t, sts, clientCredentialsForm(deletedClientAssertion, fixtures.Client2.ID), "client not found")
+
+			// Client1 cannot request a token targeting registered-workload after its policy is deleted.
+			clientAssertion := getClientToken(t, oauthServer, fixtures.Client1)
+			assertTokenDenialAfterRefresh(t, sts, clientCredentialsForm(clientAssertion, statement.ClientId), "authorization policy not found")
 		})
 	})
 
 	t.Run("client credentials", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
+		clientAssertion := getClientToken(t, oauthServer, fixtures.Client1)
 		form := clientCredentialsForm(clientAssertion, fixtures.Client2.ID)
 		resp := stsToken[oauth.AccessTokenResponse](t, sts, form)
 
@@ -274,7 +320,7 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("client credentials denies unauthorized scope", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
+		clientAssertion := getClientToken(t, oauthServer, fixtures.Client1)
 		form := clientCredentialsForm(clientAssertion, "env1:namespace1:unauthorized")
 		resp := stsToken[oidc.Error](t, sts, form)
 
@@ -292,7 +338,7 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("token exchange", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
+		clientAssertion := getClientToken(t, oauthServer, fixtures.Client1)
 		subjectToken, subjectClaims := getSubjectToken(t, oauthServer, "subject1")
 		form := tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID)
 		resp := stsToken[oauth.AccessTokenResponse](t, sts, form)
@@ -304,7 +350,7 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("token exchange with STS issued token", func(t *testing.T) {
-		client1Assertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
+		client1Assertion := getClientToken(t, oauthServer, fixtures.Client1)
 		subjectToken, subjectClaims := getSubjectToken(t, oauthServer, "subject1")
 		form := tokenExchangeForm(client1Assertion, subjectToken, fixtures.Client2.ID)
 		resp := stsToken[oauth.AccessTokenResponse](t, sts, form)
@@ -314,7 +360,7 @@ func TestSts(t *testing.T) {
 		assertTokenExchangeClaims(t, sts, resp, subjectClaims)
 		firstActor := assertTokenActor(t, sts, resp, fixtures.Client1.ID, nil)
 
-		client2Assertion := getKubernetesToken(t, oauthServer, fixtures.Client2.Environment, fixtures.Client2.Namespace, fixtures.Client2.Workload)
+		client2Assertion := getClientToken(t, oauthServer, fixtures.Client2)
 		form = tokenExchangeForm(client2Assertion, resp.AccessToken, fixtures.Client3.ID)
 		resp = stsToken[oauth.AccessTokenResponse](t, sts, form)
 
@@ -325,7 +371,7 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("token exchange preserves external actor chain", func(t *testing.T) {
-		client1Assertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
+		client1Assertion := getClientToken(t, oauthServer, fixtures.Client1)
 		subjectToken, subjectClaims := getSubjectToken(t, oauthServer, "subject2")
 		previous := subjectClaims.Claims["act"]
 		require.JSONEq(t, `{"sub":"external-actor","custom":"original-identity","act":{"iss":"https://prior.example.com","sub":"earlier-actor"}}`, string(previous))
@@ -337,7 +383,7 @@ func TestSts(t *testing.T) {
 			assert.JSONEq(t, string(previous), string(claims.Actor.Actor))
 		})
 
-		client2Assertion := getKubernetesToken(t, oauthServer, fixtures.Client2.Environment, fixtures.Client2.Namespace, fixtures.Client2.Workload)
+		client2Assertion := getClientToken(t, oauthServer, fixtures.Client2)
 		chained := stsToken[oauth.AccessTokenResponse](t, sts, tokenExchangeForm(client2Assertion, resp.AccessToken, fixtures.Client3.ID))
 		assertTokenClaimsForTarget(t, sts, chained, fixtures.Client3.ID, fixtures.Client2.ID, func(claims *oauth.STSTokenClaims) {
 			require.NotNil(t, claims.Actor)
@@ -347,7 +393,7 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("token exchange denies STS client credentials token", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
+		clientAssertion := getClientToken(t, oauthServer, fixtures.Client1)
 		clientCredentialsToken := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
 
 		resp := stsToken[oidc.Error](t, sts, tokenExchangeForm(clientAssertion, clientCredentialsToken.AccessToken, fixtures.Client2.ID))
@@ -357,7 +403,7 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("token exchange denies unauthorized audience", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
+		clientAssertion := getClientToken(t, oauthServer, fixtures.Client1)
 		subjectToken, _ := getSubjectToken(t, oauthServer, "subject1")
 		form := tokenExchangeForm(clientAssertion, subjectToken, "env1:namespace1:unauthorized")
 		resp := stsToken[oidc.Error](t, sts, form)
@@ -377,7 +423,7 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("token exchange denies untrusted subject token issuer", func(t *testing.T) {
-		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
+		clientAssertion := getClientToken(t, oauthServer, fixtures.Client1)
 		subjectToken, _ := getSubjectToken(t, oauthServer, "untrusted")
 		form := tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID)
 		resp := stsToken[oidc.Error](t, sts, form)
@@ -514,6 +560,14 @@ func stsToken[T any](t testing.TB, sts testServer, form url.Values) *T {
 	return post[T](t, sts.Endpoint("token"), form)
 }
 
+func assertTokenDenialAfterRefresh(t *testing.T, sts testServer, form url.Values, description string) {
+	t.Helper()
+	assert.Eventually(t, func() bool {
+		resp := stsToken[oidc.Error](t, sts, form)
+		return resp.ErrorType == oidc.InvalidClient && strings.Contains(resp.Description, description)
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
 func getKubernetesToken(t testing.TB, oauthServer testServer, environment, namespace, workload string) string {
 	t.Helper()
 
@@ -526,6 +580,11 @@ func getKubernetesToken(t testing.TB, oauthServer testServer, environment, names
 	})
 
 	return resp.AccessToken
+}
+
+func getClientToken(t testing.TB, oauthServer testServer, client clientFixture) string {
+	t.Helper()
+	return getKubernetesToken(t, oauthServer, client.Environment, client.Namespace, client.Workload)
 }
 
 func getSubjectToken(t testing.TB, oauthServer testServer, issuer string) (string, *oauth.AccessTokenClaims) {

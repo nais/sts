@@ -57,6 +57,7 @@ STS checks the bearer token against the configuration:
 ## Software statement
 
 The registrator must create and sign a [software statement](https://www.rfc-editor.org/rfc/rfc7591.html#section-2.3).
+A registrator cannot manage another issuer's clients.
 
 ### Claims
 
@@ -73,26 +74,26 @@ The signed JWT contains these claims:
   },
   "authorization_policies": [
     {
-      "consumer": "env1:namespace1:target",
+      "consumer": "env1:namespace1:consumer",
       "roles": ["reader"]
     }
   ]
 }
 ```
 
-| Claim                               | Description                                                                                  | Example value                                                     |
-|-------------------------------------|----------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
-| `client_id`                         | Identifier chosen for the client.                                                            | `env1:namespace1:my-workload`                                     |
-| `workload.environment`              | Environment where the workload runs.                                                         | `env1`                                                            |
-| `workload.issuer`                   | Issuer of the workload's identity token. It must match the registrator's `issuer`.           | `https://issuer.example.com/env1`                                 |
-| `workload.namespace`                | Kubernetes namespace of the workload.                                                        | `namespace1`                                                      |
-| `workload.workload`                 | Kubernetes service account name of the workload.                                             | `my-workload`                                                     |
-| `authorization_policies`            | Rules for which target clients and roles this client can request.                            | `[{ "consumer": "env1:namespace1:target", "roles": ["reader"] }]` |
-| `authorization_policies[].consumer` | Target client ID used for policy lookup. Registration does not require that target to exist. | `env1:namespace1:target`                                          |
-| `authorization_policies[].roles`    | Roles this client can request from that target.                                              | `["reader"]`                                                      |
+| Claim                               | Description                                                                        | Example value                                                       |
+|-------------------------------------|------------------------------------------------------------------------------------|---------------------------------------------------------------------|
+| `client_id`                         | Identifier chosen for the client.                                                  | `env1:namespace1:my-workload`                                       |
+| `workload.environment`              | Environment where the workload runs.                                               | `env1`                                                              |
+| `workload.issuer`                   | Issuer of the workload's identity token. It must match the registrator's `issuer`. | `https://issuer.example.com/env1`                                   |
+| `workload.namespace`                | Kubernetes namespace of the workload.                                              | `namespace1`                                                        |
+| `workload.workload`                 | Kubernetes service account name of the workload.                                   | `my-workload`                                                       |
+| `authorization_policies`            | Rules for which consumers can request tokens targeting this client.                | `[{ "consumer": "env1:namespace1:consumer", "roles": ["reader"] }]` |
+| `authorization_policies[].consumer` | Consumer client ID. Registration does not require that consumer to exist.          | `env1:namespace1:consumer`                                          |
+| `authorization_policies[].roles`    | Roles STS adds to tokens issued to this consumer for this client.                  | `["reader"]`                                                        |
 
-In this example, `my-workload` can request the `reader` role from
-`env1:namespace1:target`. A registrator cannot manage another issuer's clients.
+In this example, `env1:namespace1:consumer` is granted permission to request a token targeting `my-workload`.
+STS adds all roles from the policy, including `reader`, to the issued token.
 
 ### Public key
 

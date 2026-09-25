@@ -184,12 +184,12 @@ func (c *CachedClient) Delete(ctx context.Context, clientID oauth.ClientID, auth
 	})
 }
 
-func (c *CachedClient) AuthorizeTarget(ctx context.Context, clientID oauth.ClientID, target oauth.Target) (oauth.Roles, error) {
+func (c *CachedClient) AuthorizeTarget(ctx context.Context, consumer oauth.ClientID, target oauth.Target) (oauth.Roles, error) {
 	snapshot, ok := c.snapshot.Current()
 	if !ok {
 		return nil, oidc.ErrServerError().WithDescription("client cache is not initialized")
 	}
-	key := policyKey{owner: string(clientID), consumer: target.GetValue()}
+	key := policyKey{owner: target.GetValue(), consumer: string(consumer)}
 	roles, ok := snapshot.policies[key]
 	if !ok {
 		return c.getPolicyFromPostgres(ctx, key)

@@ -405,12 +405,29 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 	})
 
 	run("deletes clients", func(t *testing.T) {
+		// Deleting the missing client succeeds.
 		require.NoError(t, clients.Delete(t.Context(), "missing", "https://issuer.example"))
 
+		// Another issuer cannot delete this client or its policy for consumer.
 		client := testClient("scope")
-		require.NoError(t, clients.Save(t.Context(), client, nil, client.Issuer))
+		policy := oauth.AuthorizationPolicy{Owner: oauth.ClientID(client.ID), Consumer: "consumer", Roles: oauth.Roles{"reader"}}
+		require.NoError(t, clients.Save(t.Context(), client, []oauth.AuthorizationPolicy{policy}, client.Issuer))
 		require.ErrorIs(t, clients.Delete(t.Context(), oauth.ClientID(client.ID), "https://other.example"), oauth.ErrRegistrationUnauthorized)
+
+		// Read PostgreSQL directly so a stale cache cannot hide a deleted client or policy.
+		assertStoredRegistration(t, queries, client.ID, client.AllowedScopes, []sqlgen.AuthorizationPolicy{
+			{OwnerClientID: client.ID, ConsumerClientID: "consumer", Roles: []string{"reader"}},
+		})
+
+		// The client's issuer can delete both the client and its policy for consumer.
 		require.NoError(t, clients.Delete(t.Context(), oauth.ClientID(client.ID), client.Issuer))
+		_, err := queries.GetKubernetesClientByIDForUpdate(t.Context(), client.ID)
+		require.ErrorIs(t, err, pgx.ErrNoRows)
+
+		_, err = queries.GetAuthorizationPolicy(t.Context(), sqlgen.GetAuthorizationPolicyParams{
+			OwnerClientID: client.ID, ConsumerClientID: "consumer",
+		})
+		require.ErrorIs(t, err, pgx.ErrNoRows)
 	})
 }
 
