@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#MISE description="Squash local PostgreSQL migrations into one baseline"
+#MISE depends_post=["fmt:sql"]
+set -euo pipefail
+
+migrations_dir=internal/database/migrations
+files=("$migrations_dir"/[0-9][0-9][0-9][0-9]_*.sql)
+last=${files[${#files[@]}-1]}
+last=${last##*/}
+version=${1:-${last%%_*}}
+[[ $version =~ ^[0-9]{4}$ ]] || { printf 'Expected a four-digit migration version\n' >&2; exit 1; }
+schema_file="$migrations_dir/${version}_schema.sql"
+
+[[ ! -e .pgschemaignore ]] || { printf '.pgschemaignore already exists\n' >&2; exit 1; }
+printf '[tables]\npatterns = ["goose_db_version"]\n' > .pgschemaignore
+trap 'rm -f .pgschemaignore' EXIT
+
+schema=$(pgschema dump --host localhost --db sts --user postgres --password postgres --no-comments \
+	| grep -v '^--')
+rm -f "$migrations_dir"/*.sql
+cat > "$schema_file" <<EOF
+-- +goose Up
+-- +goose StatementBegin
+${schema}
+-- +goose StatementEnd
+EOF
+printf 'Squashed migrations into %s/%s_schema.sql\n' "$migrations_dir" "$version"

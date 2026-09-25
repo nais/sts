@@ -41,6 +41,12 @@ Set `CONFIG_FILE` to use
 another file. STS reads all application configuration from that YAML file and
 rejects unknown fields.
 
+### Database migrations
+
+To squash applied migrations, run `mise run squash-migrations`. Before the first
+deployment, pass `0001` to restart numbering. Reset the local database after
+renumbering. Do not renumber migrations after deployment.
+
 ## Performance
 
 Run the end-to-end STS token endpoint benchmarks with:

@@ -28,10 +28,13 @@ func (q *Queries) DeleteKubernetesClient(ctx context.Context, id string) error {
 }
 
 const getAuthorizationPolicy = `-- name: GetAuthorizationPolicy :one
-SELECT owner_client_id, consumer_client_id, roles
-FROM authorization_policies
-WHERE owner_client_id = $1
-  AND consumer_client_id = $2
+SELECT
+	owner_client_id, consumer_client_id, roles
+FROM
+	authorization_policies
+WHERE
+	owner_client_id = $1
+	AND consumer_client_id = $2
 `
 
 type GetAuthorizationPolicyParams struct {
@@ -47,11 +50,14 @@ func (q *Queries) GetAuthorizationPolicy(ctx context.Context, arg GetAuthorizati
 }
 
 const getKubernetesClient = `-- name: GetKubernetesClient :one
-SELECT id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
-FROM kubernetes_clients
-WHERE issuer = $1
-  AND namespace = $2
-  AND workload = $3
+SELECT
+	id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
+FROM
+	kubernetes_clients
+WHERE
+	issuer = $1
+	AND namespace = $2
+	AND workload = $3
 `
 
 type GetKubernetesClientParams struct {
@@ -77,9 +83,12 @@ func (q *Queries) GetKubernetesClient(ctx context.Context, arg GetKubernetesClie
 }
 
 const getKubernetesClientByIDForUpdate = `-- name: GetKubernetesClientByIDForUpdate :one
-SELECT id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
-FROM kubernetes_clients
-WHERE id = $1
+SELECT
+	id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
+FROM
+	kubernetes_clients
+WHERE
+	id = $1
 FOR UPDATE
 `
 
@@ -100,9 +109,13 @@ func (q *Queries) GetKubernetesClientByIDForUpdate(ctx context.Context, id strin
 }
 
 const listAuthorizationPolicies = `-- name: ListAuthorizationPolicies :many
-SELECT owner_client_id, consumer_client_id, roles
-FROM authorization_policies
-ORDER BY owner_client_id, consumer_client_id
+SELECT
+	owner_client_id, consumer_client_id, roles
+FROM
+	authorization_policies
+ORDER BY
+	owner_client_id,
+	consumer_client_id
 `
 
 func (q *Queries) ListAuthorizationPolicies(ctx context.Context) ([]AuthorizationPolicy, error) {
@@ -126,9 +139,12 @@ func (q *Queries) ListAuthorizationPolicies(ctx context.Context) ([]Authorizatio
 }
 
 const listKubernetesClients = `-- name: ListKubernetesClients :many
-SELECT id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
-FROM kubernetes_clients
-ORDER BY id
+SELECT
+	id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
+FROM
+	kubernetes_clients
+ORDER BY
+	id
 `
 
 func (q *Queries) ListKubernetesClients(ctx context.Context) ([]KubernetesClient, error) {
@@ -161,9 +177,19 @@ func (q *Queries) ListKubernetesClients(ctx context.Context) ([]KubernetesClient
 }
 
 const upsertAuthorizationPolicy = `-- name: UpsertAuthorizationPolicy :exec
-INSERT INTO authorization_policies (owner_client_id, consumer_client_id, roles)
-VALUES ($1, $2, $3::TEXT[]) ON CONFLICT (owner_client_id, consumer_client_id) DO
-UPDATE SET roles = EXCLUDED.roles
+INSERT INTO authorization_policies(
+	owner_client_id,
+	consumer_client_id,
+	roles)
+VALUES (
+	$1,
+	$2,
+	$3::TEXT[])
+ON CONFLICT (
+	owner_client_id,
+	consumer_client_id)
+	DO UPDATE SET
+		roles = EXCLUDED.roles
 `
 
 type UpsertAuthorizationPolicyParams struct {
@@ -178,15 +204,32 @@ func (q *Queries) UpsertAuthorizationPolicy(ctx context.Context, arg UpsertAutho
 }
 
 const upsertKubernetesClient = `-- name: UpsertKubernetesClient :one
-INSERT INTO kubernetes_clients (id, environment, namespace, workload, issuer, allowed_scopes)
-VALUES ($1, $2, $3, $4, $5, $6::TEXT[]) ON CONFLICT (id) DO
-UPDATE SET allowed_scopes = EXCLUDED.allowed_scopes,
-    updated_at = NOW()
-WHERE kubernetes_clients.environment = EXCLUDED.environment
-  AND kubernetes_clients.namespace = EXCLUDED.namespace
-  AND kubernetes_clients.workload = EXCLUDED.workload
-  AND kubernetes_clients.issuer = EXCLUDED.issuer
-RETURNING id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
+INSERT INTO kubernetes_clients(
+	id,
+	environment,
+	namespace,
+	workload,
+	issuer,
+	allowed_scopes)
+VALUES (
+	$1,
+	$2,
+	$3,
+	$4,
+	$5,
+	$6::TEXT[])
+ON CONFLICT (
+	id)
+	DO UPDATE SET
+		allowed_scopes = EXCLUDED.allowed_scopes,
+		updated_at = NOW()
+	WHERE
+		kubernetes_clients.environment = EXCLUDED.environment
+		AND kubernetes_clients.namespace = EXCLUDED.namespace
+		AND kubernetes_clients.workload = EXCLUDED.workload
+		AND kubernetes_clients.issuer = EXCLUDED.issuer
+	RETURNING
+		id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
 `
 
 type UpsertKubernetesClientParams struct {

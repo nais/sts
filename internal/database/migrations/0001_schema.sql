@@ -1,0 +1,61 @@
+-- +goose Up
+-- +goose StatementBegin
+CREATE TABLE IF NOT EXISTS kubernetes_clients(
+	id TEXT,
+	environment TEXT NOT NULL,
+	namespace TEXT NOT NULL,
+	workload TEXT NOT NULL,
+	issuer TEXT NOT NULL,
+	allowed_scopes TEXT[] NOT NULL,
+	created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+	updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+	CONSTRAINT kubernetes_clients_pkey PRIMARY KEY (id),
+	CONSTRAINT kubernetes_clients_workload_namespace_issuer_key UNIQUE (workload, namespace, issuer)
+);
+
+CREATE TABLE IF NOT EXISTS authorization_policies(
+	owner_client_id TEXT,
+	consumer_client_id TEXT,
+	roles TEXT[] DEFAULT '{}' NOT NULL,
+	CONSTRAINT authorization_policies_pkey PRIMARY KEY (owner_client_id, consumer_client_id),
+	CONSTRAINT authorization_policies_owner_client_id_fkey FOREIGN KEY (owner_client_id) REFERENCES kubernetes_clients(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS rotatable_signing_keys(
+	id UUID,
+	current_key BYTEA NOT NULL,
+	previous_key BYTEA NOT NULL,
+	next_key BYTEA NOT NULL,
+	expires_at TIMESTAMPTZ NOT NULL,
+	created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+	updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+	CONSTRAINT rotatable_signing_keys_pkey PRIMARY KEY (id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS rotatable_signing_keys_singleton ON rotatable_signing_keys((TRUE));
+
+CREATE OR REPLACE FUNCTION notify_sts_cache_changed()
+	RETURNS TRIGGER
+	LANGUAGE plpgsql
+	VOLATILE
+	AS $$
+BEGIN
+	-- The transaction ID lets listeners correlate writes while PostgreSQL folds
+	-- duplicate notifications from the same transaction into one event.
+	PERFORM
+		pg_notify('sts_cache_changed', txid_current()::TEXT);
+	RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER authorization_policies_cache_changed
+	AFTER INSERT OR UPDATE OR DELETE ON authorization_policies
+	FOR EACH STATEMENT
+	EXECUTE FUNCTION notify_sts_cache_changed();
+
+CREATE OR REPLACE TRIGGER kubernetes_clients_cache_changed
+	AFTER INSERT OR UPDATE OR DELETE ON kubernetes_clients
+	FOR EACH STATEMENT
+	EXECUTE FUNCTION notify_sts_cache_changed();
+
+-- +goose StatementEnd

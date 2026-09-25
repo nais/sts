@@ -11,8 +11,10 @@ import (
 )
 
 const getSigningKeySet = `-- name: GetSigningKeySet :one
-SELECT id, current_key, previous_key, next_key, expires_at, created_at, updated_at
-FROM rotatable_signing_keys
+SELECT
+	id, current_key, previous_key, next_key, expires_at, created_at, updated_at
+FROM
+	rotatable_signing_keys
 `
 
 func (q *Queries) GetSigningKeySet(ctx context.Context) (RotatableSigningKey, error) {
@@ -31,14 +33,26 @@ func (q *Queries) GetSigningKeySet(ctx context.Context) (RotatableSigningKey, er
 }
 
 const saveSigningKeySet = `-- name: SaveSigningKeySet :exec
-INSERT INTO rotatable_signing_keys (id, current_key, previous_key, next_key, expires_at)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (id) DO UPDATE
-SET current_key = EXCLUDED.current_key,
-    previous_key = EXCLUDED.previous_key,
-    next_key = EXCLUDED.next_key,
-    expires_at = EXCLUDED.expires_at,
-    updated_at = NOW()
+INSERT INTO rotatable_signing_keys(
+	id,
+	current_key,
+	previous_key,
+	next_key,
+	expires_at)
+VALUES (
+	$1,
+	$2,
+	$3,
+	$4,
+	$5)
+ON CONFLICT (
+	id)
+	DO UPDATE SET
+		current_key = EXCLUDED.current_key,
+		previous_key = EXCLUDED.previous_key,
+		next_key = EXCLUDED.next_key,
+		expires_at = EXCLUDED.expires_at,
+		updated_at = NOW()
 `
 
 type SaveSigningKeySetParams struct {
