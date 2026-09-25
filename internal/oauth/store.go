@@ -45,6 +45,8 @@ type ClientStore interface {
 var ErrRegistrationUnauthorized = errors.New("registrator is not authorized for client")
 var ErrRegistrationConflict = errors.New("registration conflicts with existing client")
 
+const InternalSigningAlgorithm = jose.ES256
+
 type KeyStore interface {
 	Signer() (jose.Signer, error)
 	PublicKeys() (*jose.JSONWebKeySet, error)

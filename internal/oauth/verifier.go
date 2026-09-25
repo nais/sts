@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-jose/go-jose/v4"
 	oauthclient "github.com/zitadel/oidc/v3/pkg/client"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -145,7 +144,7 @@ func NewTokenVerifier(issuer Issuer, keyset oidc.KeySet, requiredAlgs ...string)
 func InternalTokenVerifier(cfg AuthorizationServerConfig, keyStore KeyStore) (*TokenVerifier, error) {
 	return NewTokenVerifier(cfg.Issuer,
 		keyStore,
-		string(jose.RS256), // TODO: should lookup from config
+		string(InternalSigningAlgorithm),
 	)
 }
 

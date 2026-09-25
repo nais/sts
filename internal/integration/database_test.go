@@ -4,7 +4,8 @@ package integration
 
 import (
 	"context"
-	"crypto/rsa"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-jose/go-jose/v4"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/database"
@@ -195,8 +197,12 @@ func testPostgresKeyStore(t *testing.T, pool *pgxpool.Pool) {
 	keys, err := st.PublicKeys()
 	require.NoError(t, err)
 	require.Len(t, keys.Keys, 3)
-	_, ok := keys.Keys[0].Key.(*rsa.PublicKey)
-	require.True(t, ok, "public key type = %T", keys.Keys[0].Key)
+	for _, jwk := range keys.Keys {
+		publicKey, ok := jwk.Key.(*ecdsa.PublicKey)
+		require.True(t, ok, "public key type = %T", jwk.Key)
+		require.Equal(t, elliptic.P256(), publicKey.Curve)
+		require.Equal(t, string(jose.ES256), jwk.Algorithm)
+	}
 
 	// A second replica must load the existing keys instead of creating another set.
 	second, err := store.NewRotatingKeyStore(ctx, pool, time.Minute)
@@ -231,6 +237,9 @@ func testPostgresKeyStore(t *testing.T, pool *pgxpool.Pool) {
 	secondRotatedKeys, err := second.PublicKeys()
 	require.NoError(t, err)
 	require.Len(t, rotatedKeys.Keys, 3)
+	for _, jwk := range rotatedKeys.Keys {
+		require.Equal(t, string(jose.ES256), jwk.Algorithm)
+	}
 	require.Equal(t,
 		[]string{rotatedKeys.Keys[0].KeyID, rotatedKeys.Keys[1].KeyID, rotatedKeys.Keys[2].KeyID},
 		[]string{secondRotatedKeys.Keys[0].KeyID, secondRotatedKeys.Keys[1].KeyID, secondRotatedKeys.Keys[2].KeyID},

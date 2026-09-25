@@ -411,7 +411,7 @@ func assertTokenClaimsForTarget(t *testing.T, sts testServer, response *oauth.Ac
 	tokenVerifier, err := oauth.NewTokenVerifier(
 		oauth.Issuer(sts.Endpoint()),
 		rp.NewRemoteKeySet(http.DefaultClient, sts.Endpoint("jwks")),
-		string(jose.RS256),
+		string(jose.ES256),
 	)
 	require.NoError(t, err)
 

@@ -2,8 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/cache"
 	"github.com/nais/sts/internal/database/sqlgen"
+	"github.com/nais/sts/internal/oauth"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
@@ -290,14 +292,14 @@ func (r *RotatingKeyStore) load(ctx context.Context) (*keyCache, error) {
 }
 
 func generateJWK() ([]byte, error) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("generate signing key: %w", err)
 	}
 	return jose.JSONWebKey{
 		Key:       key,
 		KeyID:     uuid.New().String(),
-		Algorithm: string(jose.RS256),
+		Algorithm: string(oauth.InternalSigningAlgorithm),
 		Use:       oidc.KeyUseSignature,
 	}.MarshalJSON()
 }
