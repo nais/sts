@@ -15,7 +15,7 @@ but does not fully implement it or [RFC 7592](https://www.rfc-editor.org/rfc/rfc
 ## Authentication
 
 Send `Authorization: Bearer <token>` with either request. For example, given
-this STS configuration:
+this [STS configuration](configuration.md):
 
 ```yaml
 authorizationServer:
@@ -48,10 +48,11 @@ STS checks the bearer token against the configuration:
 - `iss` matches `registrators[0].issuer` and appears in `clientAuthIssuers`.
 - `sub` matches `registrators[0].subject`.
 - `aud` contains only `expectedAudience`: `nais`.
-- `iat` and `exp` are valid timestamps.
-  - `iat` must be in the past.
-  - `exp` must be in the future
-  - The lifetime (`exp` - `iat`) cannot exceed `maxClientAuthTokenLifetime` plus the allowed skew of 1 minute. In this example, 1 hour and 1 minute.
+- `iat` and `exp` are valid timestamps. STS allows one minute of clock skew
+  when it checks both claims.
+- `exp` must follow `iat`. The lifetime (`exp` - `iat`) cannot exceed
+  `maxClientAuthTokenLifetime` plus one minute. In this example, the limit is
+  one hour and one minute.
 
 ## Software statement
 
@@ -79,16 +80,16 @@ The signed JWT contains these claims:
 }
 ```
 
-| Claim | Description |
-| --- | --- |
-| `client_id` | Identifier chosen for the client. Here, `env1:namespace1:my-workload`. |
-| `workload.environment` | Environment where the workload runs. |
-| `workload.issuer` | Issuer of the workload's identity token. It must match the registrator's `issuer`. |
-| `workload.namespace` | Kubernetes namespace of the workload. |
-| `workload.workload` | Kubernetes service account name of the workload. |
-| `authorization_policies` | Rules for which target clients and roles this client can request. |
-| `authorization_policies[].consumer` | Target client's `client_id`. |
-| `authorization_policies[].roles` | Roles this client can request from that target. |
+| Claim                               | Description                                                                                  | Example value                                                     |
+|-------------------------------------|----------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
+| `client_id`                         | Identifier chosen for the client.                                                            | `env1:namespace1:my-workload`                                     |
+| `workload.environment`              | Environment where the workload runs.                                                         | `env1`                                                            |
+| `workload.issuer`                   | Issuer of the workload's identity token. It must match the registrator's `issuer`.           | `https://issuer.example.com/env1`                                 |
+| `workload.namespace`                | Kubernetes namespace of the workload.                                                        | `namespace1`                                                      |
+| `workload.workload`                 | Kubernetes service account name of the workload.                                             | `my-workload`                                                     |
+| `authorization_policies`            | Rules for which target clients and roles this client can request.                            | `[{ "consumer": "env1:namespace1:target", "roles": ["reader"] }]` |
+| `authorization_policies[].consumer` | Target client ID used for policy lookup. Registration does not require that target to exist. | `env1:namespace1:target`                                          |
+| `authorization_policies[].roles`    | Roles this client can request from that target.                                              | `["reader"]`                                                      |
 
 In this example, `my-workload` can request the `reader` role from
 `env1:namespace1:target`. A registrator cannot manage another issuer's clients.
@@ -147,7 +148,7 @@ On a repeated `POST` for the same client:
   - `workload.namespace`
   - `workload.workload`
   - `workload.issuer`
-- A conflicting client ID or workload identity returns an error.
+- A conflicting client ID or workload identity returns `409 Conflict`.
 
 ### Response
 
