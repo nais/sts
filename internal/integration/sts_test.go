@@ -314,6 +314,28 @@ func TestSts(t *testing.T) {
 		assertTokenActorForTarget(t, sts, resp, fixtures.Client3.ID, fixtures.Client2.ID, fixtures.Client2.ID, firstActor)
 	})
 
+	t.Run("token exchange preserves external actor chain", func(t *testing.T) {
+		client1Assertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
+		subjectToken, subjectClaims := getSubjectToken(t, oauthServer, "subject2")
+		previous := subjectClaims.Claims["act"]
+		require.JSONEq(t, `{"sub":"external-actor","custom":"original-identity","act":{"iss":"https://prior.example.com","sub":"earlier-actor"}}`, string(previous))
+
+		resp := stsToken[oauth.AccessTokenResponse](t, sts, tokenExchangeForm(client1Assertion, subjectToken, fixtures.Client2.ID))
+		first := assertTokenClaims(t, sts, resp, func(claims *oauth.STSTokenClaims) {
+			require.NotNil(t, claims.Actor)
+			assert.Equal(t, fixtures.Client1.ID, claims.Actor.ClientID)
+			assert.JSONEq(t, string(previous), string(claims.Actor.Actor))
+		})
+
+		client2Assertion := getKubernetesToken(t, oauthServer, fixtures.Client2.Environment, fixtures.Client2.Namespace, fixtures.Client2.Workload)
+		chained := stsToken[oauth.AccessTokenResponse](t, sts, tokenExchangeForm(client2Assertion, resp.AccessToken, fixtures.Client3.ID))
+		assertTokenClaimsForTarget(t, sts, chained, fixtures.Client3.ID, fixtures.Client2.ID, func(claims *oauth.STSTokenClaims) {
+			require.NotNil(t, claims.Actor)
+			assert.Equal(t, fixtures.Client2.ID, claims.Actor.ClientID)
+			assert.JSONEq(t, string(first.Claims["act"]), string(claims.Actor.Actor))
+		})
+	})
+
 	t.Run("token exchange denies STS client credentials token", func(t *testing.T) {
 		clientAssertion := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, fixtures.Client1.Workload)
 		clientCredentialsToken := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
@@ -367,7 +389,13 @@ func assertTokenActorForTarget(t *testing.T, sts testServer, response *oauth.Acc
 		require.NotNil(t, actor)
 		assert.Equal(t, sts.Endpoint(), actor.Issuer)
 		assert.Equal(t, actorClientID, actor.ClientID)
-		assert.Equal(t, previous, actor.Actor)
+		if previous == nil {
+			assert.Empty(t, actor.Actor)
+		} else {
+			encoded, err := json.Marshal(previous)
+			require.NoError(t, err)
+			assert.JSONEq(t, string(encoded), string(actor.Actor))
+		}
 	})
 	return actor
 }

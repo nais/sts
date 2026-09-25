@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -28,9 +29,9 @@ type STSTokenClaims struct {
 }
 
 type ActorClaims struct {
-	Actor    *ActorClaims `json:"act,omitempty"`
-	Issuer   string       `json:"iss,omitempty"`
-	ClientID string       `json:"client_id"`
+	Actor    json.RawMessage `json:"act,omitempty"`
+	Issuer   string          `json:"iss,omitempty"`
+	ClientID string          `json:"client_id"`
 }
 
 func (s *STSTokenClaims) ExpiresIn() time.Duration {
@@ -73,11 +74,10 @@ func CreateAccessToken(issuer Issuer, expiresIn time.Duration, result *Authoriza
 			ClientID: result.Client.ID,
 		}
 		if raw, ok := subjectTokenClaims["act"]; ok {
-			previous, err := parseActorClaims(raw)
-			if err != nil {
+			if err := validateActorClaims(raw); err != nil {
 				return nil, fmt.Errorf("decode subject token actor claim: %w", err)
 			}
-			actor.Actor = previous
+			actor.Actor = raw
 		}
 	}
 
@@ -113,15 +113,46 @@ func CreateAccessToken(issuer Issuer, expiresIn time.Duration, result *Authoriza
 	return &stsTokenClaims, nil
 }
 
-func parseActorClaims(raw json.RawMessage) (*ActorClaims, error) {
-	actor := new(ActorClaims)
-	if err := json.Unmarshal(raw, actor); err != nil {
-		return nil, err
+// Validate nonempty actor objects and unique keys before nesting the raw actor chain in an STS token.
+func validateActorClaims(raw json.RawMessage) error {
+	return validateActor(json.NewDecoder(bytes.NewReader(raw)))
+}
+
+func validateActor(decoder *json.Decoder) error {
+	start, err := decoder.Token()
+	if err != nil {
+		return err
 	}
-	if actor.ClientID == "" {
-		return nil, fmt.Errorf("client ID is missing")
+	if start != json.Delim('{') {
+		return fmt.Errorf("actor must be an object")
 	}
-	return actor, nil
+	seen := make(map[string]bool)
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		name := key.(string)
+		if seen[name] {
+			return fmt.Errorf("duplicate actor claim %q", name)
+		}
+		seen[name] = true
+		if name == "act" {
+			if err := validateActor(decoder); err != nil {
+				return err
+			}
+		} else {
+			var value json.RawMessage
+			if err := decoder.Decode(&value); err != nil {
+				return err
+			}
+		}
+	}
+	if len(seen) == 0 {
+		return fmt.Errorf("actor must be a nonempty object")
+	}
+	_, err = decoder.Token()
+	return err
 }
 
 func mergeClaims(base map[string]json.RawMessage, authoritative any) (map[string]json.RawMessage, error) {

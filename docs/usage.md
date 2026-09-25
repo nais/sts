@@ -211,7 +211,11 @@ The decoded tokens compare as follows (timestamps and token IDs are illustrative
   "jti": "b23c5d67-8901-4efa-9bcd-2345678901bc",
   "iat": 1789999700,
   "nbf": 1789999700,
-  "exp": 1790000600
+  "exp": 1790000600,
+  "act": {
+    "sub": "external-actor",
+    "act": { "sub": "earlier-actor" }
+  }
 }</code></pre></td><td><pre><code>{
   "iss": "https://sts.example.com",
   "sub": "user-123",
@@ -226,25 +230,30 @@ The decoded tokens compare as follows (timestamps and token IDs are illustrative
   "urn:nais:grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
   "act": {
     "iss": "https://sts.example.com",
-    "client_id": "env1:namespace1:my-workload"
+    "client_id": "env1:namespace1:my-workload",
+    "act": {
+      "sub": "external-actor",
+      "act": { "sub": "earlier-actor" }
+    }
   }
 }</code></pre></td></tr></tbody>
 </table>
 
 STS starts with the subject token's claims, then sets these values in the exchanged token:
 
-| Claim                 | Value in exchanged token                                  | Effect on subject token claim                         |
-|-----------------------|-----------------------------------------------------------|-------------------------------------------------------|
-| `iss`                 | STS issuer.                                               | Replaces the subject token's issuer.                  |
-| `aud`                 | Target client ID from the request's `audience`.           | Replaces the subject token's audience.                |
-| `client_id`           | Requesting client ID.                                     | Added, or replaces an existing value.                 |
-| `jti`                 | New token ID.                                             | Added, or replaces an existing value.                 |
-| `iat`, `nbf`, `exp`   | New validity times.                                       | Added, or replace existing values.                    |
-| `urn:nais:roles`      | Roles from the target's policy for the requesting client. | Added, or replaces an existing value.                 |
-| `urn:nais:grant_type` | Always `urn:ietf:params:oauth:grant-type:token-exchange`. | Added, or replaces an existing value.                 |
-| `act`                 | Requesting client.                                        | Added; nests the subject token's `act` if present.    |
+| Claim                 | Value in exchanged token                                  | Changes compared to subject token claim                      |
+|-----------------------|-----------------------------------------------------------|--------------------------------------------------------------|
+| `iss`                 | STS issuer.                                               | Replaces the subject token's issuer.                         |
+| `aud`                 | Target client ID from the request's `audience`.           | Replaces the subject token's audience.                       |
+| `client_id`           | Requesting client ID.                                     | Added, or replaces an existing value.                        |
+| `jti`                 | New token ID.                                             | Added, or replaces an existing value.                        |
+| `iat`, `nbf`, `exp`   | New validity times.                                       | Added, or replace existing values.                           |
+| `urn:nais:roles`      | Roles from the target's policy for the requesting client. | Added, or replaces an existing value.                        |
+| `urn:nais:grant_type` | Always `urn:ietf:params:oauth:grant-type:token-exchange`. | Added, or replaces an existing value.                        |
+| `act`                 | Requesting client.                                        | Added, or nests the subject token's entire `act` if present. |
 
 The `sub` claim and other claims, such as `department` in the example, keep their values.
+STS preserves the prior actors as history, not as authorization policy inputs.
 
 ### Chained exchange
 
@@ -267,7 +276,11 @@ The previous `act` claim becomes the nested actor:
   "urn:nais:grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
   "act": {
     "iss": "https://sts.example.com",
-    "client_id": "env1:namespace1:my-workload"
+    "client_id": "env1:namespace1:my-workload",
+    "act": {
+      "sub": "external-actor",
+      "act": { "sub": "earlier-actor" }
+    }
   }
 }</code></pre></td><td><pre><code>{
   "iss": "https://sts.example.com",
@@ -286,7 +299,11 @@ The previous `act` claim becomes the nested actor:
     "client_id": "env1:namespace1:target",
     "act": {
       "iss": "https://sts.example.com",
-      "client_id": "env1:namespace1:my-workload"
+      "client_id": "env1:namespace1:my-workload",
+      "act": {
+        "sub": "external-actor",
+        "act": { "sub": "earlier-actor" }
+      }
     }
   }
 }</code></pre></td></tr></tbody>

@@ -46,6 +46,26 @@
           }
         }
       ]
+    },
+    {
+      "issuerId": "subject2",
+      "requestMappings": [
+        {
+          "requestParam": "grant_type",
+          "match": "authorization_code",
+          "claims": {
+            "sub": "external-subject",
+            "act": {
+              "sub": "external-actor",
+              "custom": "original-identity",
+              "act": {
+                "iss": "https://prior.example.com",
+                "sub": "earlier-actor"
+              }
+            }
+          }
+        }
+      ]
     }
   ]
 }
