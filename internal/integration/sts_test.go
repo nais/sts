@@ -177,6 +177,16 @@ func TestSts(t *testing.T) {
 			assert.Contains(t, response.Description, "invalid software statement")
 		})
 
+		t.Run("rejects invalid signed software statement claims", func(t *testing.T) {
+			invalid := statement
+			invalid.ClientId = "Invalid"
+			status, response := postRegistration[oidc.Error](t, sts, registratorToken, registration.ClientRegistration{
+				SoftwareStatement: signSoftwareStatement(t, invalid),
+			})
+			require.Equal(t, http.StatusBadRequest, status, response)
+			assert.Contains(t, response.Description, "invalid software statement")
+		})
+
 		t.Run("rejects unauthorized registrator", func(t *testing.T) {
 			unauthorizedToken := getKubernetesToken(t, oauthServer, fixtures.Client1.Environment, fixtures.Client1.Namespace, "not-a-registrator")
 			request := registration.ClientRegistration{

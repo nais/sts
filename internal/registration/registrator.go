@@ -81,6 +81,9 @@ func (r *Registrator) VerifySoftwareStatement(ctx context.Context, softwareState
 	if err = oidc.CheckSignature(ctx, softwareStatementString, payload, ss, r.RequiredAlgs, r.KeySet); err != nil {
 		return nil, err
 	}
+	if err := ss.validate(); err != nil {
+		return nil, err
+	}
 	return ss, nil
 }
 

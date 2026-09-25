@@ -104,9 +104,6 @@ func (a *Api) AuthenticateRequest(r *http.Request) (*Registrator, error) {
 }
 
 func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s *SoftwareStatement) error {
-	if err := s.validate(); err != nil {
-		return err
-	}
 	if s.Workload.Issuer != registrator.AuthIssuer {
 		return oauth.ErrRegistrationUnauthorized
 	}
