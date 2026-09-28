@@ -44,7 +44,7 @@ The service supports:
 
 ## Documentation
 
-- [Architecture](docs/architecture.md): storage, caches, and signing keys
+- [Architecture](docs/architecture.md): components, project layout, request flows, and storage
 - [Configuration](docs/configuration.md): YAML settings and deployment values
 - [Client registration](docs/registration.md): register clients and policies
 - [Client usage](docs/usage.md): request tokens with client credentials or token exchange
