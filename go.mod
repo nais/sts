@@ -15,7 +15,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
-	github.com/zitadel/oidc/v3 v3.49.6
+	github.com/zitadel/oidc/v3 v3.51.3
 	github.com/zitadel/schema v1.3.2
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.68.0
