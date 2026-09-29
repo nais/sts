@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	stsmetrics "github.com/nais/sts/internal/metrics"
@@ -83,7 +84,9 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 			return nil, oidc.ErrInvalidRequest().WithDescription("could not parse request as TokenExchangeRequest")
 		}
 		finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
-		claims, err = a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken, a.verifyTokenExchangeClaims)
+		claims, err = a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken, func(claims *AccessTokenClaims) error {
+			return a.verifyTokenExchangeClaims(claims, client.ID)
+		})
 		finishStep(err)
 		if err != nil {
 			return nil, oidc.ErrInvalidClient().WithDescription("subject token is invalid: %s", err)
@@ -169,13 +172,15 @@ func (a *AuthorizationServer) verifyClientAuthClaims(claims *AccessTokenClaims) 
 	return ValidateClientAuthClaims(claims, a.ExpectedAudience, a.MaxClientAuthTokenLifetime)
 }
 
-func (a *AuthorizationServer) verifyTokenExchangeClaims(claims *AccessTokenClaims) error {
+func (a *AuthorizationServer) verifyTokenExchangeClaims(claims *AccessTokenClaims, clientID string) error {
 	if rawActor, ok := claims.Claims["act"]; ok {
 		if err := validateActorClaims(rawActor); err != nil {
 			return oidc.ErrInvalidRequest().WithDescription("act claim is invalid")
 		}
 	}
+
 	if claims.Issuer != string(a.Issuer) {
+		// skip further validation of external subject token claims
 		return nil
 	}
 
@@ -189,6 +194,9 @@ func (a *AuthorizationServer) verifyTokenExchangeClaims(claims *AccessTokenClaim
 	}
 	if grantType != oidc.GrantTypeTokenExchange {
 		return oidc.ErrInvalidRequest().WithDescription("grant_type claim is invalid: got %q, want %q", grantType, oidc.GrantTypeTokenExchange)
+	}
+	if !slices.Contains(claims.Audience, clientID) {
+		return oidc.ErrInvalidRequest().WithDescription("subject token audience does not match client_id")
 	}
 	return nil
 }

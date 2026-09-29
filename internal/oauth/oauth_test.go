@@ -13,7 +13,7 @@ func TestVerifyTokenExchangeClaimsRejectsMalformedActor(t *testing.T) {
 	server := &AuthorizationServer{}
 	err := server.verifyTokenExchangeClaims(&AccessTokenClaims{
 		Claims: map[string]json.RawMessage{"act": json.RawMessage(`"invalid"`)},
-	})
+	}, "client")
 	require.ErrorContains(t, err, "act claim is invalid")
 }
 

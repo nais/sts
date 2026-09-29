@@ -370,6 +370,18 @@ func TestSts(t *testing.T) {
 		assertTokenActorForTarget(t, sts, resp, fixtures.Client3.ID, fixtures.Client2.ID, fixtures.Client2.ID, firstActor)
 	})
 
+	t.Run("token exchange denies STS token issued to another client", func(t *testing.T) {
+		client1Assertion := getClientToken(t, oauthServer, fixtures.Client1)
+		subjectToken, _ := getSubjectToken(t, oauthServer, "subject1")
+		issued := stsToken[oauth.AccessTokenResponse](t, sts, tokenExchangeForm(client1Assertion, subjectToken, fixtures.Client2.ID))
+
+		resp := stsToken[oidc.Error](t, sts, tokenExchangeForm(client1Assertion, issued.AccessToken, fixtures.Client2.ID))
+
+		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
+		assert.Contains(t, resp.Description, "subject token is invalid")
+		assert.Contains(t, resp.Description, "audience")
+	})
+
 	t.Run("token exchange preserves external actor chain", func(t *testing.T) {
 		client1Assertion := getClientToken(t, oauthServer, fixtures.Client1)
 		subjectToken, subjectClaims := getSubjectToken(t, oauthServer, "subject2")
@@ -393,10 +405,12 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("token exchange denies STS client credentials token", func(t *testing.T) {
-		clientAssertion := getClientToken(t, oauthServer, fixtures.Client1)
-		clientCredentialsToken := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
+		client1Assertion := getClientToken(t, oauthServer, fixtures.Client1)
+		clientCredentialsToken := stsToken[oauth.AccessTokenResponse](t, sts, clientCredentialsForm(client1Assertion, fixtures.Client2.ID))
 
-		resp := stsToken[oidc.Error](t, sts, tokenExchangeForm(clientAssertion, clientCredentialsToken.AccessToken, fixtures.Client2.ID))
+		// requesting client matches subject token audience
+		client2Assertion := getClientToken(t, oauthServer, fixtures.Client2)
+		resp := stsToken[oidc.Error](t, sts, tokenExchangeForm(client2Assertion, clientCredentialsToken.AccessToken, fixtures.Client3.ID))
 
 		assert.Equal(t, oidc.InvalidClient, resp.ErrorType)
 		assert.Contains(t, resp.Description, "grant_type claim is invalid")
