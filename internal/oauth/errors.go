@@ -44,7 +44,12 @@ func WrapError(base *oidc.Error, prefix string, err error) *oidc.Error {
 	base = base.WithParent(err)
 	for _, public := range publicTokenErrors {
 		if errors.Is(err, public) {
-			return base.WithDescription("%s: %s", prefix, public)
+			reason := public.Error()
+			if public == oidc.ErrParse {
+				// zitadel says "parsing of request failed", which does not tell the caller that the token is the problem.
+				reason = "token is not a valid JWT"
+			}
+			return base.WithDescription("%s: %s", prefix, reason)
 		}
 	}
 	return base.WithDescription("%s", prefix)

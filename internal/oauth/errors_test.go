@@ -19,6 +19,7 @@ func TestWrapError(t *testing.T) {
 	}{
 		"wrapped oidc error":     {err: fmt.Errorf("wrap: %w", oidc.ErrInvalidRequest().WithDescription("issuer %q is not trusted", "https://x").WithParent(errCause)), want: `prefix: issuer "https://x" is not trusted`, wantParent: errCause},
 		"zitadel token error":    {err: fmt.Errorf("%w: detail", oidc.ErrExpired), want: "prefix: token has expired"},
+		"zitadel parse error":    {err: fmt.Errorf("%w: detail", oidc.ErrParse), want: "prefix: token is not a valid JWT"},
 		"server oidc error":      {err: oidc.ErrServerError().WithDescription("private detail"), want: "prefix"},
 		"internal error":         {err: errors.New("private detail"), want: "prefix"},
 		"unlisted zitadel error": {err: fmt.Errorf("%w: private detail", oidc.ErrDiscoveryFailed), want: "prefix"},
