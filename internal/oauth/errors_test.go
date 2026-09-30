@@ -6,39 +6,28 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-func TestWrapError(t *testing.T) {
-	errCause := errors.New("cause")
+func TestErrorResponseWrap(t *testing.T) {
 	for name, test := range map[string]struct {
-		base       *oidc.Error
-		err        error
-		want       string
-		wantParent error
+		code string
+		err  error
+		want string
 	}{
-		"wrapped oidc error":     {err: fmt.Errorf("wrap: %w", oidc.ErrInvalidRequest().WithDescription("issuer %q is not trusted", "https://x").WithParent(errCause)), want: `prefix: issuer "https://x" is not trusted`, wantParent: errCause},
-		"zitadel token error":    {err: fmt.Errorf("%w: detail", oidc.ErrExpired), want: "prefix: token has expired"},
-		"zitadel parse error":    {err: fmt.Errorf("%w: detail", oidc.ErrParse), want: "prefix: token is not a valid JWT"},
-		"server oidc error":      {err: oidc.ErrServerError().WithDescription("private detail"), want: "prefix"},
-		"internal error":         {err: errors.New("private detail"), want: "prefix"},
-		"unlisted zitadel error": {err: fmt.Errorf("%w: private detail", oidc.ErrDiscoveryFailed), want: "prefix"},
-		"server error base":      {base: oidc.ErrServerError(), err: fmt.Errorf("%w: detail", oidc.ErrExpired), want: "prefix"},
+		"public error":         {err: fmt.Errorf("wrap: %w", NewPublicError("issuer %q is not trusted", "https://x").Wrap(errors.New("cause"))), want: `prefix: issuer "https://x" is not trusted`},
+		"inner error response": {err: NewErrorResponse(CodeInvalidRequest, "private detail"), want: "prefix"},
+		"internal error":       {err: errors.New("private detail"), want: "prefix"},
+		"server error code":    {code: CodeServerError, err: NewPublicError("private detail"), want: "prefix"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			base := test.base
-			if base == nil {
-				base = oidc.ErrInvalidClient()
+			code := test.code
+			if code == "" {
+				code = CodeInvalidClient
 			}
-			wantType := base.ErrorType
-			wrapped := WrapError(base, "prefix", test.err)
+			wrapped := NewErrorResponse(code, "prefix").Wrap(test.err)
 			assert.Equal(t, test.want, wrapped.Description)
-			assert.Equal(t, wantType, wrapped.ErrorType)
-			wantParent := test.wantParent
-			if wantParent == nil {
-				wantParent = test.err
-			}
-			assert.Equal(t, wantParent, wrapped.Parent)
+			assert.Equal(t, code, wrapped.Code)
+			assert.Equal(t, test.err, wrapped.Cause)
 		})
 	}
 }

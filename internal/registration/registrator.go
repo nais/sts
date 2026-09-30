@@ -56,7 +56,7 @@ func NewRegistrators(ctx context.Context, httpClient *http.Client, authServerCfg
 func (r *Registrators) Authenticate(request *http.Request) (*Registrator, error) {
 	token, ok := bearerToken(request)
 	if !ok {
-		return nil, oidc.ErrUnauthorizedClient().WithDescription("missing bearer token")
+		return nil, oauth.NewPublicError("missing bearer token")
 	}
 	claims, err := r.clientAuthVerifier.Verify(request.Context(), token, func(claims *oauth.AccessTokenClaims) error {
 		return oauth.ValidateClientAuthClaims(claims, r.expectedAudience, r.maxTokenLifetime)
@@ -76,10 +76,10 @@ func (r *Registrator) VerifySoftwareStatement(ctx context.Context, softwareState
 	ss := new(SoftwareStatement)
 	payload, err := oidc.ParseToken(softwareStatementString, ss)
 	if err != nil {
-		return nil, err
+		return nil, oauth.PublicTokenError(err)
 	}
 	if err := oidc.CheckSignature(ctx, softwareStatementString, payload, ss, r.RequiredAlgs, r.KeySet); err != nil {
-		return nil, err
+		return nil, oauth.PublicTokenError(err)
 	}
 	if err := ss.validate(); err != nil {
 		return nil, err

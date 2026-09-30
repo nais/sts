@@ -42,9 +42,9 @@ func TestTokenEndpointRejectsTokenExchangeWhenDisabled(t *testing.T) {
 	new(AuthorizationServer).TokenEndpoint()(recorder, request)
 
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
-	var response oidc.Error
+	var response ErrorResponse
 	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
-	assert.Equal(t, oidc.UnsupportedGrantType, response.ErrorType)
+	assert.Equal(t, CodeUnsupportedGrantType, response.Code)
 }
 
 func TestWriteError(t *testing.T) {
@@ -62,17 +62,31 @@ func TestWriteError(t *testing.T) {
 			description: "internal error",
 			level:       "ERROR",
 		},
+		"unwrapped public error": {
+			err:         NewPublicError("private detail"),
+			status:      http.StatusInternalServerError,
+			errorType:   "server_error",
+			description: "internal error",
+			level:       "ERROR",
+		},
 		"server error": {
-			err:         oidc.ErrServerError().WithDescription("private detail"),
+			err:         NewErrorResponse(CodeServerError, "private detail"),
 			status:      http.StatusInternalServerError,
 			errorType:   "server_error",
 			description: "internal error",
 			level:       "ERROR",
 		},
 		"client error with status": {
-			err:         op.NewStatusError(WrapError(oidc.ErrInvalidClient(), "authentication failed", errors.New("private detail")), http.StatusUnauthorized),
+			err:         NewErrorResponse(CodeInvalidClient, "authentication failed").Wrap(errors.New("private detail")).WithStatus(http.StatusUnauthorized),
 			status:      http.StatusUnauthorized,
 			errorType:   "invalid_client",
+			description: "authentication failed",
+			level:       "WARN",
+		},
+		"invalid token": {
+			err:         NewErrorResponse(CodeInvalidToken, "authentication failed").Wrap(errors.New("private detail")),
+			status:      http.StatusUnauthorized,
+			errorType:   "invalid_token",
 			description: "authentication failed",
 			level:       "WARN",
 		},

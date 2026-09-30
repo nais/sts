@@ -21,6 +21,11 @@ func init() {
 	Decoder = decoder
 }
 
+const (
+	MediaTypeJSON = "application/json"
+	MediaTypeForm = "application/x-www-form-urlencoded"
+)
+
 func DiscoveryEndpoint(endpoints *op.Endpoints, cfg AuthorizationServerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		grantTypes := []oidc.GrantType{oidc.GrantTypeClientCredentials}
@@ -45,8 +50,8 @@ func DiscoveryEndpoint(endpoints *op.Endpoints, cfg AuthorizationServerConfig) h
 func (a *AuthorizationServer) JwksEndpoint() http.HandlerFunc {
 	return HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
 		contentType := "application/jwk-set+json"
-		if r.Header.Get("Accept") == "application/json" {
-			contentType = "application/json"
+		if r.Header.Get("Accept") == MediaTypeJSON {
+			contentType = MediaTypeJSON
 		}
 
 		w.Header().Set("Content-Type", contentType)
@@ -65,7 +70,7 @@ func (a *AuthorizationServer) JwksEndpoint() http.HandlerFunc {
 func (a *AuthorizationServer) TokenEndpoint() http.HandlerFunc {
 	return HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
 		if err := r.ParseForm(); err != nil {
-			return WrapError(oidc.ErrInvalidRequest(), "error parsing form", err)
+			return NewErrorResponse(CodeInvalidRequest, "error parsing form").Wrap(err)
 		}
 
 		var request TokenRequest
@@ -76,13 +81,13 @@ func (a *AuthorizationServer) TokenEndpoint() http.HandlerFunc {
 			request, err = decodeRequest[ClientCredentialsRequest](Decoder, r, true)
 		case oidc.GrantTypeTokenExchange:
 			if len(a.SubjectTokenIssuers) == 0 {
-				return oidc.ErrUnsupportedGrantType().WithDescription("%s not supported", grantType)
+				return NewErrorResponse(CodeUnsupportedGrantType, "%s not supported", grantType)
 			}
 			request, err = decodeRequest[TokenExchangeRequest](Decoder, r, true)
 		case "":
-			return oidc.ErrInvalidRequest().WithDescription("grant_type missing")
+			return NewErrorResponse(CodeInvalidRequest, "grant_type missing")
 		default:
-			return oidc.ErrUnsupportedGrantType().WithDescription("%s not supported", grantType)
+			return NewErrorResponse(CodeUnsupportedGrantType, "%s not supported", grantType)
 		}
 		if err != nil {
 			return err
@@ -107,13 +112,34 @@ func HandlerFunc(f func(http.ResponseWriter, *http.Request) error) http.HandlerF
 	}
 }
 
-// WriteError writes err as an OAuth error response.
-// Errors without a reason that is safe to show become 500 "internal error".
+// WriteError writes err as an OAuth error response and logs it once.
+// Any error that is not an ErrorResponse with a client code becomes 500 "internal error".
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
-	if _, ok := clientError(err); !ok {
-		err = WrapError(oidc.ErrServerError(), "internal error", err)
+	e, ok := clientErrorResponse(err)
+	if !ok {
+		e = NewErrorResponse(CodeServerError, "internal error").Wrap(err)
 	}
-	op.WriteError(w, r, err, nil)
+	status := e.status()
+
+	level := slog.LevelWarn
+	if status >= http.StatusInternalServerError {
+		level = slog.LevelError
+	}
+	attrs := []slog.Attr{
+		slog.String("code", e.Code),
+		slog.String("description", e.Description),
+		slog.Int("status_code", status),
+	}
+	if e.Cause != nil {
+		attrs = append(attrs, slog.Any("error", e.Cause))
+	}
+	slog.LogAttrs(r.Context(), level, "request error", attrs...)
+
+	w.Header().Set("Content-Type", MediaTypeJSON)
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(e); err != nil {
+		slog.ErrorContext(r.Context(), "encode error response", "error", err)
+	}
 }
 
 func WriteJSON(w http.ResponseWriter, r *http.Request, v any) {
@@ -123,7 +149,7 @@ func WriteJSON(w http.ResponseWriter, r *http.Request, v any) {
 	}
 
 	if h := w.Header().Get("content-type"); h == "" {
-		w.Header().Set("content-type", "application/json")
+		w.Header().Set("content-type", MediaTypeJSON)
 	}
 
 	if err := json.NewEncoder(w).Encode(v); err != nil {
@@ -134,14 +160,14 @@ func WriteJSON(w http.ResponseWriter, r *http.Request, v any) {
 func decodeRequest[T any](decoder httphelper.Decoder, r *http.Request, postOnly bool) (*T, error) {
 	dst := new(T)
 	if err := r.ParseForm(); err != nil {
-		return nil, WrapError(oidc.ErrInvalidRequest(), "error parsing form", err)
+		return nil, NewErrorResponse(CodeInvalidRequest, "error parsing form").Wrap(err)
 	}
 	form := r.Form
 	if postOnly {
 		form = r.PostForm
 	}
 	if err := decoder.Decode(dst, form); err != nil {
-		return nil, WrapError(oidc.ErrInvalidRequest(), "error decoding form", err)
+		return nil, NewErrorResponse(CodeInvalidRequest, "error decoding form").Wrap(err)
 	}
 	return dst, nil
 }

@@ -142,16 +142,16 @@ type KubernetesClaims struct {
 func (a *AccessTokenClaims) Kubernetes() (*KubernetesClaims, error) {
 	raw, ok := a.Claims["kubernetes.io"]
 	if !ok {
-		return nil, oidc.ErrInvalidClient().WithDescription("kubernetes.io claim is missing")
+		return nil, NewPublicError("kubernetes.io claim is missing")
 	}
 
 	var kubernetes KubernetesClaims
 	if err := json.Unmarshal(raw, &kubernetes); err != nil {
-		return nil, WrapError(oidc.ErrInvalidClient(), "kubernetes.io claim is malformed", err)
+		return nil, NewPublicError("kubernetes.io claim is malformed").Wrap(err)
 	}
 
 	if kubernetes.Namespace == "" || kubernetes.ServiceAccount.Name == "" {
-		return nil, oidc.ErrInvalidClient().WithDescription("kubernetes.io claim has no namespace or service account name")
+		return nil, NewPublicError("kubernetes.io claim has no namespace or service account name")
 	}
 	return &kubernetes, nil
 }

@@ -43,18 +43,6 @@ func clientKeyFromRow(row sqlgen.KubernetesClient) clientKey {
 	return clientKey{issuer: row.Issuer, namespace: row.Namespace, workload: row.Workload}
 }
 
-func clientKeyFromClaims(claims *oauth.AccessTokenClaims) (clientKey, error) {
-	kubernetes, err := claims.Kubernetes()
-	if err != nil {
-		return clientKey{}, err
-	}
-	return clientKey{
-		issuer:    claims.Issuer,
-		namespace: kubernetes.Namespace,
-		workload:  kubernetes.ServiceAccount.Name,
-	}, nil
-}
-
 func toClient(row sqlgen.KubernetesClient) *oauth.Client {
 	return &oauth.Client{KubernetesClient: row}
 }

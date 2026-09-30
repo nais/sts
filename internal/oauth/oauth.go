@@ -62,9 +62,13 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 
 	finishStep := a.Metrics.StartTokenStep(ctx, "verify_client_assertion")
 	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion, a.verifyClientAuthClaims)
+	var workload *KubernetesClaims
+	if err == nil {
+		workload, err = clientAuthClaims.Kubernetes()
+	}
 	finishStep(err)
 	if err != nil {
-		return nil, WrapError(oidc.ErrInvalidClient(), "client assertion is invalid", err)
+		return nil, NewErrorResponse(CodeInvalidClient, "client assertion is invalid").Wrap(err)
 	}
 
 	target, err := request.Target()
@@ -73,10 +77,10 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "get_client")
-	client, err := a.ClientStore.Get(ctx, clientAuthClaims)
+	client, err := a.ClientStore.Get(ctx, clientAuthClaims.Issuer, workload)
 	finishStep(err)
 	if errors.Is(err, ErrClientNotFound) {
-		return nil, WrapError(oidc.ErrInvalidClient(), "client authentication failed", err)
+		return nil, NewErrorResponse(CodeInvalidClient, "client authentication failed").Wrap(err)
 	}
 	if err != nil {
 		return nil, err
@@ -86,7 +90,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	if request.GrantType() == oidc.GrantTypeTokenExchange {
 		te, ok := request.(*TokenExchangeRequest)
 		if !ok {
-			return nil, oidc.ErrInvalidRequest().WithDescription("could not parse request as TokenExchangeRequest")
+			return nil, fmt.Errorf("request is %T, want *TokenExchangeRequest", request)
 		}
 		finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
 		claims, err = a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken, func(claims *AccessTokenClaims) error {
@@ -94,7 +98,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		})
 		finishStep(err)
 		if err != nil {
-			return nil, WrapError(oidc.ErrInvalidRequest(), "subject token is invalid", err)
+			return nil, NewErrorResponse(CodeInvalidRequest, "subject token is invalid").Wrap(err)
 		}
 	}
 
@@ -102,7 +106,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	roles, err := a.ClientStore.AuthorizeTarget(ctx, ClientID(client.ID), target)
 	finishStep(err)
 	if errors.Is(err, ErrTargetUnauthorized) {
-		return nil, WrapError(oidc.ErrInvalidTarget(), fmt.Sprintf("client is not authorized for target %q", target.GetValue()), err)
+		return nil, NewErrorResponse(CodeInvalidTarget, "client is not authorized for target %q", target.GetValue()).Wrap(err)
 	}
 	if err != nil {
 		return nil, err
@@ -173,11 +177,7 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 }
 
 func (a *AuthorizationServer) verifyClientAuthClaims(claims *AccessTokenClaims) error {
-	if err := ValidateClientAuthClaims(claims, a.ExpectedAudience, a.MaxClientAuthTokenLifetime); err != nil {
-		return err
-	}
-	_, err := claims.Kubernetes()
-	return err
+	return ValidateClientAuthClaims(claims, a.ExpectedAudience, a.MaxClientAuthTokenLifetime)
 }
 
 func (a *AuthorizationServer) verifySTSIssuedSubjectTokenClaims(claims *AccessTokenClaims, clientID string) error {
@@ -187,41 +187,41 @@ func (a *AuthorizationServer) verifySTSIssuedSubjectTokenClaims(claims *AccessTo
 
 	rawGrantType, ok := claims.Claims["urn:nais:grant_type"]
 	if !ok {
-		return oidc.ErrInvalidRequest().WithDescription("grant_type claim is missing")
+		return NewPublicError("grant_type claim is missing")
 	}
 
 	var grantType oidc.GrantType
 	if err := json.Unmarshal(rawGrantType, &grantType); err != nil {
-		return oidc.ErrInvalidRequest().WithDescription("grant_type claim must be a string")
+		return NewPublicError("grant_type claim must be a string")
 	}
 
 	if grantType != oidc.GrantTypeTokenExchange {
-		return oidc.ErrInvalidRequest().WithDescription("grant_type claim is invalid: got %q, want %q", grantType, oidc.GrantTypeTokenExchange)
+		return NewPublicError("grant_type claim is invalid: got %q, want %q", grantType, oidc.GrantTypeTokenExchange)
 	}
 
 	if !slices.Contains(claims.Audience, clientID) {
-		return oidc.ErrInvalidRequest().WithDescription("subject token audience %q does not contain client_id %q", claims.Audience, clientID)
+		return NewPublicError("subject token audience %q does not contain client_id %q", claims.Audience, clientID)
 	}
 	return nil
 }
 
 func ValidateClientAuthClaims(claims *AccessTokenClaims, expectedAudience string, maxLifetime time.Duration) error {
 	if len(claims.Audience) != 1 || claims.Audience[0] != expectedAudience {
-		return oidc.ErrInvalidClient().WithDescription("audience %q is invalid, expected %q", claims.Audience, expectedAudience)
+		return NewPublicError("audience %q is invalid, expected %q", claims.Audience, expectedAudience)
 	}
 	issuedAt := claims.IssuedAt.AsTime()
 	if issuedAt.IsZero() {
-		return oidc.ErrInvalidClient().WithDescription("issued-at claim is missing")
+		return NewPublicError("issued-at claim is missing")
 	}
 	expiration := claims.Expiration.AsTime()
 	if expiration.IsZero() {
-		return oidc.ErrInvalidClient().WithDescription("expiration claim is missing")
+		return NewPublicError("expiration claim is missing")
 	}
 	if !expiration.After(issuedAt) {
-		return oidc.ErrInvalidClient().WithDescription("expiration must be after issued-at")
+		return NewPublicError("expiration must be after issued-at")
 	}
 	if expiration.Sub(issuedAt) > maxLifetime+time.Minute {
-		return oidc.ErrInvalidClient().WithDescription("token lifetime %s exceeds maximum %s", expiration.Sub(issuedAt), maxLifetime)
+		return NewPublicError("token lifetime %s exceeds maximum %s", expiration.Sub(issuedAt), maxLifetime)
 	}
 	return nil
 }

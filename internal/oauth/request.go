@@ -10,7 +10,7 @@ type ClientAuthCredentials struct {
 
 func (c *ClientAuthCredentials) Validate() error {
 	if c.ClientAssertion == "" || c.ClientAssertionType != oidc.ClientAssertionTypeJWTAssertion {
-		return oidc.ErrInvalidRequest().WithDescription("client_assertion must be provided and be of type %s", oidc.ClientAssertionTypeJWTAssertion)
+		return NewErrorResponse(CodeInvalidRequest, "client_assertion must be provided and be of type %s", oidc.ClientAssertionTypeJWTAssertion)
 	}
 	return nil
 }
@@ -45,7 +45,7 @@ func (c *ClientCredentialsRequest) GrantType() oidc.GrantType {
 
 func (c *ClientCredentialsRequest) Target() (Target, error) {
 	if len(c.Scope) != 1 {
-		return nil, oidc.ErrInvalidTarget().WithDescription("scope must contain exactly one target scope")
+		return nil, NewErrorResponse(CodeInvalidTarget, "scope must contain exactly one target scope")
 	}
 	return TargetScope(c.Scope[0]), nil
 }
@@ -60,7 +60,7 @@ func (c *ClientCredentialsRequest) Validate() error {
 		return err
 	}
 	if len(c.Scope) != 1 {
-		return oidc.ErrInvalidTarget().WithDescription("scope must contain exactly one target scope")
+		return NewErrorResponse(CodeInvalidTarget, "scope must contain exactly one target scope")
 	}
 	return nil
 }
@@ -80,7 +80,7 @@ func (t *TokenExchangeRequest) GrantType() oidc.GrantType {
 
 func (t *TokenExchangeRequest) Target() (Target, error) {
 	if len(t.Audience) != 1 {
-		return nil, oidc.ErrInvalidTarget().WithDescription("audience must contain exactly one audience")
+		return nil, NewErrorResponse(CodeInvalidTarget, "audience must contain exactly one audience")
 	}
 	return TargetAudience(t.Audience[0]), nil
 }
@@ -90,19 +90,19 @@ func (t *TokenExchangeRequest) Validate() error {
 		return err
 	}
 	if t.ActorToken != "" {
-		return oidc.ErrInvalidRequest().WithDescription("actor_token is not supported")
+		return NewErrorResponse(CodeInvalidRequest, "actor_token is not supported")
 	}
 	if t.SubjectToken == "" {
-		return oidc.ErrInvalidRequest().WithDescription("subject_token missing")
+		return NewErrorResponse(CodeInvalidRequest, "subject_token missing")
 	}
 	if t.SubjectTokenType != oidc.JWTTokenType {
-		return oidc.ErrInvalidRequest().WithDescription("subject_token_type must be %s", oidc.JWTTokenType)
+		return NewErrorResponse(CodeInvalidRequest, "subject_token_type must be %s", oidc.JWTTokenType)
 	}
 	if t.RequestedTokenType != oidc.AccessTokenType {
-		return oidc.ErrInvalidRequest().WithDescription("requested_token_type must be %s", oidc.AccessTokenType)
+		return NewErrorResponse(CodeInvalidRequest, "requested_token_type must be %s", oidc.AccessTokenType)
 	}
 	if len(t.Audience) != 1 {
-		return oidc.ErrInvalidTarget().WithDescription("audience must contain exactly one audience")
+		return NewErrorResponse(CodeInvalidTarget, "audience must contain exactly one audience")
 	}
 
 	return nil

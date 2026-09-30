@@ -76,9 +76,9 @@ func TestAccessTokenClaimsKubernetes(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := (&AccessTokenClaims{Claims: test.claims}).Kubernetes()
-			var oidcErr *oidc.Error
-			require.ErrorAs(t, err, &oidcErr)
-			assert.Equal(t, test.want, oidcErr.Description)
+			var reason *PublicError
+			require.ErrorAs(t, err, &reason)
+			assert.Equal(t, test.want, reason.Message)
 		})
 	}
 }
