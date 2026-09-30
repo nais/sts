@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
@@ -14,7 +14,7 @@ func TestVerifyTokenExchangeClaimsRejectsMalformedActor(t *testing.T) {
 	err := server.verifyTokenExchangeClaims(&AccessTokenClaims{
 		Claims: map[string]json.RawMessage{"act": json.RawMessage(`"invalid"`)},
 	}, "client")
-	require.ErrorContains(t, err, "act claim is invalid")
+	assert.ErrorContains(t, err, "act claim is invalid")
 }
 
 func TestValidateClientAuthClaimsLifetime(t *testing.T) {
@@ -22,9 +22,10 @@ func TestValidateClientAuthClaimsLifetime(t *testing.T) {
 	claims := &AccessTokenClaims{
 		Audience:   oidc.Audience{"expected"},
 		IssuedAt:   oidc.FromTime(now),
-		Expiration: oidc.FromTime(now.Add(time.Hour + time.Minute))}
-	require.NoError(t, ValidateClientAuthClaims(claims, "expected", time.Hour))
+		Expiration: oidc.FromTime(now.Add(time.Hour + time.Minute)),
+	}
+	assert.NoError(t, ValidateClientAuthClaims(claims, "expected", time.Hour))
 
 	claims.Expiration = oidc.FromTime(now.Add(time.Hour + time.Minute + time.Second))
-	require.ErrorContains(t, ValidateClientAuthClaims(claims, "expected", time.Hour), "token lifetime exceeds maximum")
+	assert.ErrorContains(t, ValidateClientAuthClaims(claims, "expected", time.Hour), "token lifetime exceeds maximum")
 }

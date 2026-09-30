@@ -42,8 +42,10 @@ type ClientStore interface {
 	Save(ctx context.Context, client *Client, policies []AuthorizationPolicy, authoritativeIssuer string) error
 }
 
-var ErrRegistrationUnauthorized = errors.New("registrator is not authorized for client")
-var ErrRegistrationConflict = errors.New("registration conflicts with existing client")
+var (
+	ErrRegistrationUnauthorized = errors.New("registrator is not authorized for client")
+	ErrRegistrationConflict     = errors.New("registration conflicts with existing client")
+)
 
 const InternalSigningAlgorithm = jose.ES256
 

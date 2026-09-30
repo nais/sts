@@ -179,22 +179,28 @@ func (a *AuthorizationServer) verifyTokenExchangeClaims(claims *AccessTokenClaim
 		}
 	}
 
+	return a.verifySTSIssuedSubjectTokenClaims(claims, clientID)
+}
+
+func (a *AuthorizationServer) verifySTSIssuedSubjectTokenClaims(claims *AccessTokenClaims, clientID string) error {
 	if claims.Issuer != string(a.Issuer) {
-		// skip further validation of external subject token claims
 		return nil
 	}
 
-	var grantType oidc.GrantType
 	rawGrantType, ok := claims.Claims["urn:nais:grant_type"]
 	if !ok {
 		return oidc.ErrInvalidRequest().WithDescription("grant_type claim is missing")
 	}
+
+	var grantType oidc.GrantType
 	if err := json.Unmarshal(rawGrantType, &grantType); err != nil {
 		return oidc.ErrInvalidRequest().WithDescription("grant_type claim must be a string")
 	}
+
 	if grantType != oidc.GrantTypeTokenExchange {
 		return oidc.ErrInvalidRequest().WithDescription("grant_type claim is invalid: got %q, want %q", grantType, oidc.GrantTypeTokenExchange)
 	}
+
 	if !slices.Contains(claims.Audience, clientID) {
 		return oidc.ErrInvalidRequest().WithDescription("subject token audience does not match client_id")
 	}

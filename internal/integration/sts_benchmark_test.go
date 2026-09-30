@@ -23,7 +23,7 @@ func BenchmarkSts(b *testing.B) {
 	sts, internalSts := startSts(b, oauthServer)
 
 	clientAssertion := getClientToken(b, oauthServer, fixtures.Client1)
-	subjectToken, _ := getSubjectToken(b, oauthServer, "subject1")
+	subjectToken, _ := getSubjectTokenFromIssuer(b, oauthServer, "subject1")
 
 	benchmarks := []struct {
 		name string
