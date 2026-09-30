@@ -321,8 +321,8 @@ STS logs the full cause.
 
 | `error`                  | Cause                                                                       |
 |--------------------------|-----------------------------------------------------------------------------|
-| `invalid_request`        | A request parameter is missing or invalid.                                  |
+| `invalid_request`        | A request parameter, such as the subject token, is missing or invalid.      |
 | `unsupported_grant_type` | STS does not support the grant type.                                        |
-| `invalid_client`         | The client assertion or subject token is invalid, or the client is unknown. |
+| `invalid_client`         | The client assertion is invalid, or the client is unknown.                  |
 | `invalid_target`         | The target is invalid, or the client is not authorized for it.              |
 | `server_error`           | An internal error occurred. The status is `500`.                            |

@@ -471,7 +471,7 @@ func TestSts(t *testing.T) {
 
 		firstExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
 		secondExchange := stsToken[oidc.Error](t, stsAddress, tokenExchangeForm(clientAssertion, firstExchange.AccessToken, target))
-		assert.Equal(t, oidc.InvalidClient, secondExchange.ErrorType)
+		assert.Equal(t, oidc.InvalidRequest, secondExchange.ErrorType)
 		assert.Equal(t,
 			fmt.Sprintf("subject token is invalid: subject token audience %q does not contain client_id %q", []string{target}, consumer.ID),
 			secondExchange.Description,
@@ -521,7 +521,7 @@ func TestSts(t *testing.T) {
 		secondClientAssertion := getClientToken(t, oauthServer, secondConsumer)
 		tokenExchange := stsToken[oidc.Error](t, stsAddress, tokenExchangeForm(secondClientAssertion, clientCredentials.AccessToken, secondTarget))
 
-		assert.Equal(t, oidc.InvalidClient, tokenExchange.ErrorType)
+		assert.Equal(t, oidc.InvalidRequest, tokenExchange.ErrorType)
 		assert.Equal(t,
 			`subject token is invalid: grant_type claim is invalid: got "client_credentials", want "urn:ietf:params:oauth:grant-type:token-exchange"`,
 			tokenExchange.Description,
@@ -581,7 +581,7 @@ func TestSts(t *testing.T) {
 		subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, subjectIssuer)
 		tokenExchange := stsToken[oidc.Error](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
 
-		assert.Equal(t, oidc.InvalidClient, tokenExchange.ErrorType)
+		assert.Equal(t, oidc.InvalidRequest, tokenExchange.ErrorType)
 		assert.Equal(t,
 			fmt.Sprintf("subject token is invalid: issuer %q is not trusted", oauthServer.Endpoint(subjectIssuer)),
 			tokenExchange.Description,

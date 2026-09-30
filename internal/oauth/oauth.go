@@ -93,7 +93,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		})
 		finishStep(err)
 		if err != nil {
-			return nil, WrapError(oidc.ErrInvalidClient(), "subject token is invalid", err)
+			return nil, WrapError(oidc.ErrInvalidRequest(), "subject token is invalid", err)
 		}
 	}
 
