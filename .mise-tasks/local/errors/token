@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+#MISE description="Send failing requests to the local token endpoint"
+#MISE env={CONFIG_FILE = "config.yaml"}
+
+set -euo pipefail
+
+ISSUER=$(yq -er '.authorizationServer.issuer' "${CONFIG_FILE}")
+MOCK="http://localhost:3004"
+ASSERTION_TYPE="urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+TOKEN_EXCHANGE="urn:ietf:params:oauth:grant-type:token-exchange"
+JWT_TYPE="urn:ietf:params:oauth:token-type:jwt"
+ACCESS_TOKEN_TYPE="urn:ietf:params:oauth:token-type:access_token"
+TARGET="env1:namespace1:workload2"
+
+workload_token() {
+  curl -sS --fail-with-body "${MOCK}/$1/token" \
+    -d 'grant_type=client_credentials' \
+    -d 'client_secret=yolo' \
+    -d 'ns=namespace1' \
+    -d "workload=$2" \
+    -d 'client_id=default_client' | jq -r '.access_token'
+}
+
+request() {
+  printf '### %s\n' "$1"
+  shift
+  curl -sS -w ' [%{http_code}]\n' "${ISSUER}/token" "$@"
+}
+
+CLIENT_ASSERTION=$(workload_token env1 workload1)
+UNTRUSTED_ASSERTION=$(workload_token untrusted workload1)
+
+request "unsupported grant type" \
+  -d 'grant_type=password'
+
+request "missing client assertion" \
+  -d 'grant_type=client_credentials' \
+  -d "scope=${TARGET}"
+
+request "malformed client assertion" \
+  -d 'grant_type=client_credentials' \
+  -d "client_assertion_type=${ASSERTION_TYPE}" \
+  -d 'client_assertion=not-a-jwt' \
+  -d "scope=${TARGET}"
+
+request "untrusted client assertion issuer" \
+  -d 'grant_type=client_credentials' \
+  -d "client_assertion_type=${ASSERTION_TYPE}" \
+  -d "client_assertion=${UNTRUSTED_ASSERTION}" \
+  -d "scope=${TARGET}"
+
+request "tampered client assertion signature" \
+  -d 'grant_type=client_credentials' \
+  -d "client_assertion_type=${ASSERTION_TYPE}" \
+  -d "client_assertion=${CLIENT_ASSERTION%?????}AAAAA" \
+  -d "scope=${TARGET}"
+
+request "unregistered client" \
+  -d 'grant_type=client_credentials' \
+  -d "client_assertion_type=${ASSERTION_TYPE}" \
+  -d "client_assertion=$(workload_token env1 unregistered)" \
+  -d "scope=${TARGET}"
+
+request "unauthorized target" \
+  -d 'grant_type=client_credentials' \
+  -d "client_assertion_type=${ASSERTION_TYPE}" \
+  -d "client_assertion=${CLIENT_ASSERTION}" \
+  -d 'scope=env1:namespace1:unauthorized-target'
+
+request "malformed subject token" \
+  -d "grant_type=${TOKEN_EXCHANGE}" \
+  -d "client_assertion_type=${ASSERTION_TYPE}" \
+  -d "client_assertion=${CLIENT_ASSERTION}" \
+  -d "audience=${TARGET}" \
+  -d 'subject_token=not-a-jwt' \
+  -d "subject_token_type=${JWT_TYPE}" \
+  -d "requested_token_type=${ACCESS_TOKEN_TYPE}"
+
+request "untrusted subject token issuer" \
+  -d "grant_type=${TOKEN_EXCHANGE}" \
+  -d "client_assertion_type=${ASSERTION_TYPE}" \
+  -d "client_assertion=${CLIENT_ASSERTION}" \
+  -d "audience=${TARGET}" \
+  -d "subject_token=${UNTRUSTED_ASSERTION}" \
+  -d "subject_token_type=${JWT_TYPE}" \
+  -d "requested_token_type=${ACCESS_TOKEN_TYPE}"
