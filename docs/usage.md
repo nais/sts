@@ -199,6 +199,7 @@ The body has line breaks for readability. Send the encoded parameters on one lin
 
 ### Exchanged token
 
+In this example, STS configures `identity` as the alias for `https://identity.example.com`.
 The decoded tokens compare as follows (timestamps and token IDs are illustrative):
 
 <table>
@@ -228,6 +229,8 @@ The decoded tokens compare as follows (timestamps and token IDs are illustrative
   "exp": 1790000900,
   "urn:nais:roles": ["reader"],
   "urn:nais:grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+  "urn:nais:idp": "https://identity.example.com",
+  "urn:nais:idp_name": "identity",
   "act": {
     "client_id": "env1:namespace1:my-workload"
   }
@@ -245,9 +248,12 @@ STS starts with the subject token's claims, then sets these values in the exchan
 | `iat`, `nbf`, `exp`   | New validity times.                                       | Added, or replace existing values.                               |
 | `urn:nais:roles`      | Roles from the target's policy for the requesting client. | Added, or replaces an existing value.                            |
 | `urn:nais:grant_type` | Always `urn:ietf:params:oauth:grant-type:token-exchange`. | Added, or replaces an existing value.                            |
+| `urn:nais:idp`        | Issuer URL of the first subject token exchanged.          | Added on the first exchange; retained on later STS exchanges.    |
+| `urn:nais:idp_name`   | Short, stable alias for that issuer.                      | Added on the first exchange; retained on later STS exchanges.    |
 | `act`                 | Requesting client.                                        | Replaces an external actor chain; nests a prior STS actor chain. |
 
 The `sub` claim and other claims, such as `department` in the example, keep their values.
+Workloads can use `urn:nais:idp_name` to distinguish original issuers without depending on their exact URLs.
 STS ignores actor claims from external subject tokens.
 STS preserves actor claims from STS-issued subject tokens as history, not as authorization policy inputs.
 
@@ -270,6 +276,8 @@ The previous `act` claim becomes the nested actor:
   "exp": 1790000900,
   "urn:nais:roles": ["reader"],
   "urn:nais:grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+  "urn:nais:idp": "https://identity.example.com",
+  "urn:nais:idp_name": "identity",
   "act": {
     "client_id": "env1:namespace1:my-workload"
   }
@@ -285,6 +293,8 @@ The previous `act` claim becomes the nested actor:
   "exp": 1790001200,
   "urn:nais:roles": ["writer"],
   "urn:nais:grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+  "urn:nais:idp": "https://identity.example.com",
+  "urn:nais:idp_name": "identity",
   "act": {
     "client_id": "env1:namespace1:target",
     "act": {

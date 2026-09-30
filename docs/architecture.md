@@ -149,9 +149,6 @@ sequenceDiagram
 Both grants authenticate the consumer with a workload token.
 Token exchange also verifies a subject token; without configured subject-token issuers, STS supports only client credentials.
 
-STS ignores actor chains in external subject tokens.
-For STS-issued subject tokens, STS nests the existing actor chain beneath the consumer's actor in `act`.
-
 See [Client usage](usage.md) for request fields, issued claims, and chained exchange examples.
 
 ## PostgreSQL and snapshots
