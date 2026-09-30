@@ -23,28 +23,27 @@ func init() {
 
 func DiscoveryEndpoint(endpoints *op.Endpoints, cfg AuthorizationServerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		i := string(cfg.Issuer)
 		grantTypes := []oidc.GrantType{oidc.GrantTypeClientCredentials}
 		if len(cfg.SubjectTokenIssuers) > 0 {
 			grantTypes = append(grantTypes, oidc.GrantTypeTokenExchange)
 		}
-		respond(w, r, &Response{
-			Data: &oidc.DiscoveryConfiguration{
-				Issuer:              i,
-				TokenEndpoint:       endpoints.Token.Absolute(i),
-				JwksURI:             endpoints.JwksURI.Absolute(i),
-				GrantTypesSupported: grantTypes,
-				TokenEndpointAuthMethodsSupported: []oidc.AuthMethod{
-					oidc.AuthMethodPrivateKeyJWT,
-				},
-				TokenEndpointAuthSigningAlgValuesSupported: cfg.ClientAuthSigningAlgorithms,
+
+		i := string(cfg.Issuer)
+		WriteJSON(w, r, &oidc.DiscoveryConfiguration{
+			Issuer:              i,
+			TokenEndpoint:       endpoints.Token.Absolute(i),
+			JwksURI:             endpoints.JwksURI.Absolute(i),
+			GrantTypesSupported: grantTypes,
+			TokenEndpointAuthMethodsSupported: []oidc.AuthMethod{
+				oidc.AuthMethodPrivateKeyJWT,
 			},
-		}, nil)
+			TokenEndpointAuthSigningAlgValuesSupported: cfg.ClientAuthSigningAlgorithms,
+		})
 	}
 }
 
 func (a *AuthorizationServer) JwksEndpoint() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
 		contentType := "application/jwk-set+json"
 		if r.Header.Get("Accept") == "application/json" {
 			contentType = "application/json"
@@ -54,39 +53,57 @@ func (a *AuthorizationServer) JwksEndpoint() http.HandlerFunc {
 		w.Header().Add("Vary", "Accept")
 
 		resp, err := a.Keys(r.Context())
-		respond(w, r, resp, err)
-	}
+		if err != nil {
+			return err
+		}
+
+		WriteJSON(w, r, resp)
+		return nil
+	})
 }
 
 func (a *AuthorizationServer) TokenEndpoint() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
 		if err := r.ParseForm(); err != nil {
-			WriteError(w, r, WrapError(oidc.ErrInvalidRequest(), "error parsing form", err))
-			return
+			return WrapError(oidc.ErrInvalidRequest(), "error parsing form", err)
 		}
 
-		var resp *Response
-		var err error
 		var request TokenRequest
+		var err error
 
 		switch grantType := oidc.GrantType(r.Form.Get("grant_type")); grantType {
 		case oidc.GrantTypeClientCredentials:
 			request, err = decodeRequest[ClientCredentialsRequest](Decoder, r, true)
 		case oidc.GrantTypeTokenExchange:
 			if len(a.SubjectTokenIssuers) == 0 {
-				err = oidc.ErrUnsupportedGrantType().WithDescription("%s not supported", grantType)
-			} else {
-				request, err = decodeRequest[TokenExchangeRequest](Decoder, r, true)
+				return oidc.ErrUnsupportedGrantType().WithDescription("%s not supported", grantType)
 			}
+			request, err = decodeRequest[TokenExchangeRequest](Decoder, r, true)
 		case "":
-			err = oidc.ErrInvalidRequest().WithDescription("grant_type missing")
+			return oidc.ErrInvalidRequest().WithDescription("grant_type missing")
 		default:
-			err = oidc.ErrUnsupportedGrantType().WithDescription("%s not supported", grantType)
+			return oidc.ErrUnsupportedGrantType().WithDescription("%s not supported", grantType)
 		}
-		if err == nil {
-			resp, err = a.GrantHandler(r.Context(), request)
+		if err != nil {
+			return err
 		}
-		respond(w, r, resp, err)
+
+		resp, err := a.GrantHandler(r.Context(), request)
+		if err != nil {
+			return err
+		}
+
+		WriteJSON(w, r, resp)
+		return nil
+	})
+}
+
+// HandlerFunc writes errors returned by f as OAuth error responses.
+func HandlerFunc(f func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := f(w, r); err != nil {
+			WriteError(w, r, err)
+		}
 	}
 }
 
@@ -112,18 +129,6 @@ func WriteJSON(w http.ResponseWriter, r *http.Request, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		slog.ErrorContext(r.Context(), "encode response", "error", err)
 	}
-}
-
-type Response struct {
-	Data any
-}
-
-func respond(w http.ResponseWriter, r *http.Request, resp *Response, err error) {
-	if err != nil {
-		WriteError(w, r, err)
-		return
-	}
-	WriteJSON(w, r, resp.Data)
 }
 
 func decodeRequest[T any](decoder httphelper.Decoder, r *http.Request, postOnly bool) (*T, error) {

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/go-jose/go-jose/v4"
 	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
@@ -116,7 +117,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	}, nil
 }
 
-func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenRequest) (*Response, error) {
+func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenRequest) (*AccessTokenResponse, error) {
 	finishGrant := a.Metrics.StartTokenGrant(ctx, request.GrantType())
 	var err error
 	defer func() { finishGrant(err) }()
@@ -126,23 +127,19 @@ func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenReq
 		return nil, err
 	}
 
-	data, err := a.CreateTokenResponse(ctx, result)
+	response, err := a.CreateTokenResponse(ctx, result)
 	if err != nil {
 		return nil, err
 	}
-	return &Response{
-		Data: data,
-	}, nil
+	return response, nil
 }
 
-func (a *AuthorizationServer) Keys(ctx context.Context) (*Response, error) {
+func (a *AuthorizationServer) Keys(ctx context.Context) (*jose.JSONWebKeySet, error) {
 	keys, err := a.KeyStore.PublicKeys()
 	if err != nil {
 		return nil, fmt.Errorf("get public keys: %w", err)
 	}
-	return &Response{
-		Data: keys,
-	}, nil
+	return keys, nil
 }
 
 func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *AuthorizationResult) (*AccessTokenResponse, error) {

@@ -35,7 +35,7 @@ func (a *Api) AuthenticateRequest(r *http.Request) (*Registrator, error) {
 }
 
 func (a *Api) PostEndpoint() http.HandlerFunc {
-	return errorAwareHandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+	return oauth.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
 		if err := validateContentType(r); err != nil {
 			return httpError(http.StatusUnsupportedMediaType, oidc.ErrInvalidRequest(), "content type must be application/json", err)
 		}
@@ -83,7 +83,7 @@ func (a *Api) PostEndpoint() http.HandlerFunc {
 }
 
 func (a *Api) DeleteEndpoint() http.HandlerFunc {
-	return errorAwareHandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+	return oauth.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
 		registrator, err := a.AuthenticateRequest(r)
 		if err != nil {
 			return httpError(http.StatusUnauthorized, errInvalidToken(), "authentication failed", err)
@@ -128,15 +128,6 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 		AllowedScopes: []string{},
 	}, policies, registrator.AuthIssuer)
 	return err
-}
-
-func errorAwareHandlerFunc(f func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		err := f(w, r)
-		if err != nil {
-			oauth.WriteError(w, r, err)
-		}
-	}
 }
 
 func validateContentType(r *http.Request) error {
