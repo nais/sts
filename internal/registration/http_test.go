@@ -11,35 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestValidateJSONContentType(t *testing.T) {
-	tests := map[string]struct {
-		contentType string
-		wantErr     bool
-	}{
-		"json":              {contentType: "application/json"},
-		"json with charset": {contentType: "application/json; charset=utf-8"},
-		"missing":           {wantErr: true},
-		"wrong type":        {contentType: "text/plain", wantErr: true},
-		"malformed":         {contentType: "application/json; charset", wantErr: true},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/v1/registration/client", nil)
-			if test.contentType != "" {
-				request.Header.Set("Content-Type", test.contentType)
-			}
-
-			err := validateContentType(request)
-			if test.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-		})
-	}
-}
-
 func TestDecodeClientRegistration(t *testing.T) {
 	tests := map[string]struct {
 		body    string

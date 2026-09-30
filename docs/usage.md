@@ -326,3 +326,7 @@ STS logs the full cause.
 | `invalid_client`         | The client assertion is invalid, or the client is unknown.                  |
 | `invalid_target`         | The target is invalid, or the client is not authorized for it.              |
 | `server_error`           | An internal error occurred. The status is `500`.                            |
+
+Errors use status `400`, with two exceptions for malformed requests.
+A body that is not `application/x-www-form-urlencoded` returns `415`.
+A body larger than 64 KiB returns `413`.

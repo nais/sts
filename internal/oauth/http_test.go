@@ -47,6 +47,82 @@ func TestTokenEndpointRejectsTokenExchangeWhenDisabled(t *testing.T) {
 	assert.Equal(t, CodeUnsupportedGrantType, response.Code)
 }
 
+func TestTokenEndpointRejectsInvalidRequests(t *testing.T) {
+	for name, test := range map[string]struct {
+		query       string
+		contentType string
+		form        url.Values
+		status      int
+		description string
+	}{
+		"json content type": {
+			contentType: "application/json",
+			status:      http.StatusUnsupportedMediaType,
+			description: "content type must be application/x-www-form-urlencoded",
+		},
+		"body too large": {
+			form:        url.Values{"grant_type": {strings.Repeat("a", maxTokenRequestBodySize)}},
+			status:      http.StatusRequestEntityTooLarge,
+			description: "request body exceeds 65536 bytes",
+		},
+		"grant type in query": {
+			query:       "?grant_type=" + string(oidc.GrantTypeClientCredentials),
+			description: "grant_type missing",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/token"+test.query, strings.NewReader(test.form.Encode()))
+			contentType := test.contentType
+			if contentType == "" {
+				contentType = "application/x-www-form-urlencoded"
+			}
+			request.Header.Set("Content-Type", contentType)
+			recorder := httptest.NewRecorder()
+
+			new(AuthorizationServer).TokenEndpoint()(recorder, request)
+
+			status := test.status
+			if status == 0 {
+				status = http.StatusBadRequest
+			}
+			require.Equal(t, status, recorder.Code)
+			var response ErrorResponse
+			require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
+			assert.Equal(t, CodeInvalidRequest, response.Code)
+			assert.Equal(t, test.description, response.Description)
+		})
+	}
+}
+
+func TestRequireContentType(t *testing.T) {
+	tests := map[string]struct {
+		contentType string
+		wantErr     bool
+	}{
+		"json":              {contentType: "application/json"},
+		"json with charset": {contentType: "application/json; charset=utf-8"},
+		"missing":           {wantErr: true},
+		"wrong type":        {contentType: "text/plain", wantErr: true},
+		"malformed":         {contentType: "application/json; charset", wantErr: true},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/", nil)
+			if test.contentType != "" {
+				request.Header.Set("Content-Type", test.contentType)
+			}
+
+			err := RequireContentType(request, "application/json")
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestWriteError(t *testing.T) {
 	for name, test := range map[string]struct {
 		err         error

@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"mime"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -35,8 +33,8 @@ func (a *Api) AuthenticateRequest(r *http.Request) (*Registrator, error) {
 
 func (a *Api) PostEndpoint() http.HandlerFunc {
 	return oauth.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
-		if err := validateContentType(r); err != nil {
-			return oauth.NewErrorResponse(oauth.CodeInvalidRequest, "content type must be application/json").Wrap(err).WithStatus(http.StatusUnsupportedMediaType)
+		if err := oauth.RequireContentType(r, oauth.MediaTypeJSON); err != nil {
+			return err
 		}
 
 		registrator, err := a.AuthenticateRequest(r)
@@ -124,14 +122,6 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 		AllowedScopes: []string{},
 	}, policies, registrator.AuthIssuer)
 	return err
-}
-
-func validateContentType(r *http.Request) error {
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || mediaType != "application/json" {
-		return fmt.Errorf("got content type %q", r.Header.Get("Content-Type"))
-	}
-	return nil
 }
 
 const maxRegistrationBodySize = 64 << 10

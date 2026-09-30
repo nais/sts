@@ -33,6 +33,13 @@ UNTRUSTED_ASSERTION=$(workload_token untrusted workload1)
 request "unsupported grant type" \
   -d 'grant_type=password'
 
+request "json body" \
+  -H 'Content-Type: application/json' \
+  -d '{"grant_type":"client_credentials"}'
+
+request "body too large" \
+  --data-binary "grant_type=$(head -c 70000 /dev/zero | tr '\0' a)"
+
 request "missing client assertion" \
   -d 'grant_type=client_credentials' \
   -d "scope=${TARGET}"

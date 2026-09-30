@@ -2,24 +2,17 @@ package oauth
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
+	"mime"
 	"net/http"
+	"net/url"
 	"reflect"
 
-	httphelper "github.com/zitadel/oidc/v3/pkg/http"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
-	"github.com/zitadel/schema"
 )
-
-var Decoder httphelper.Decoder
-
-func init() {
-	decoder := schema.NewDecoder()
-	decoder.IgnoreUnknownKeys(true)
-
-	Decoder = decoder
-}
 
 const (
 	MediaTypeJSON = "application/json"
@@ -67,28 +60,16 @@ func (a *AuthorizationServer) JwksEndpoint() http.HandlerFunc {
 	})
 }
 
+const maxTokenRequestBodySize = 64 << 10
+
 func (a *AuthorizationServer) TokenEndpoint() http.HandlerFunc {
 	return HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
-		if err := r.ParseForm(); err != nil {
-			return NewErrorResponse(CodeInvalidRequest, "error parsing form").Wrap(err)
+		form, err := readTokenForm(w, r)
+		if err != nil {
+			return err
 		}
 
-		var request TokenRequest
-		var err error
-
-		switch grantType := oidc.GrantType(r.Form.Get("grant_type")); grantType {
-		case oidc.GrantTypeClientCredentials:
-			request, err = decodeRequest[ClientCredentialsRequest](Decoder, r, true)
-		case oidc.GrantTypeTokenExchange:
-			if len(a.SubjectTokenIssuers) == 0 {
-				return NewErrorResponse(CodeUnsupportedGrantType, "%s not supported", grantType)
-			}
-			request, err = decodeRequest[TokenExchangeRequest](Decoder, r, true)
-		case "":
-			return NewErrorResponse(CodeInvalidRequest, "grant_type missing")
-		default:
-			return NewErrorResponse(CodeUnsupportedGrantType, "%s not supported", grantType)
-		}
+		request, err := a.parseTokenRequest(form)
 		if err != nil {
 			return err
 		}
@@ -101,6 +82,49 @@ func (a *AuthorizationServer) TokenEndpoint() http.HandlerFunc {
 		WriteJSON(w, r, resp)
 		return nil
 	})
+}
+
+func readTokenForm(w http.ResponseWriter, r *http.Request) (url.Values, error) {
+	if err := RequireContentType(r, MediaTypeForm); err != nil {
+		return nil, err
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxTokenRequestBodySize)
+	if err := r.ParseForm(); err != nil {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			return nil, NewErrorResponse(CodeInvalidRequest, "request body exceeds %d bytes", maxTokenRequestBodySize).Wrap(err).WithStatus(http.StatusRequestEntityTooLarge)
+		}
+		return nil, NewErrorResponse(CodeInvalidRequest, "error parsing form").Wrap(err)
+	}
+	return r.PostForm, nil
+}
+
+func (a *AuthorizationServer) parseTokenRequest(form url.Values) (TokenRequest, error) {
+	switch grantType := oidc.GrantType(form.Get("grant_type")); grantType {
+	case oidc.GrantTypeClientCredentials:
+		return parseClientCredentialsRequest(form), nil
+	case oidc.GrantTypeTokenExchange:
+		if len(a.SubjectTokenIssuers) == 0 {
+			return nil, NewErrorResponse(CodeUnsupportedGrantType, "%s not supported", grantType)
+		}
+		return parseTokenExchangeRequest(form), nil
+	case "":
+		return nil, NewErrorResponse(CodeInvalidRequest, "grant_type missing")
+	default:
+		return nil, NewErrorResponse(CodeUnsupportedGrantType, "%s not supported", grantType)
+	}
+}
+
+// RequireContentType returns a 415 error if the request body is not of mediaType.
+func RequireContentType(r *http.Request, mediaType string) error {
+	header := r.Header.Get("Content-Type")
+	got, _, err := mime.ParseMediaType(header)
+	if err != nil || got != mediaType {
+		return NewErrorResponse(CodeInvalidRequest, "content type must be %s", mediaType).
+			Wrap(fmt.Errorf("got content type %q", header)).
+			WithStatus(http.StatusUnsupportedMediaType)
+	}
+	return nil
 }
 
 // HandlerFunc writes errors returned by f as OAuth error responses.
@@ -155,19 +179,4 @@ func WriteJSON(w http.ResponseWriter, r *http.Request, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		slog.ErrorContext(r.Context(), "encode response", "error", err)
 	}
-}
-
-func decodeRequest[T any](decoder httphelper.Decoder, r *http.Request, postOnly bool) (*T, error) {
-	dst := new(T)
-	if err := r.ParseForm(); err != nil {
-		return nil, NewErrorResponse(CodeInvalidRequest, "error parsing form").Wrap(err)
-	}
-	form := r.Form
-	if postOnly {
-		form = r.PostForm
-	}
-	if err := decoder.Decode(dst, form); err != nil {
-		return nil, NewErrorResponse(CodeInvalidRequest, "error decoding form").Wrap(err)
-	}
-	return dst, nil
 }
