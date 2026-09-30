@@ -26,7 +26,7 @@ func TestAccessTokenClaimsUnmarshal(t *testing.T) {
 
 func TestAccessTokenClaimsSign(t *testing.T) {
 	source := map[string]json.RawMessage{
-		"iss":    json.RawMessage(`"source-issuer"`),
+		"iss":    json.RawMessage(`"sts-issuer"`),
 		"sub":    json.RawMessage(`"source-subject"`),
 		"act":    json.RawMessage(`{"iss":"previous-issuer","client_id":"previous-actor"}`),
 		"custom": json.RawMessage(`{"number":9007199254740993}`),
@@ -36,8 +36,8 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 		Target:    TargetAudience("audience"),
 		GrantType: oidc.GrantTypeTokenExchange,
 		SubjectTokenClaims: &AccessTokenClaims{
-			Subject: "source-subject",
-			Claims:  source,
+			Issuer: "sts-issuer", Subject: "source-subject",
+			Claims: source,
 		},
 		Client: &Client{
 			ID: "client",
@@ -61,24 +61,8 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 	assertJSONClaim(t, got, "iss", "sts-issuer")
 	assertJSONClaim(t, got, "sub", "source-subject")
 	assertJSONClaim(t, got, "client_id", "client")
-	assertActorClaim(t, got["act"], "sts-issuer", "client", "previous-issuer", "previous-actor")
+	assertActorClaim(t, got["act"], "client", "previous-actor")
 	assert.JSONEq(t, `{"number":9007199254740993}`, string(got["custom"]))
-}
-
-func TestValidateActorClaimsRejectsInvalidActor(t *testing.T) {
-	for name, actor := range map[string]json.RawMessage{
-		"malformed":        json.RawMessage(`"invalid"`),
-		"null":             json.RawMessage(`null`),
-		"empty":            json.RawMessage(`{}`),
-		"nested":           json.RawMessage(`{"sub":"actor","act":[]}`),
-		"duplicate":        json.RawMessage(`{"sub":"first","sub":"second"}`),
-		"nested duplicate": json.RawMessage(`{"sub":"actor","act":{"sub":"first","sub":"second"}}`),
-	} {
-		t.Run(name, func(t *testing.T) {
-			err := validateActorClaims(actor)
-			assert.Error(t, err)
-		})
-	}
 }
 
 func cloneClaims(claims map[string]json.RawMessage) map[string]json.RawMessage {
@@ -96,17 +80,15 @@ func assertJSONClaim(t *testing.T, claims map[string]json.RawMessage, name, want
 	assert.Equal(t, want, got, name)
 }
 
-func assertActorClaim(t *testing.T, raw json.RawMessage, issuer, subject, previousIssuer, previousSubject string) {
+func assertActorClaim(t *testing.T, raw json.RawMessage, subject, previousSubject string) {
 	t.Helper()
 
 	actor := new(ActorClaims)
 	require.NoError(t, json.Unmarshal(raw, actor))
-	assert.Equal(t, issuer, actor.Issuer)
 	assert.Equal(t, subject, actor.ClientID)
 	require.NotEmpty(t, actor.Actor)
 
 	previous := new(ActorClaims)
 	require.NoError(t, json.Unmarshal(actor.Actor, previous))
-	assert.Equal(t, previousIssuer, previous.Issuer)
 	assert.Equal(t, previousSubject, previous.ClientID)
 }

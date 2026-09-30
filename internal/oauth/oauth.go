@@ -85,7 +85,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		}
 		finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
 		claims, err = a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken, func(claims *AccessTokenClaims) error {
-			return a.verifyTokenExchangeClaims(claims, client.ID)
+			return a.verifySTSIssuedSubjectTokenClaims(claims, client.ID)
 		})
 		finishStep(err)
 		if err != nil {
@@ -170,16 +170,6 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 
 func (a *AuthorizationServer) verifyClientAuthClaims(claims *AccessTokenClaims) error {
 	return ValidateClientAuthClaims(claims, a.ExpectedAudience, a.MaxClientAuthTokenLifetime)
-}
-
-func (a *AuthorizationServer) verifyTokenExchangeClaims(claims *AccessTokenClaims, clientID string) error {
-	if rawActor, ok := claims.Claims["act"]; ok {
-		if err := validateActorClaims(rawActor); err != nil {
-			return oidc.ErrInvalidRequest().WithDescription("act claim is invalid")
-		}
-	}
-
-	return a.verifySTSIssuedSubjectTokenClaims(claims, clientID)
 }
 
 func (a *AuthorizationServer) verifySTSIssuedSubjectTokenClaims(claims *AccessTokenClaims, clientID string) error {

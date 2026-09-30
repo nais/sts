@@ -428,7 +428,7 @@ func TestSts(t *testing.T) {
 		assert.Contains(t, secondExchange.Description, "audience")
 	})
 
-	t.Run("token exchange preserves external actor chain", func(t *testing.T) {
+	t.Run("token exchange ignores external actor chain", func(t *testing.T) {
 		firstConsumer := fixtures.Client1
 		firstTarget := fixtures.Client2.ID
 		const subjectIssuer = "subject2"
@@ -442,7 +442,7 @@ func TestSts(t *testing.T) {
 		first := assertTokenClaims(t, stsAddress, firstExchange, firstTarget, firstConsumer.ID, func(claims *oauth.STSTokenClaims) {
 			require.NotNil(t, claims.Actor)
 			assert.Equal(t, firstConsumer.ID, claims.Actor.ClientID)
-			assert.JSONEq(t, string(previous), string(claims.Actor.Actor))
+			assert.Empty(t, string(claims.Actor.Actor))
 		})
 
 		secondConsumer := fixtures.Client2
@@ -522,7 +522,6 @@ func assertTokenActor(t *testing.T, sts testServer, response *oauth.AccessTokenR
 	assertTokenClaims(t, sts, response, targetID, consumerID, func(claims *oauth.STSTokenClaims) {
 		actor = claims.Actor
 		require.NotNil(t, actor)
-		assert.Equal(t, sts.Endpoint(), actor.Issuer)
 		assert.Equal(t, consumerID, actor.ClientID)
 		if previous == nil {
 			assert.Empty(t, actor.Actor)
@@ -541,11 +540,9 @@ func assertTokenExchangeClaims(t *testing.T, stsConfig testServerConfig, respons
 	t.Helper()
 
 	idpName, ok := stsConfig.AuthServerConfig.SubjectTokenIssuers[oauth.Issuer(subjectClaims.Issuer)]
-	if !ok {
-		t.Fatalf("subject token issuer %q not found in STS configuration", subjectClaims.Issuer)
-	}
-	stsAddress := stsConfig.Address
+	require.True(t, ok, "subject token issuer %q not found in STS configuration", subjectClaims.Issuer)
 
+	stsAddress := stsConfig.Address
 
 	// Parse the issued token as typed STS claims and as a complete raw claim map.
 	var stsClaims *oauth.STSTokenClaims

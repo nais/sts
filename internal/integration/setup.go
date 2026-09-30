@@ -61,12 +61,14 @@ func init() {
 	key, _ = rsa.GenerateKey(rand.Reader, 2048)
 }
 
-type testServer string
-type testServerConfig struct {
-	Address          testServer
-	InternalAddress  testServer
-	AuthServerConfig oauth.AuthorizationServerConfig
-}
+type (
+	testServer       string
+	testServerConfig struct {
+		Address          testServer
+		InternalAddress  testServer
+		AuthServerConfig oauth.AuthorizationServerConfig
+	}
+)
 
 func (s testServer) Endpoint(paths ...string) string {
 	return (&url.URL{Scheme: "http", Host: string(s)}).JoinPath(paths...).String()
