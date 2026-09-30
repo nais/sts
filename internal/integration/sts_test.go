@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-jose/go-jose/v4"
 	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/ioconvenience"
+	"github.com/nais/sts/internal/jwk"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/registration"
 	"github.com/stretchr/testify/assert"
@@ -660,7 +660,7 @@ func assertTokenClaims(
 	tokenVerifier, err := oauth.NewTokenVerifier(
 		oauth.Issuer(sts.Endpoint()),
 		rp.NewRemoteKeySet(http.DefaultClient, sts.Endpoint("jwks")),
-		string(jose.ES256),
+		string(oauth.InternalSigningAlgorithm),
 	)
 	require.NoError(t, err)
 
@@ -794,10 +794,7 @@ func getSubjectTokenFromIssuer(t testing.TB, oauthServer testServer, issuer stri
 
 func signSoftwareStatement(t testing.TB, statement registration.SoftwareStatement) string {
 	t.Helper()
-	signer, err := jose.NewSigner(jose.SigningKey{Key: jose.JSONWebKey{
-		Key:   key,
-		KeyID: "foo",
-	}, Algorithm: jose.RS256}, nil)
+	signer, err := jwk.NewSigner(key)
 	require.NoError(t, err)
 
 	signed, err := crypto.Sign(statement, signer)

@@ -1,13 +1,11 @@
 package oauth
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
 	"encoding/json"
 	"testing"
 	"time"
 
-	"github.com/go-jose/go-jose/v4"
+	"github.com/nais/sts/internal/jwk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -48,9 +46,9 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, original, source)
 
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	key, err := jwk.Generate()
 	require.NoError(t, err)
-	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: key}, nil)
+	signer, err := jwk.NewSigner(key)
 	require.NoError(t, err)
 	signed, err := accessToken.Sign(signer)
 	require.NoError(t, err)

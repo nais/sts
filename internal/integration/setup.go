@@ -4,9 +4,6 @@ package integration
 
 import (
 	"context"
-	"crypto"
-	"crypto/rand"
-	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -23,6 +20,7 @@ import (
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/ioconvenience"
+	"github.com/nais/sts/internal/jwk"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/registration"
 	"github.com/testcontainers/testcontainers-go"
@@ -30,7 +28,13 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-var key crypto.PrivateKey
+var key = func() jose.JSONWebKey {
+	key, err := jwk.Generate()
+	if err != nil {
+		panic(err)
+	}
+	return key
+}()
 
 type testFixtures struct {
 	Client1          clientFixture
@@ -55,10 +59,6 @@ var fixtures = testFixtures{
 	RegisteredTarget: clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "registered-workload", ID: "env1:namespace1:registered-workload"},
 	Role:             "reader",
 	TokenExpiry:      time.Hour,
-}
-
-func init() {
-	key, _ = rsa.GenerateKey(rand.Reader, 2048)
 }
 
 type (
@@ -125,14 +125,7 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Add("Vary", "Accept")
 
-		if err := json.NewEncoder(w).Encode((jose.JSONWebKeySet{Keys: []jose.JSONWebKey{
-			{
-				Key:       key.(*rsa.PrivateKey).Public(),
-				KeyID:     "foo",
-				Algorithm: "RS256",
-				Use:       "sig",
-			},
-		}})); err != nil {
+		if err := json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{key.Public()}}); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}))
@@ -163,13 +156,13 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 				Issuer:        oauthServer.Endpoint("env1"),
 				Subject:       "system:serviceaccount:namespace1:registrator1",
 				ClientJwksUri: registratorServer.URL,
-				RequiredAlgs:  []string{"RS256"},
+				RequiredAlgs:  []string{string(jwk.Algorithm)},
 			},
 			{
 				Issuer:        oauthServer.Endpoint("env2"),
 				Subject:       "system:serviceaccount:namespace1:registrator2",
 				ClientJwksUri: registratorServer.URL,
-				RequiredAlgs:  []string{"RS256"},
+				RequiredAlgs:  []string{string(jwk.Algorithm)},
 			},
 		},
 	}

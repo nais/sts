@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-jose/go-jose/v4"
+	"github.com/nais/sts/internal/jwk"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
@@ -50,7 +51,7 @@ var (
 	ErrTargetUnauthorized       = errors.New("no authorization policy")
 )
 
-const InternalSigningAlgorithm = jose.ES256
+const InternalSigningAlgorithm = jwk.Algorithm
 
 type KeyStore interface {
 	Signer() (jose.Signer, error)

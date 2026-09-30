@@ -2,9 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,8 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/cache"
 	"github.com/nais/sts/internal/database/sqlgen"
-	"github.com/nais/sts/internal/oauth"
-	"github.com/zitadel/oidc/v3/pkg/oidc"
+	"github.com/nais/sts/internal/jwk"
 )
 
 const (
@@ -207,13 +203,12 @@ func (r *RotatingKeyStore) rotateSigningKeysInDatabase(ctx context.Context) erro
 }
 
 func (r *RotatingKeyStore) VerifySignature(ctx context.Context, jws *jose.JSONWebSignature) ([]byte, error) {
-	keyID, alg := oidc.GetKeyIDAndAlg(jws)
 	findKey := func() (jose.JSONWebKey, error) {
 		keySet, err := r.PublicKeys()
 		if err != nil {
 			return jose.JSONWebKey{}, fmt.Errorf("get public keys: %w", err)
 		}
-		return oidc.FindMatchingKey(keyID, oidc.KeyUseSignature, alg, keySet.Keys...)
+		return jwk.KeySet(*keySet).Key(jws)
 	}
 
 	key, err := findKey()
@@ -228,12 +223,7 @@ func (r *RotatingKeyStore) VerifySignature(ctx context.Context, jws *jose.JSONWe
 			return nil, fmt.Errorf("find verification key: %w", err)
 		}
 	}
-
-	payload, err := jws.Verify(&key)
-	if err != nil {
-		return nil, fmt.Errorf("invalid signature: %w", err)
-	}
-	return payload, nil
+	return jwk.Verify(jws, key)
 }
 
 func (r *RotatingKeyStore) load(ctx context.Context) (*keyCache, error) {
@@ -272,12 +262,9 @@ func (r *RotatingKeyStore) load(ctx context.Context) (*keyCache, error) {
 		return nil, errors.New("signing keys must have distinct key IDs")
 	}
 
-	signer, err := jose.NewSigner(jose.SigningKey{
-		Algorithm: jose.SignatureAlgorithm(activeKey.Algorithm),
-		Key:       &activeKey,
-	}, nil)
+	signer, err := jwk.NewSigner(activeKey)
 	if err != nil {
-		return nil, fmt.Errorf("create signer: %w", err)
+		return nil, err
 	}
 
 	return &keyCache{
@@ -292,14 +279,9 @@ func (r *RotatingKeyStore) load(ctx context.Context) (*keyCache, error) {
 }
 
 func generateJWK() ([]byte, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	key, err := jwk.Generate()
 	if err != nil {
-		return nil, fmt.Errorf("generate signing key: %w", err)
+		return nil, err
 	}
-	return jose.JSONWebKey{
-		Key:       key,
-		KeyID:     uuid.New().String(),
-		Algorithm: string(oauth.InternalSigningAlgorithm),
-		Use:       oidc.KeyUseSignature,
-	}.MarshalJSON()
+	return key.MarshalJSON()
 }
