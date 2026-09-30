@@ -1,10 +1,7 @@
 package registration
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,41 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/zitadel/oidc/v3/pkg/oidc"
-	"github.com/zitadel/oidc/v3/pkg/op"
 )
-
-func TestWithLoggedHTTPStatus(t *testing.T) {
-	for _, test := range []struct {
-		message string
-		status  int
-		level   string
-	}{
-		{message: "unauthorized", status: http.StatusUnauthorized, level: "WARN"},
-		{message: "invalid software statement", status: http.StatusBadRequest, level: "WARN"},
-		{message: "failed to save registration", status: http.StatusInternalServerError, level: "ERROR"},
-		{message: "failed to delete registration", status: http.StatusInternalServerError, level: "ERROR"},
-	} {
-		t.Run(test.message, func(t *testing.T) {
-			var logs bytes.Buffer
-			previous := slog.Default()
-			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-			t.Cleanup(func() { slog.SetDefault(previous) })
-
-			request := httptest.NewRequest(http.MethodPost, "/v1/registration/client", nil)
-			response := httptest.NewRecorder()
-			op.WriteError(response, request, withLoggedHTTPStatus(request.Context(), test.message, errors.New("private detail"), test.status), slog.Default())
-
-			assert.Equal(t, test.status, response.Code)
-			var body oidc.Error
-			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-			assert.Equal(t, test.message, body.Description)
-			assert.NotContains(t, response.Body.String(), "private detail")
-			assert.Contains(t, logs.String(), "private detail")
-			assert.Contains(t, logs.String(), "level="+test.level)
-		})
-	}
-}
 
 func TestValidateJSONContentType(t *testing.T) {
 	tests := map[string]struct {
@@ -93,6 +56,14 @@ func TestDecodeClientRegistration(t *testing.T) {
 		},
 		"removed client name": {
 			body:    `{"client_name":"client","software_statement":"statement"}`,
+			wantErr: true,
+		},
+		"wrong type": {
+			body:    `{"software_statement":1}`,
+			wantErr: true,
+		},
+		"truncated": {
+			body:    `{"software_statement":`,
 			wantErr: true,
 		},
 		"second JSON value": {
@@ -150,9 +121,4 @@ func TestDecodeClientRegistrationRejectsOversizedBody(t *testing.T) {
 	var maxBytesError *http.MaxBytesError
 	require.ErrorAs(t, err, &maxBytesError)
 	require.EqualValues(t, maxRegistrationBodySize, maxBytesError.Limit)
-}
-
-func TestUnsupportedMediaTypeError(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/v1/registration/client", nil)
-	require.Error(t, validateContentType(request))
 }

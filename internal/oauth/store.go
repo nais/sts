@@ -29,7 +29,7 @@ func (n Name) Validate() error {
 func (c ClientID) Validate() error {
 	for part := range strings.SplitSeq(string(c), ":") {
 		if err := Name(part).Validate(); err != nil {
-			return fmt.Errorf("invalid client ID")
+			return fmt.Errorf("invalid client ID: part %q: %w", part, err)
 		}
 	}
 	return nil
@@ -43,8 +43,11 @@ type ClientStore interface {
 }
 
 var (
-	ErrRegistrationUnauthorized = errors.New("registrator is not authorized for client")
-	ErrRegistrationConflict     = errors.New("registration conflicts with existing client")
+	ErrRegistrationUnauthorized = errors.New("client owned by another issuer")
+	ErrImmutableFieldsChanged   = errors.New("immutable fields differ")
+	ErrWorkloadTaken            = errors.New("workload belongs to another client")
+	ErrClientNotFound           = errors.New("client not found")
+	ErrTargetUnauthorized       = errors.New("no authorization policy")
 )
 
 const InternalSigningAlgorithm = jose.ES256

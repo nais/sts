@@ -2,12 +2,11 @@ package store
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/oauth"
-	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
 type Client struct {
@@ -16,12 +15,6 @@ type Client struct {
 
 func NewClientStore(pool *pgxpool.Pool) *Client {
 	return &Client{queries: sqlgen.New(pool)}
-}
-
-type clientKey struct {
-	issuer    string
-	namespace string
-	workload  string
 }
 
 func (s *Client) Save(ctx context.Context, client *oauth.Client) error {
@@ -36,26 +29,29 @@ func (s *Client) Save(ctx context.Context, client *oauth.Client) error {
 	return err
 }
 
-func clientKeyFromClaims(claims *oauth.AccessTokenClaims) (clientKey, error) {
-	raw, ok := claims.Claims["kubernetes.io"]
-	if !ok {
-		return clientKey{}, oidc.ErrInvalidClient().WithDescription("missing kubernetes.io claims")
-	}
+type clientKey struct {
+	issuer    string
+	namespace string
+	workload  string
+}
 
-	type kubernetes struct {
-		Namespace      string `json:"namespace"`
-		ServiceAccount struct {
-			Name string `json:"name"`
-		} `json:"serviceaccount"`
-	}
-	var kc kubernetes
-	if err := json.Unmarshal(raw, &kc); err != nil {
-		return clientKey{}, oidc.ErrInvalidClient().WithDescription("invalid kubernetes.io claims: %+v", err)
+func (k clientKey) String() string {
+	return fmt.Sprintf("issuer %q, namespace %q, workload %q", k.issuer, k.namespace, k.workload)
+}
+
+func clientKeyFromRow(row sqlgen.KubernetesClient) clientKey {
+	return clientKey{issuer: row.Issuer, namespace: row.Namespace, workload: row.Workload}
+}
+
+func clientKeyFromClaims(claims *oauth.AccessTokenClaims) (clientKey, error) {
+	kubernetes, err := claims.Kubernetes()
+	if err != nil {
+		return clientKey{}, err
 	}
 	return clientKey{
 		issuer:    claims.Issuer,
-		namespace: kc.Namespace,
-		workload:  kc.ServiceAccount.Name,
+		namespace: kubernetes.Namespace,
+		workload:  kubernetes.ServiceAccount.Name,
 	}, nil
 }
 

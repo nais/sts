@@ -17,7 +17,6 @@ import (
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/oauth"
-	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
 const clientCacheChannel = "sts_cache_changed"
@@ -25,6 +24,10 @@ const clientCacheChannel = "sts_cache_changed"
 type policyKey struct {
 	owner    string
 	consumer string
+}
+
+func (k policyKey) String() string {
+	return fmt.Sprintf("target %q, consumer %q", k.owner, k.consumer)
 }
 
 type clientSnapshot struct {
@@ -46,7 +49,7 @@ type CachedClient struct {
 
 func NewCachedClientStore(ctx context.Context, pool *pgxpool.Pool, refreshInterval time.Duration, log *slog.Logger) (*CachedClient, error) {
 	if refreshInterval <= 0 {
-		return nil, fmt.Errorf("snapshot refresh interval must be positive")
+		return nil, errors.New("snapshot refresh interval must be positive")
 	}
 	store := &CachedClient{
 		pool:            pool,
@@ -64,7 +67,7 @@ func NewCachedClientStore(ctx context.Context, pool *pgxpool.Pool, refreshInterv
 	}, log)
 
 	if err := store.initialize(ctx); err != nil {
-		return nil, fmt.Errorf("initializing: %w", err)
+		return nil, fmt.Errorf("initialize client store: %w", err)
 	}
 
 	return store, nil
@@ -109,7 +112,7 @@ func (c *CachedClient) Get(ctx context.Context, claims *oauth.AccessTokenClaims)
 
 	snapshot, ok := c.snapshot.Current()
 	if !ok {
-		return nil, oidc.ErrServerError().WithDescription("client cache is not initialized")
+		return nil, errors.New("client cache is not initialized")
 	}
 	row, ok := snapshot.clients[key]
 	if !ok {
@@ -121,7 +124,7 @@ func (c *CachedClient) Get(ctx context.Context, claims *oauth.AccessTokenClaims)
 
 func (c *CachedClient) Save(ctx context.Context, client *oauth.Client, policies []oauth.AuthorizationPolicy, authoritativeIssuer string) error {
 	if client.Issuer != authoritativeIssuer {
-		return oauth.ErrRegistrationUnauthorized
+		return errNotOwner(client.ID, client.Issuer, authoritativeIssuer)
 	}
 	return database.WithTx(ctx, c.pool, func(ctx context.Context, queries *sqlgen.Queries) error {
 		_, err := queries.UpsertKubernetesClient(ctx, sqlgen.UpsertKubernetesClientParams{
@@ -135,15 +138,15 @@ func (c *CachedClient) Save(ctx context.Context, client *oauth.Client, policies 
 		if errors.Is(err, pgx.ErrNoRows) {
 			existing, getErr := queries.GetKubernetesClientByIDForUpdate(ctx, client.ID)
 			if getErr != nil {
-				return fmt.Errorf("get conflicting client: %w", getErr)
+				return fmt.Errorf("get existing client: %w", getErr)
 			}
 			if existing.Issuer != authoritativeIssuer {
-				return oauth.ErrRegistrationUnauthorized
+				return errNotOwner(client.ID, existing.Issuer, authoritativeIssuer)
 			}
-			return oauth.ErrRegistrationConflict
+			return fmt.Errorf("%w: client %q", oauth.ErrImmutableFieldsChanged, client.ID)
 		}
 		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgerrcode.UniqueViolation {
-			return oauth.ErrRegistrationConflict
+			return fmt.Errorf("%w: %s: %v", oauth.ErrWorkloadTaken, clientKeyFromRow(client.KubernetesClient), err)
 		}
 		if err != nil {
 			return fmt.Errorf("upsert client: %w", err)
@@ -172,10 +175,10 @@ func (c *CachedClient) Delete(ctx context.Context, clientID oauth.ClientID, auth
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("get client for deletion: %w", err)
+			return fmt.Errorf("get client: %w", err)
 		}
 		if client.Issuer != authoritativeIssuer {
-			return oauth.ErrRegistrationUnauthorized
+			return errNotOwner(string(clientID), client.Issuer, authoritativeIssuer)
 		}
 		if err := queries.DeleteKubernetesClient(ctx, string(clientID)); err != nil {
 			return fmt.Errorf("delete client: %w", err)
@@ -187,7 +190,7 @@ func (c *CachedClient) Delete(ctx context.Context, clientID oauth.ClientID, auth
 func (c *CachedClient) AuthorizeTarget(ctx context.Context, consumer oauth.ClientID, target oauth.Target) (oauth.Roles, error) {
 	snapshot, ok := c.snapshot.Current()
 	if !ok {
-		return nil, oidc.ErrServerError().WithDescription("client cache is not initialized")
+		return nil, errors.New("client cache is not initialized")
 	}
 	key := policyKey{owner: target.GetValue(), consumer: string(consumer)}
 	roles, ok := snapshot.policies[key]
@@ -204,7 +207,7 @@ func (c *CachedClient) getClientFromPostgres(ctx context.Context, key clientKey)
 		Workload:  key.workload,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, oidc.ErrInvalidClient().WithDescription("client not found")
+		return nil, fmt.Errorf("%w: %s", oauth.ErrClientNotFound, key)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read client after cache miss: %w", err)
@@ -222,10 +225,10 @@ func (c *CachedClient) getPolicyFromPostgres(ctx context.Context, key policyKey)
 		ConsumerClientID: key.consumer,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, oidc.ErrInvalidClient().WithDescription("authorization policy not found")
+		return nil, fmt.Errorf("%w: %s", oauth.ErrTargetUnauthorized, key)
 	}
 	if err != nil {
-		return nil, oidc.ErrServerError().WithDescription("read authorization policy after cache miss: %s", err)
+		return nil, fmt.Errorf("read authorization policy after cache miss: %w", err)
 	}
 
 	c.snapshot.Trigger()
@@ -247,11 +250,7 @@ func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSn
 		policies: make(map[policyKey]oauth.Roles, len(policies)),
 	}
 	for _, client := range clients {
-		result.clients[clientKey{
-			issuer:    client.Issuer,
-			namespace: client.Namespace,
-			workload:  client.Workload,
-		}] = client
+		result.clients[clientKeyFromRow(client)] = client
 	}
 	for _, policy := range policies {
 		result.policies[policyKey{
@@ -260,4 +259,14 @@ func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSn
 		}] = policy.Roles
 	}
 	return result, nil
+}
+
+// errNotOwner reports that a stored client belongs to another issuer than the registrator.
+func errNotOwner(clientID, ownerIssuer, registratorIssuer string) error {
+	return fmt.Errorf("%w: client %q, owner issuer %q, registrator issuer %q",
+		oauth.ErrRegistrationUnauthorized,
+		clientID,
+		ownerIssuer,
+		registratorIssuer,
+	)
 }

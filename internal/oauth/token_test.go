@@ -65,6 +65,24 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 	assert.JSONEq(t, `{"number":9007199254740993}`, string(got["custom"]))
 }
 
+func TestAccessTokenClaimsKubernetes(t *testing.T) {
+	for name, test := range map[string]struct {
+		claims map[string]json.RawMessage
+		want   string
+	}{
+		"missing":      {claims: map[string]json.RawMessage{}, want: "kubernetes.io claim is missing"},
+		"malformed":    {claims: map[string]json.RawMessage{"kubernetes.io": json.RawMessage(`"text"`)}, want: "kubernetes.io claim is malformed"},
+		"empty fields": {claims: map[string]json.RawMessage{"kubernetes.io": json.RawMessage(`{"namespace":"ns"}`)}, want: "kubernetes.io claim has no namespace or service account name"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := (&AccessTokenClaims{Claims: test.claims}).Kubernetes()
+			var oidcErr *oidc.Error
+			require.ErrorAs(t, err, &oidcErr)
+			assert.Equal(t, test.want, oidcErr.Description)
+		})
+	}
+}
+
 func cloneClaims(claims map[string]json.RawMessage) map[string]json.RawMessage {
 	clone := make(map[string]json.RawMessage, len(claims))
 	for name, value := range claims {

@@ -356,9 +356,9 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 			mutate  func(*oauth.Client)
 			wantErr error
 		}{
-			"environment": {func(client *oauth.Client) { client.Environment = "new-environment" }, oauth.ErrRegistrationConflict},
-			"namespace":   {func(client *oauth.Client) { client.Namespace = "new-namespace" }, oauth.ErrRegistrationConflict},
-			"workload":    {func(client *oauth.Client) { client.Workload = "new-workload" }, oauth.ErrRegistrationConflict},
+			"environment": {func(client *oauth.Client) { client.Environment = "new-environment" }, oauth.ErrImmutableFieldsChanged},
+			"namespace":   {func(client *oauth.Client) { client.Namespace = "new-namespace" }, oauth.ErrImmutableFieldsChanged},
+			"workload":    {func(client *oauth.Client) { client.Workload = "new-workload" }, oauth.ErrImmutableFieldsChanged},
 			"issuer":      {func(client *oauth.Client) { client.Issuer = "https://new-issuer.example" }, oauth.ErrRegistrationUnauthorized},
 		} {
 			t.Run(name, func(t *testing.T) {
@@ -386,7 +386,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 
 		colliding := testClient("other-scope")
 		colliding.ID = "other-client"
-		require.ErrorIs(t, clients.Save(t.Context(), colliding, nil, client.Issuer), oauth.ErrRegistrationConflict)
+		require.ErrorIs(t, clients.Save(t.Context(), colliding, nil, client.Issuer), oauth.ErrWorkloadTaken)
 
 		queries := sqlgen.New(pool)
 		stored, err := queries.GetKubernetesClientByIDForUpdate(t.Context(), client.ID)

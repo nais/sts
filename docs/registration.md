@@ -149,7 +149,8 @@ On a repeated `POST` for the same client:
   - `workload.namespace`
   - `workload.workload`
   - `workload.issuer`
-- A conflicting client ID or workload identity returns `409 Conflict`.
+- A change to an immutable field returns `400 Bad Request` with `invalid_client_metadata`.
+- A workload that another client already uses returns the same error.
 
 ### Response
 
@@ -189,3 +190,29 @@ Owned by another issuer:
 ```http
 HTTP/1.1 403 Forbidden
 ```
+
+## Errors
+
+Error responses follow [RFC 7591, section 3.2.2](https://www.rfc-editor.org/rfc/rfc7591.html#section-3.2.2).
+
+```json
+{
+  "error": "invalid_software_statement",
+  "error_description": "software statement is invalid: invalid signature"
+}
+```
+
+The description names the check that failed.
+STS logs the full cause.
+
+| Status | `error`                         | Cause                                                                                           |
+|--------|---------------------------------|-------------------------------------------------------------------------------------------------|
+| 400    | `invalid_request`               | The client ID in the path is invalid.                                                           |
+| 400    | `invalid_client_metadata`       | The body is invalid, the request changes immutable fields, or another client uses the workload. |
+| 400    | `invalid_software_statement`    | The software statement has an invalid signature or invalid content.                             |
+| 400    | `unapproved_software_statement` | The workload issuer does not match the registrator issuer.                                      |
+| 401    | `invalid_token`                 | Registrator authentication failed.                                                              |
+| 403    | `invalid_client`                | The client belongs to another registrator issuer.                                               |
+| 413    | `invalid_request`               | The body is too large.                                                                          |
+| 415    | `invalid_request`               | The content type is not `application/json`.                                                     |
+| 500    | `server_error`                  | An internal error occurred.                                                                     |
