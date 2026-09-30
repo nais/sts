@@ -20,7 +20,9 @@ import (
 // are excluded from the measurements.
 func BenchmarkSts(b *testing.B) {
 	oauthServer := startMockOAuthServer(b)
-	sts, internalSts := startSts(b, oauthServer)
+	stsConfig := startSts(b, oauthServer)
+	internalSts := stsConfig.InternalAddress
+	stsAddress := stsConfig.Address
 
 	clientAssertion := getClientToken(b, oauthServer, fixtures.Client1)
 	subjectToken, _ := getSubjectTokenFromIssuer(b, oauthServer, "subject1")
@@ -43,14 +45,14 @@ func BenchmarkSts(b *testing.B) {
 		b.Run(benchmark.name, func(b *testing.B) {
 			// Warm remote JWKS and signing-key caches. This keeps the benchmark
 			// focused on steady-state request cost rather than one-time fetches.
-			if _, err := benchmarkTokenRequest(b, sts.Endpoint("/token"), benchmark.form); err != nil {
+			if _, err := benchmarkTokenRequest(b, stsAddress.Endpoint("/token"), benchmark.form); err != nil {
 				b.Fatal(err)
 			}
 
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				response, err := benchmarkTokenRequest(b, sts.Endpoint("/token"), benchmark.form)
+				response, err := benchmarkTokenRequest(b, stsAddress.Endpoint("/token"), benchmark.form)
 				if err != nil {
 					b.Fatal(err)
 				}

@@ -19,7 +19,7 @@ func TestAuthorizationServerConfigRejectsInvalidClientAuthSigningAlgorithms(t *t
 				ExpectedAudience:            "nais",
 				ClientAuthIssuers:           []Issuer{"https://client.example"},
 				ClientAuthSigningAlgorithms: algorithms,
-				SubjectTokenIssuers:         []Issuer{"https://subject.example"},
+				SubjectTokenIssuers:         map[Issuer]string{Issuer("https://subject.example"): "issuerName"},
 				MaxClientAuthTokenLifetime:  time.Hour,
 				TokenExpiry:                 time.Hour,
 			}

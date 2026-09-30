@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strconv"
 	"time"
 	"uuid"
 
@@ -25,6 +26,8 @@ type STSTokenClaims struct {
 	NotBefore        oidc.Time                  `json:"nbf"`
 	ApplicationRoles Roles                      `json:"urn:nais:roles,omitempty"`
 	GrantType        oidc.GrantType             `json:"urn:nais:grant_type,omitempty"` // TODO: add human-readable alias (m2m, tokenx/obo)
+	IDP              string                     `json:"urn:nais:idp,omitempty"`
+	IDPName          string                     `json:"urn:nais:idp_name,omitempty"`
 	Claims           map[string]json.RawMessage `json:"-"`
 }
 
@@ -58,27 +61,13 @@ func (a *AccessTokenClaims) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &a.Claims)
 }
 
-func CreateAccessToken(issuer Issuer, expiresIn time.Duration, result *AuthorizationResult) (*STSTokenClaims, error) {
+func CreateAccessToken(issuer Issuer, subjectTokenIssuers map[Issuer]string, expiresIn time.Duration, result *AuthorizationResult) (*STSTokenClaims, error) {
 	subject := result.Client.ID
 	var subjectTokenClaims map[string]json.RawMessage
 
 	if result.SubjectTokenClaims != nil {
 		subject = result.SubjectTokenClaims.Subject
 		subjectTokenClaims = result.SubjectTokenClaims.Claims
-	}
-
-	var actor *ActorClaims
-	if result.GrantType == oidc.GrantTypeTokenExchange {
-		actor = &ActorClaims{
-			Issuer:   string(issuer),
-			ClientID: result.Client.ID,
-		}
-		if raw, ok := subjectTokenClaims["act"]; ok {
-			if err := validateActorClaims(raw); err != nil {
-				return nil, fmt.Errorf("decode subject token actor claim: %w", err)
-			}
-			actor.Actor = raw
-		}
 	}
 
 	jti := uuid.New().String()
@@ -94,7 +83,6 @@ func CreateAccessToken(issuer Issuer, expiresIn time.Duration, result *Authoriza
 		Audience:   result.Target.AsAudience(),
 		ClientID:   result.Client.ID,
 		JWTID:      jti,
-		Actor:      actor,
 		Expiration: exp,
 		IssuedAt:   iat,
 		NotBefore:  nbf,
@@ -102,6 +90,30 @@ func CreateAccessToken(issuer Issuer, expiresIn time.Duration, result *Authoriza
 		// urn:nais:*
 		ApplicationRoles: result.Roles,
 		GrantType:        result.GrantType,
+	}
+
+	if result.GrantType == oidc.GrantTypeTokenExchange {
+		stsTokenClaims.Actor = &ActorClaims{
+			// TODO: use subject token issuer
+			Issuer:   string(issuer),
+			ClientID: result.Client.ID,
+		}
+		if raw, ok := subjectTokenClaims["act"]; ok {
+			if err := validateActorClaims(raw); err != nil {
+				return nil, fmt.Errorf("decode subject token actor claim: %w", err)
+			}
+			stsTokenClaims.Actor.Actor = raw
+		}
+		// TODO: properly decode the subject token issuer and name from the subject token claims, instead of hardcoding them here.
+		subIssuer, err := strconv.Unquote(string(subjectTokenClaims["iss"]))
+		if err != nil {
+			return nil, fmt.Errorf("decode subject token issuer: %w", err)
+		}
+		idpName, ok := subjectTokenIssuers[Issuer(subIssuer)]
+		if ok {
+			stsTokenClaims.IDP = subIssuer
+			stsTokenClaims.IDPName = idpName
+		}
 	}
 
 	claims, err := mergeClaims(subjectTokenClaims, stsTokenClaims)

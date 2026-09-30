@@ -44,7 +44,7 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 		},
 		Roles: nil,
 	}
-	accessToken, err := CreateAccessToken("sts-issuer", time.Hour, result)
+	accessToken, err := CreateAccessToken("sts-issuer", nil, time.Hour, result)
 	require.NoError(t, err)
 	assert.Equal(t, original, source)
 

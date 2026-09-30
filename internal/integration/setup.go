@@ -62,6 +62,11 @@ func init() {
 }
 
 type testServer string
+type testServerConfig struct {
+	Address          testServer
+	InternalAddress  testServer
+	AuthServerConfig oauth.AuthorizationServerConfig
+}
 
 func (s testServer) Endpoint(paths ...string) string {
 	return (&url.URL{Scheme: "http", Host: string(s)}).JoinPath(paths...).String()
@@ -100,7 +105,7 @@ func startMockOAuthServer(t testing.TB) testServer {
 	return testServer(addr)
 }
 
-func startSts(t testing.TB, oauthServer testServer) (testServer, testServer) {
+func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 	t.Helper()
 
 	dsn := setupPostgres(t)
@@ -145,9 +150,9 @@ func startSts(t testing.TB, oauthServer testServer) (testServer, testServer) {
 				oauth.Issuer(oauthServer.Endpoint("env1")),
 				oauth.Issuer(oauthServer.Endpoint("env2")),
 			},
-			SubjectTokenIssuers: []oauth.Issuer{
-				oauth.Issuer(oauthServer.Endpoint("subject1")),
-				oauth.Issuer(oauthServer.Endpoint("subject2")),
+			SubjectTokenIssuers: map[oauth.Issuer]string{
+				oauth.Issuer(oauthServer.Endpoint("subject1")): "name1",
+				oauth.Issuer(oauthServer.Endpoint("subject2")): "name2",
 			},
 			TokenExpiry: fixtures.TokenExpiry,
 		},
@@ -190,7 +195,11 @@ func startSts(t testing.TB, oauthServer testServer) (testServer, testServer) {
 	}
 
 	seedSts(t, dsn, oauthServer)
-	return server, testServer(internalAddr)
+	return testServerConfig{
+		Address:          server,
+		InternalAddress:  testServer(internalAddr),
+		AuthServerConfig: cfg.AuthorizationServerConfig,
+	}
 }
 
 func setupPostgres(t testing.TB) string {

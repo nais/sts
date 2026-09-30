@@ -12,8 +12,8 @@ authorizationServer:
     - http://localhost:3004/env1
     - http://localhost:3004/env2
   subjectTokenIssuers:
-    - http://localhost:3004/subject1
-    - http://localhost:3004/subject2
+    http://localhost:3004/subject1: name1
+    http://localhost:3004/subject2: name2
   tokenExpiry: "1h"
 
 registrators:

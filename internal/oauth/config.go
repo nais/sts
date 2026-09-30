@@ -9,13 +9,23 @@ import (
 )
 
 type AuthorizationServerConfig struct {
-	Issuer                      Issuer        `yaml:"issuer"`
-	ExpectedAudience            string        `yaml:"expectedAudience"`
-	ClientAuthIssuers           []Issuer      `yaml:"clientAuthIssuers"`
-	ClientAuthSigningAlgorithms []string      `yaml:"clientAuthSigningAlgorithms"`
-	SubjectTokenIssuers         []Issuer      `yaml:"subjectTokenIssuers"`
-	MaxClientAuthTokenLifetime  time.Duration `yaml:"maxClientAuthTokenLifetime"`
-	TokenExpiry                 time.Duration `yaml:"tokenExpiry"`
+	Issuer                      Issuer              `yaml:"issuer"`
+	ExpectedAudience            string              `yaml:"expectedAudience"`
+	ClientAuthIssuers           []Issuer            `yaml:"clientAuthIssuers"`
+	ClientAuthSigningAlgorithms []string            `yaml:"clientAuthSigningAlgorithms"`
+	SubjectTokenIssuers         SubjectTokenIssuers `yaml:"subjectTokenIssuers"`
+	MaxClientAuthTokenLifetime  time.Duration       `yaml:"maxClientAuthTokenLifetime"`
+	TokenExpiry                 time.Duration       `yaml:"tokenExpiry"`
+}
+
+type SubjectTokenIssuers map[Issuer]string
+
+func (s SubjectTokenIssuers) Issuers() []Issuer {
+	issuers := make([]Issuer, 0, len(s))
+	for issuer := range s {
+		issuers = append(issuers, issuer)
+	}
+	return issuers
 }
 
 func (c AuthorizationServerConfig) Validate() error {

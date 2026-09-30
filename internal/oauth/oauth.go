@@ -139,7 +139,7 @@ func (a *AuthorizationServer) Keys(ctx context.Context) (*Response, error) {
 }
 
 func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *AuthorizationResult) (*AccessTokenResponse, error) {
-	accessToken, err := CreateAccessToken(a.Issuer, a.TokenExpiry, result)
+	accessToken, err := CreateAccessToken(a.Issuer, a.SubjectTokenIssuers, a.TokenExpiry, result)
 	if err != nil {
 		return nil, err
 	}

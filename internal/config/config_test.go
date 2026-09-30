@@ -17,7 +17,8 @@ databaseUrl: postgres://localhost/sts
 authorizationServer:
   issuer: https://sts.example
   clientAuthIssuers: [https://client.example]
-  subjectTokenIssuers: [https://subject.example]
+  subjectTokenIssuers: 
+   https://subject.example: issuerName
 `))
 	require.NoError(t, err)
 

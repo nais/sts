@@ -65,7 +65,7 @@ func NewMultiIssuerTokenVerifier(verifiers ...*TokenVerifier) (MultiIssuerTokenV
 }
 
 func NewTokenExchangeTokenVerifier(ctx context.Context, httpClient *http.Client, cfg AuthorizationServerConfig, keyStore KeyStore) (MultiIssuerTokenVerifier, error) {
-	subjectTokenVerifiers, err := ExternalTokenVerifiers(ctx, httpClient, cfg.SubjectTokenIssuers...)
+	subjectTokenVerifiers, err := ExternalTokenVerifiers(ctx, httpClient, cfg.SubjectTokenIssuers.Issuers()...)
 	if err != nil {
 		return nil, fmt.Errorf("resolving subject token verifiers: %w", err)
 	}
