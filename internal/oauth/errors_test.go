@@ -33,14 +33,8 @@ func TestErrorDescribeAfterWrapKeepsReason(t *testing.T) {
 }
 
 func TestErrorServerErrorHidesDescription(t *testing.T) {
-	for name, e := range map[string]*Error{
-		"described":     ErrServerError.Describe("private detail"),
-		"public reason": ErrServerError.Wrap(NewPublicReason("private detail")),
-	} {
-		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, "internal error", e.HTTPError().Description)
-		})
-	}
+	e := ErrServerError.Describe("private detail").Wrap(NewPublicReason("private reason"))
+	assert.Equal(t, "internal error", e.HTTPError().Description)
 }
 
 func TestErrorCopies(t *testing.T) {

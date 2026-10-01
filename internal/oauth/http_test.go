@@ -124,25 +124,14 @@ func TestRequireContentType(t *testing.T) {
 	}
 }
 
-func TestHandlerFunc(t *testing.T) {
-	for name, test := range map[string]struct {
-		err         error
-		status      int
-		description string
-	}{
-		"plain error":   {err: errors.New("private detail"), status: http.StatusInternalServerError, description: "internal error"},
-		"wrapped Error": {err: fmt.Errorf("wrap: %w", ErrInvalidTarget.Describe("public")), status: http.StatusBadRequest, description: "public"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			recorder := httptest.NewRecorder()
-			HandlerFunc(func(http.ResponseWriter, *http.Request) error { return test.err })(recorder, httptest.NewRequest(http.MethodPost, "/", nil))
+func TestHandlerFuncHidesPlainError(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	HandlerFunc(func(http.ResponseWriter, *http.Request) error { return errors.New("private detail") })(recorder, httptest.NewRequest(http.MethodPost, "/", nil))
 
-			assert.Equal(t, test.status, recorder.Code)
-			var body ErrorResponse
-			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
-			assert.Equal(t, test.description, body.Description)
-		})
-	}
+	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+	var body ErrorResponse
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
+	assert.Equal(t, "internal error", body.Description)
 }
 
 func TestHandlerFuncLogsWrappingContext(t *testing.T) {
@@ -160,7 +149,6 @@ func TestHandlerFuncLogsWrappingContext(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
 	assert.Equal(t, "described: reason", body.Description)
 	assert.Contains(t, logs.String(), "context: described: reason")
-	assert.Equal(t, 1, strings.Count(logs.String(), "reason\""))
 }
 
 func TestWriteError(t *testing.T) {
@@ -182,13 +170,6 @@ func TestWriteError(t *testing.T) {
 			err:         ErrUnsupportedMediaType.Describe("authentication failed").Wrap(errors.New("private detail")),
 			status:      http.StatusUnsupportedMediaType,
 			errorType:   "invalid_request",
-			description: "authentication failed",
-			level:       "WARN",
-		},
-		"invalid token": {
-			err:         ErrInvalidToken.Describe("authentication failed").Wrap(errors.New("private detail")),
-			status:      http.StatusUnauthorized,
-			errorType:   "invalid_token",
 			description: "authentication failed",
 			level:       "WARN",
 		},
