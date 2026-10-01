@@ -8,14 +8,13 @@ import (
 
 // Error is an OAuth error response. The rules for errors are:
 //
-//  1. A check returns [NewPublicReason] when its text may be displayed in error_description.
+//  1. A check returns [NewErrorDescription] when its text may be displayed in error_description.
 //     A check does not know the OAuth code.
-//     To keep a cause private, return fmt.Errorf("%w: %w", reason, cause).
-//  2. A handler returns a sentinel such as [ErrInvalidClient], which sets the code and the status.
-//     [Error.Describe] sets error_description.
-//     [Error.Wrap] attaches the cause, which is only logged.
-//     If the cause contains a [PublicReason], its text is appended to the description.
-//  3. Any other error is an internal failure. [HandlerFunc] responds with [ErrServerError].
+//     [WrapErrorDescription] also attaches a cause, which is only logged.
+//  2. A handler returns a constructor such as [InvalidClient], which sets the code and the status.
+//     The format sets error_description. The cause is only logged; pass nil if there is none.
+//     If the cause contains an [ErrorDescription], its text is appended to the description.
+//  3. Any other error is an internal failure. [HandlerFunc] responds with [ServerError].
 type Error struct {
 	code        string
 	description string
@@ -23,40 +22,70 @@ type Error struct {
 	cause       error
 }
 
-var (
-	// RFC 6749 section 5.2
-	ErrInvalidRequest       = &Error{code: "invalid_request", status: http.StatusBadRequest}
-	ErrRequestTooLarge      = &Error{code: "invalid_request", status: http.StatusRequestEntityTooLarge}
-	ErrUnsupportedMediaType = &Error{code: "invalid_request", status: http.StatusUnsupportedMediaType}
-	ErrInvalidClient        = &Error{code: "invalid_client", status: http.StatusBadRequest}
-	ErrUnauthorizedClient   = &Error{code: "unauthorized_client", status: http.StatusBadRequest}
-	ErrUnsupportedGrantType = &Error{code: "unsupported_grant_type", status: http.StatusBadRequest}
-
-	// RFC 6749 section 4.1.2.1
-	ErrServerError = &Error{code: "server_error", status: http.StatusInternalServerError, description: "internal error"}
-
-	// RFC 8693 section 2.2.2
-	ErrInvalidTarget = &Error{code: "invalid_target", status: http.StatusBadRequest}
-
-	// RFC 6750 section 3.1
-	ErrInvalidToken = &Error{code: "invalid_token", status: http.StatusUnauthorized}
-
-	// RFC 7591 section 3.2.2
-	ErrInvalidClientMetadata       = &Error{code: "invalid_client_metadata", status: http.StatusBadRequest}
-	ErrInvalidSoftwareStatement    = &Error{code: "invalid_software_statement", status: http.StatusBadRequest}
-	ErrUnapprovedSoftwareStatement = &Error{code: "unapproved_software_statement", status: http.StatusBadRequest}
-)
-
-func (e *Error) Describe(format string, args ...any) *Error {
-	c := *e
-	c.description = fmt.Sprintf(format, args...)
-	return &c
+func newError(code string, status int, cause error, format string, args ...any) error {
+	return &Error{code: code, status: status, cause: cause, description: fmt.Sprintf(format, args...)}
 }
 
-func (e *Error) Wrap(cause error) *Error {
-	c := *e
-	c.cause = cause
-	return &c
+// RFC 6749 section 5.2
+
+func InvalidRequest(cause error, format string, args ...any) error {
+	return newError("invalid_request", http.StatusBadRequest, cause, format, args...)
+}
+
+func RequestTooLarge(cause error, format string, args ...any) error {
+	return newError("invalid_request", http.StatusRequestEntityTooLarge, cause, format, args...)
+}
+
+func UnsupportedMediaType(cause error, format string, args ...any) error {
+	return newError("invalid_request", http.StatusUnsupportedMediaType, cause, format, args...)
+}
+
+func InvalidClient(cause error, format string, args ...any) error {
+	return newError("invalid_client", http.StatusBadRequest, cause, format, args...)
+}
+
+func UnauthorizedClient(cause error, format string, args ...any) error {
+	return newError("unauthorized_client", http.StatusBadRequest, cause, format, args...)
+}
+
+func UnsupportedGrantType(cause error, format string, args ...any) error {
+	return newError("unsupported_grant_type", http.StatusBadRequest, cause, format, args...)
+}
+
+// RFC 6749 section 4.1.2.1
+
+func ServerError(cause error) error {
+	return serverError(cause)
+}
+
+func serverError(cause error) *Error {
+	return &Error{code: "server_error", status: http.StatusInternalServerError, description: "internal error", cause: cause}
+}
+
+// RFC 8693 section 2.2.2
+
+func InvalidTarget(cause error, format string, args ...any) error {
+	return newError("invalid_target", http.StatusBadRequest, cause, format, args...)
+}
+
+// RFC 6750 section 3.1
+
+func InvalidToken(cause error, format string, args ...any) error {
+	return newError("invalid_token", http.StatusUnauthorized, cause, format, args...)
+}
+
+// RFC 7591 section 3.2.2
+
+func InvalidClientMetadata(cause error, format string, args ...any) error {
+	return newError("invalid_client_metadata", http.StatusBadRequest, cause, format, args...)
+}
+
+func InvalidSoftwareStatement(cause error, format string, args ...any) error {
+	return newError("invalid_software_statement", http.StatusBadRequest, cause, format, args...)
+}
+
+func UnapprovedSoftwareStatement(cause error, format string, args ...any) error {
+	return newError("unapproved_software_statement", http.StatusBadRequest, cause, format, args...)
 }
 
 func (e *Error) Error() string {
@@ -72,21 +101,25 @@ func (e *Error) Unwrap() error {
 
 func (e *Error) HTTPError() ErrorResponse {
 	if e.status >= http.StatusInternalServerError {
-		return ErrorResponse{Status: e.status, Code: e.code, Description: ErrServerError.description}
+		return ErrorResponse{Status: e.status, Code: e.code, Description: serverError(nil).description}
 	}
 	description := e.description
-	if reason, ok := errors.AsType[PublicReason](e.cause); ok {
+	if reason, ok := errors.AsType[ErrorDescription](e.cause); ok {
 		description += ": " + string(reason)
 	}
 	return ErrorResponse{Status: e.status, Code: e.code, Description: description}
 }
 
-type PublicReason string
+type ErrorDescription string
 
-func NewPublicReason(format string, args ...any) error {
-	return PublicReason(fmt.Sprintf(format, args...))
+func NewErrorDescription(format string, args ...any) error {
+	return ErrorDescription(fmt.Sprintf(format, args...))
 }
 
-func (r PublicReason) Error() string {
+func WrapErrorDescription(cause error, format string, args ...any) error {
+	return fmt.Errorf("%w: %w", NewErrorDescription(format, args...), cause)
+}
+
+func (r ErrorDescription) Error() string {
 	return string(r)
 }

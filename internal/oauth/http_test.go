@@ -142,7 +142,7 @@ func TestHandlerFuncLogsWrappingContext(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	HandlerFunc(func(http.ResponseWriter, *http.Request) error {
-		return fmt.Errorf("context: %w", ErrInvalidTarget.Describe("described").Wrap(NewPublicReason("reason")))
+		return fmt.Errorf("context: %w", InvalidTarget(NewErrorDescription("reason"), "described"))
 	})(recorder, httptest.NewRequest(http.MethodPost, "/", nil))
 
 	var body ErrorResponse
@@ -153,21 +153,21 @@ func TestHandlerFuncLogsWrappingContext(t *testing.T) {
 
 func TestWriteError(t *testing.T) {
 	for name, test := range map[string]struct {
-		err         *Error
+		err         error
 		status      int
 		errorType   string
 		description string
 		level       string
 	}{
 		"server error": {
-			err:         ErrServerError.Wrap(errors.New("private detail")),
+			err:         ServerError(errors.New("private detail")),
 			status:      http.StatusInternalServerError,
 			errorType:   "server_error",
 			description: "internal error",
 			level:       "ERROR",
 		},
 		"sentinel status": {
-			err:         ErrUnsupportedMediaType.Describe("authentication failed").Wrap(errors.New("private detail")),
+			err:         UnsupportedMediaType(errors.New("private detail"), "authentication failed"),
 			status:      http.StatusUnsupportedMediaType,
 			errorType:   "invalid_request",
 			description: "authentication failed",
@@ -181,7 +181,7 @@ func TestWriteError(t *testing.T) {
 			t.Cleanup(func() { slog.SetDefault(previous) })
 
 			recorder := httptest.NewRecorder()
-			WriteError(recorder, httptest.NewRequest(http.MethodPost, "/token", nil), test.err)
+			WriteError(recorder, httptest.NewRequest(http.MethodPost, "/token", nil), test.err.(*Error))
 
 			assert.Equal(t, test.status, recorder.Code)
 			assert.NotContains(t, recorder.Body.String(), "private detail")

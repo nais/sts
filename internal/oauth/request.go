@@ -33,7 +33,7 @@ func parseClientAuthCredentials(form url.Values) ClientAuthCredentials {
 
 func (c *ClientAuthCredentials) Validate() error {
 	if c.ClientAssertion == "" || c.ClientAssertionType != oidc.ClientAssertionTypeJWTAssertion {
-		return ErrInvalidRequest.Describe("client_assertion must be provided and be of type %s", oidc.ClientAssertionTypeJWTAssertion)
+		return InvalidRequest(nil, "client_assertion must be provided and be of type %s", oidc.ClientAssertionTypeJWTAssertion)
 	}
 	return nil
 }
@@ -62,7 +62,7 @@ func (c *ClientCredentialsRequest) GrantType() oidc.GrantType {
 
 func (c *ClientCredentialsRequest) Target() (Target, error) {
 	if len(c.Scope) != 1 {
-		return nil, ErrInvalidTarget.Describe("scope must contain exactly one target scope")
+		return nil, InvalidTarget(nil, "scope must contain exactly one target scope")
 	}
 	return TargetScope(c.Scope[0]), nil
 }
@@ -103,7 +103,7 @@ func (t *TokenExchangeRequest) GrantType() oidc.GrantType {
 
 func (t *TokenExchangeRequest) Target() (Target, error) {
 	if t.Audience == "" {
-		return nil, ErrInvalidTarget.Describe("audience must contain exactly one audience")
+		return nil, InvalidTarget(nil, "audience must contain exactly one audience")
 	}
 	return TargetAudience(t.Audience), nil
 }
@@ -113,16 +113,16 @@ func (t *TokenExchangeRequest) Validate() error {
 		return err
 	}
 	if t.ActorToken != "" {
-		return ErrInvalidRequest.Describe("actor_token is not supported")
+		return InvalidRequest(nil, "actor_token is not supported")
 	}
 	if t.SubjectToken == "" {
-		return ErrInvalidRequest.Describe("subject_token missing")
+		return InvalidRequest(nil, "subject_token missing")
 	}
 	if t.SubjectTokenType != string(oidc.JWTTokenType) {
-		return ErrInvalidRequest.Describe("subject_token_type must be %s", oidc.JWTTokenType)
+		return InvalidRequest(nil, "subject_token_type must be %s", oidc.JWTTokenType)
 	}
 	if t.RequestedTokenType != string(oidc.AccessTokenType) {
-		return ErrInvalidRequest.Describe("requested_token_type must be %s", oidc.AccessTokenType)
+		return InvalidRequest(nil, "requested_token_type must be %s", oidc.AccessTokenType)
 	}
 	_, err := t.Target()
 	return err

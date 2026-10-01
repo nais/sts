@@ -39,20 +39,20 @@ func (a *Api) PostEndpoint() http.HandlerFunc {
 
 		registrator, err := a.AuthenticateRequest(r)
 		if err != nil {
-			return oauth.ErrInvalidToken.Describe("authentication failed").Wrap(err)
+			return oauth.InvalidToken(err, "authentication failed")
 		}
 
 		registration, err := decodeClientRegistration(w, r)
 		if err != nil {
 			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-				return oauth.ErrRequestTooLarge.Describe("request body exceeds %d bytes", maxRegistrationBodySize).Wrap(err)
+				return oauth.RequestTooLarge(err, "request body exceeds %d bytes", maxRegistrationBodySize)
 			}
-			return oauth.ErrInvalidClientMetadata.Describe("invalid request body").Wrap(err)
+			return oauth.InvalidClientMetadata(err, "invalid request body")
 		}
 
 		ss, err := registrator.VerifySoftwareStatement(r.Context(), registration.SoftwareStatement)
 		if err != nil {
-			return oauth.ErrInvalidSoftwareStatement.Describe("software statement is invalid").Wrap(err)
+			return oauth.InvalidSoftwareStatement(err, "software statement is invalid")
 		}
 
 		if err := a.SaveRegistration(r.Context(), registrator, ss); err != nil {
@@ -71,18 +71,18 @@ func (a *Api) DeleteEndpoint() http.HandlerFunc {
 	return oauth.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
 		registrator, err := a.AuthenticateRequest(r)
 		if err != nil {
-			return oauth.ErrInvalidToken.Describe("authentication failed").Wrap(err)
+			return oauth.InvalidToken(err, "authentication failed")
 		}
 
 		clientID := oauth.ClientID(chi.URLParam(r, "id"))
 		if err := clientID.Validate(); err != nil {
-			return oauth.ErrInvalidRequest.Describe("client ID is invalid").Wrap(err)
+			return oauth.InvalidRequest(err, "client ID is invalid")
 		}
 
 		err = a.store.Delete(r.Context(), clientID, registrator.AuthIssuer)
 		if err != nil {
 			if errors.Is(err, oauth.ErrRegistrationUnauthorized) {
-				return oauth.ErrUnauthorizedClient.Describe("registrator is not authorized to delete client").Wrap(err)
+				return oauth.UnauthorizedClient(err, "registrator is not authorized to delete client")
 			}
 			return err
 		}
@@ -94,7 +94,7 @@ func (a *Api) DeleteEndpoint() http.HandlerFunc {
 
 func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s *SoftwareStatement) error {
 	if s.Workload.Issuer != registrator.AuthIssuer {
-		return oauth.ErrUnapprovedSoftwareStatement.Describe("workload issuer %q does not match the registrator issuer %q", s.Workload.Issuer, registrator.AuthIssuer)
+		return oauth.UnapprovedSoftwareStatement(nil, "workload issuer %q does not match the registrator issuer %q", s.Workload.Issuer, registrator.AuthIssuer)
 	}
 	policies := make([]oauth.AuthorizationPolicy, len(s.AuthorizationPolicies))
 	for i, policy := range s.AuthorizationPolicies {
@@ -116,11 +116,11 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 	case err == nil:
 		return nil
 	case errors.Is(err, oauth.ErrRegistrationUnauthorized):
-		return oauth.ErrUnauthorizedClient.Describe("registrator is not authorized for client").Wrap(err)
+		return oauth.UnauthorizedClient(err, "registrator is not authorized for client")
 	case errors.Is(err, oauth.ErrImmutableFieldsChanged):
-		return oauth.ErrInvalidClientMetadata.Describe("registration conflicts with existing client: immutable fields cannot change").Wrap(err)
+		return oauth.InvalidClientMetadata(err, "registration conflicts with existing client: immutable fields cannot change")
 	case errors.Is(err, oauth.ErrWorkloadTaken):
-		return oauth.ErrInvalidClientMetadata.Describe("workload is already registered to another client").Wrap(err)
+		return oauth.InvalidClientMetadata(err, "workload is already registered to another client")
 	default:
 		return err
 	}

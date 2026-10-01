@@ -21,14 +21,14 @@ func TestFromZitadelTokenError(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := FromZitadelTokenError(test.err)
-			reason, ok := errors.AsType[PublicReason](err)
+			reason, ok := errors.AsType[ErrorDescription](err)
 			if test.want == "" {
 				assert.False(t, ok)
 				assert.Equal(t, test.err, err)
 				return
 			}
 			require.True(t, ok)
-			assert.Equal(t, PublicReason(test.want), reason)
+			assert.Equal(t, ErrorDescription(test.want), reason)
 			assert.ErrorIs(t, err, test.err)
 		})
 	}

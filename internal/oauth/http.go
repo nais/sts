@@ -92,9 +92,9 @@ func readTokenForm(w http.ResponseWriter, r *http.Request) (url.Values, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxTokenRequestBodySize)
 	if err := r.ParseForm(); err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			return nil, ErrRequestTooLarge.Describe("request body exceeds %d bytes", maxTokenRequestBodySize).Wrap(err)
+			return nil, RequestTooLarge(err, "request body exceeds %d bytes", maxTokenRequestBodySize)
 		}
-		return nil, ErrInvalidRequest.Describe("error parsing form").Wrap(err)
+		return nil, InvalidRequest(err, "error parsing form")
 	}
 	return r.PostForm, nil
 }
@@ -105,13 +105,13 @@ func (a *AuthorizationServer) parseTokenRequest(form url.Values) (TokenRequest, 
 		return parseClientCredentialsRequest(form), nil
 	case oidc.GrantTypeTokenExchange:
 		if len(a.SubjectTokenIssuers) == 0 {
-			return nil, ErrUnsupportedGrantType.Describe("%s not supported", grantType)
+			return nil, UnsupportedGrantType(nil, "%s not supported", grantType)
 		}
 		return parseTokenExchangeRequest(form), nil
 	case "":
-		return nil, ErrInvalidRequest.Describe("grant_type missing")
+		return nil, InvalidRequest(nil, "grant_type missing")
 	default:
-		return nil, ErrUnsupportedGrantType.Describe("%s not supported", grantType)
+		return nil, UnsupportedGrantType(nil, "%s not supported", grantType)
 	}
 }
 
@@ -119,7 +119,7 @@ func RequireContentType(r *http.Request, mediaType string) error {
 	header := r.Header.Get("Content-Type")
 	got, _, err := mime.ParseMediaType(header)
 	if err != nil || got != mediaType {
-		return ErrUnsupportedMediaType.Describe("content type must be %s", mediaType).Wrap(fmt.Errorf("got content type %q", header))
+		return UnsupportedMediaType(fmt.Errorf("got content type %q", header), "content type must be %s", mediaType)
 	}
 	return nil
 }
@@ -132,9 +132,11 @@ func HandlerFunc(f func(http.ResponseWriter, *http.Request) error) http.HandlerF
 		}
 		e, ok := errors.AsType[*Error](err)
 		if !ok {
-			e = ErrServerError.Wrap(err)
+			e = serverError(err)
 		} else if err != error(e) {
-			e = e.Wrap(err) // log the context that f added around e
+			c := *e
+			c.cause = err // log the context that f added around e
+			e = &c
 		}
 		WriteError(w, r, e)
 	}
