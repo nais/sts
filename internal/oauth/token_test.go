@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -76,9 +77,9 @@ func TestAccessTokenClaimsKubernetes(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := (&AccessTokenClaims{Claims: test.claims}).Kubernetes()
-			var reason *PublicError
-			require.ErrorAs(t, err, &reason)
-			assert.Equal(t, test.want, reason.Message)
+			reason, ok := errors.AsType[PublicReason](err)
+			require.True(t, ok)
+			assert.Equal(t, PublicReason(test.want), reason)
 		})
 	}
 }

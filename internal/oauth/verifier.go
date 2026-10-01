@@ -31,17 +31,17 @@ func (v MultiIssuerTokenVerifier) Verify(ctx context.Context, rawToken string, f
 	claims := new(AccessTokenClaims)
 	payload, err := oidc.ParseToken(rawToken, claims)
 	if err != nil {
-		return nil, PublicTokenError(err)
+		return nil, FromZitadelTokenError(err)
 	}
 
 	verifier, ok := v[Issuer(claims.Issuer)]
 	if !ok {
-		return nil, NewPublicError("issuer %q is not trusted", claims.Issuer)
+		return nil, NewPublicReason("issuer %q is not trusted", claims.Issuer)
 	}
 
 	verifiedClaims, err := verifier.Verify(ctx, rawToken, payload, claims)
 	if err != nil {
-		return nil, PublicTokenError(err)
+		return nil, FromZitadelTokenError(err)
 	}
 
 	for _, fn := range fns {
@@ -119,7 +119,7 @@ func (i *TokenVerifier) Verify(ctx context.Context, rawToken string, payload []b
 	if !claims.NotBefore.AsTime().IsZero() {
 		nowWithOffset := time.Now().Add(SkewTime).Round(time.Second)
 		if claims.NotBefore.AsTime().After(nowWithOffset) {
-			return nil, NewPublicError("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
+			return nil, NewPublicReason("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
 		}
 	}
 	return claims, nil
@@ -196,7 +196,6 @@ func asymmetricAlgorithms(advertised []string) []string {
 	return algorithms
 }
 
-// Zitadel token validation errors that are safe to show to the HTTP client.
 var publicTokenErrors = []error{
 	oidc.ErrParse,
 	oidc.ErrIssuerInvalid,
@@ -213,8 +212,7 @@ var publicTokenErrors = []error{
 	oidc.ErrIatInFuture,
 }
 
-// PublicTokenError turns an allowlisted zitadel error into a PublicError.
-func PublicTokenError(err error) error {
+func FromZitadelTokenError(err error) error {
 	for _, public := range publicTokenErrors {
 		if errors.Is(err, public) {
 			message := public.Error()
@@ -222,7 +220,7 @@ func PublicTokenError(err error) error {
 				// zitadel says "parsing of request failed", which does not tell the HTTP client that the token is the problem.
 				message = "token is not a valid JWT"
 			}
-			return NewPublicError("%s", message).Wrap(err)
+			return fmt.Errorf("%w: %w", NewPublicReason("%s", message), err)
 		}
 	}
 	return err

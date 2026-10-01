@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"time"
 	"uuid"
@@ -142,16 +143,16 @@ type KubernetesClaims struct {
 func (a *AccessTokenClaims) Kubernetes() (*KubernetesClaims, error) {
 	raw, ok := a.Claims["kubernetes.io"]
 	if !ok {
-		return nil, NewPublicError("kubernetes.io claim is missing")
+		return nil, NewPublicReason("kubernetes.io claim is missing")
 	}
 
 	var kubernetes KubernetesClaims
 	if err := json.Unmarshal(raw, &kubernetes); err != nil {
-		return nil, NewPublicError("kubernetes.io claim is malformed").Wrap(err)
+		return nil, fmt.Errorf("%w: %w", NewPublicReason("kubernetes.io claim is malformed"), err)
 	}
 
 	if kubernetes.Namespace == "" || kubernetes.ServiceAccount.Name == "" {
-		return nil, NewPublicError("kubernetes.io claim has no namespace or service account name")
+		return nil, NewPublicReason("kubernetes.io claim has no namespace or service account name")
 	}
 	return &kubernetes, nil
 }

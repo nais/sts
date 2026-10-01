@@ -10,7 +10,7 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-func TestPublicTokenError(t *testing.T) {
+func TestFromZitadelTokenError(t *testing.T) {
 	for name, test := range map[string]struct {
 		err  error
 		want string
@@ -20,16 +20,16 @@ func TestPublicTokenError(t *testing.T) {
 		"unlisted error": {err: fmt.Errorf("%w: private detail", oidc.ErrDiscoveryFailed)},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := PublicTokenError(test.err)
-			public, ok := errors.AsType[*PublicError](err)
+			err := FromZitadelTokenError(test.err)
+			reason, ok := errors.AsType[PublicReason](err)
 			if test.want == "" {
 				assert.False(t, ok)
 				assert.Equal(t, test.err, err)
 				return
 			}
 			require.True(t, ok)
-			assert.Equal(t, test.want, public.Message)
-			assert.Equal(t, test.err, public.Cause)
+			assert.Equal(t, PublicReason(test.want), reason)
+			assert.ErrorIs(t, err, test.err)
 		})
 	}
 }

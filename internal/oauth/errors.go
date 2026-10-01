@@ -6,113 +6,87 @@ import (
 	"net/http"
 )
 
-const (
+// Error is an OAuth error response. The rules for errors are:
+//
+//  1. A check returns [NewPublicReason] when its text may be displayed in error_description.
+//     A check does not know the OAuth code.
+//     To keep a cause private, return fmt.Errorf("%w: %w", reason, cause).
+//  2. A handler returns a sentinel such as [ErrInvalidClient], which sets the code and the status.
+//     [Error.Describe] sets error_description.
+//     [Error.Wrap] attaches the cause, which is only logged.
+//     If the cause contains a [PublicReason], its text is appended to the description.
+//  3. Any other error is an internal failure. [HandlerFunc] responds with [ErrServerError].
+type Error struct {
+	code        string
+	description string
+	status      int
+	cause       error
+}
+
+var (
 	// RFC 6749 section 5.2
-	CodeInvalidRequest       = "invalid_request"
-	CodeInvalidClient        = "invalid_client"
-	CodeUnauthorizedClient   = "unauthorized_client"
-	CodeUnsupportedGrantType = "unsupported_grant_type"
-	CodeServerError          = "server_error"
+	ErrInvalidRequest       = &Error{code: "invalid_request", status: http.StatusBadRequest}
+	ErrRequestTooLarge      = &Error{code: "invalid_request", status: http.StatusRequestEntityTooLarge}
+	ErrUnsupportedMediaType = &Error{code: "invalid_request", status: http.StatusUnsupportedMediaType}
+	ErrInvalidClient        = &Error{code: "invalid_client", status: http.StatusBadRequest}
+	ErrUnauthorizedClient   = &Error{code: "unauthorized_client", status: http.StatusBadRequest}
+	ErrUnsupportedGrantType = &Error{code: "unsupported_grant_type", status: http.StatusBadRequest}
+
+	// RFC 6749 section 4.1.2.1
+	ErrServerError = &Error{code: "server_error", status: http.StatusInternalServerError, description: "internal error"}
 
 	// RFC 8693 section 2.2.2
-	CodeInvalidTarget = "invalid_target"
+	ErrInvalidTarget = &Error{code: "invalid_target", status: http.StatusBadRequest}
 
 	// RFC 6750 section 3.1
-	CodeInvalidToken = "invalid_token"
+	ErrInvalidToken = &Error{code: "invalid_token", status: http.StatusUnauthorized}
 
 	// RFC 7591 section 3.2.2
-	CodeInvalidClientMetadata       = "invalid_client_metadata"
-	CodeInvalidSoftwareStatement    = "invalid_software_statement"
-	CodeUnapprovedSoftwareStatement = "unapproved_software_statement"
+	ErrInvalidClientMetadata       = &Error{code: "invalid_client_metadata", status: http.StatusBadRequest}
+	ErrInvalidSoftwareStatement    = &Error{code: "invalid_software_statement", status: http.StatusBadRequest}
+	ErrUnapprovedSoftwareStatement = &Error{code: "unapproved_software_statement", status: http.StatusBadRequest}
 )
 
-// ErrorResponse is the OAuth error response that [WriteError] sends to the HTTP client.
-// [WriteError] logs Cause.
-type ErrorResponse struct {
-	Code        string `json:"error"`
-	Description string `json:"error_description,omitempty"`
-	// Status is the HTTP status. If it is zero, [ErrorResponse.status] derives it from Code.
-	Status int   `json:"-"`
-	Cause  error `json:"-"`
-}
-
-func NewErrorResponse(code, format string, args ...any) *ErrorResponse {
-	return &ErrorResponse{Code: code, Description: fmt.Sprintf(format, args...)}
-}
-
-// Wrap returns a copy of e with err as its cause.
-// If err contains a [PublicError] and Code is not server_error,
-// the Description of the copy is "[ErrorResponse.Description]: [PublicError.Message]".
-func (e *ErrorResponse) Wrap(err error) *ErrorResponse {
+func (e *Error) Describe(format string, args ...any) *Error {
 	c := *e
-	c.Cause = err
-	if public, ok := errors.AsType[*PublicError](err); ok && c.Code != CodeServerError {
-		c.Description += ": " + public.Message
-	}
+	c.description = fmt.Sprintf(format, args...)
 	return &c
 }
 
-func (e *ErrorResponse) WithStatus(status int) *ErrorResponse {
+func (e *Error) Wrap(cause error) *Error {
 	c := *e
-	c.Status = status
+	c.cause = cause
 	return &c
 }
 
-func (e *ErrorResponse) Error() string {
-	return e.Code + ": " + e.Description
-}
-
-func (e *ErrorResponse) Unwrap() error {
-	return e.Cause
-}
-
-func (e *ErrorResponse) status() int {
-	switch {
-	case e.Status != 0:
-		return e.Status
-	case e.Code == CodeServerError:
-		return http.StatusInternalServerError
-	case e.Code == CodeInvalidToken:
-		return http.StatusUnauthorized
-	default:
-		return http.StatusBadRequest
+func (e *Error) Error() string {
+	if e.cause == nil {
+		return e.description
 	}
+	return e.description + ": " + e.cause.Error()
 }
 
-// clientErrorResponse returns the ErrorResponse in err, unless it is a server_error.
-func clientErrorResponse(err error) (*ErrorResponse, bool) {
-	e, ok := errors.AsType[*ErrorResponse](err)
-	return e, ok && e.Code != CodeServerError
+func (e *Error) Unwrap() error {
+	return e.cause
 }
 
-// PublicError is an error whose Message is safe to show to the HTTP client.
-// [ErrorResponse.Wrap] adds Message to [ErrorResponse.Description].
-// [WriteError] responds with 500 to a PublicError that is not wrapped in an [ErrorResponse].
-type PublicError struct {
-	Message string
-	Cause   error
-}
-
-func NewPublicError(format string, args ...any) *PublicError {
-	return &PublicError{Message: fmt.Sprintf(format, args...)}
-}
-
-// Wrap returns a copy of p with cause attached.
-// [ErrorResponse.Wrap] copies only [PublicError.Message] into [ErrorResponse.Description]. [WriteError] logs the cause.
-func (p *PublicError) Wrap(cause error) *PublicError {
-	c := *p
-	c.Cause = cause
-	return &c
-}
-
-// Error includes the cause. Do not use it in a response description.
-func (p *PublicError) Error() string {
-	if p.Cause == nil {
-		return p.Message
+func (e *Error) HTTPError() ErrorResponse {
+	if e.status >= http.StatusInternalServerError {
+		return ErrorResponse{Status: e.status, Code: e.code, Description: ErrServerError.description}
 	}
-	return p.Message + ": " + p.Cause.Error()
+	description := e.description
+	if reason, ok := errors.AsType[PublicReason](e.cause); ok {
+		description += ": " + string(reason)
+	}
+	return ErrorResponse{Status: e.status, Code: e.code, Description: description}
 }
 
-func (p *PublicError) Unwrap() error {
-	return p.Cause
+type PublicReason string
+
+func NewPublicReason(format string, args ...any) error {
+	return PublicReason(fmt.Sprintf(format, args...))
+}
+
+func (r PublicReason) Error() string {
+	return string(r)
 }

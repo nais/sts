@@ -258,7 +258,6 @@ func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSn
 	return result, nil
 }
 
-// errNotOwner reports that a stored client belongs to another issuer than the registrator.
 func errNotOwner(clientID, ownerIssuer, registratorIssuer string) error {
 	return fmt.Errorf("%w: client %q, owner issuer %q, registrator issuer %q",
 		oauth.ErrRegistrationUnauthorized,

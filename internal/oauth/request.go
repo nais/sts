@@ -20,7 +20,7 @@ var (
 )
 
 type ClientAuthCredentials struct {
-	ClientAssertion     string // JWT
+	ClientAssertion     string
 	ClientAssertionType string
 }
 
@@ -33,7 +33,7 @@ func parseClientAuthCredentials(form url.Values) ClientAuthCredentials {
 
 func (c *ClientAuthCredentials) Validate() error {
 	if c.ClientAssertion == "" || c.ClientAssertionType != oidc.ClientAssertionTypeJWTAssertion {
-		return NewErrorResponse(CodeInvalidRequest, "client_assertion must be provided and be of type %s", oidc.ClientAssertionTypeJWTAssertion)
+		return ErrInvalidRequest.Describe("client_assertion must be provided and be of type %s", oidc.ClientAssertionTypeJWTAssertion)
 	}
 	return nil
 }
@@ -62,7 +62,7 @@ func (c *ClientCredentialsRequest) GrantType() oidc.GrantType {
 
 func (c *ClientCredentialsRequest) Target() (Target, error) {
 	if len(c.Scope) != 1 {
-		return nil, NewErrorResponse(CodeInvalidTarget, "scope must contain exactly one target scope")
+		return nil, ErrInvalidTarget.Describe("scope must contain exactly one target scope")
 	}
 	return TargetScope(c.Scope[0]), nil
 }
@@ -103,7 +103,7 @@ func (t *TokenExchangeRequest) GrantType() oidc.GrantType {
 
 func (t *TokenExchangeRequest) Target() (Target, error) {
 	if t.Audience == "" {
-		return nil, NewErrorResponse(CodeInvalidTarget, "audience must contain exactly one audience")
+		return nil, ErrInvalidTarget.Describe("audience must contain exactly one audience")
 	}
 	return TargetAudience(t.Audience), nil
 }
@@ -113,16 +113,16 @@ func (t *TokenExchangeRequest) Validate() error {
 		return err
 	}
 	if t.ActorToken != "" {
-		return NewErrorResponse(CodeInvalidRequest, "actor_token is not supported")
+		return ErrInvalidRequest.Describe("actor_token is not supported")
 	}
 	if t.SubjectToken == "" {
-		return NewErrorResponse(CodeInvalidRequest, "subject_token missing")
+		return ErrInvalidRequest.Describe("subject_token missing")
 	}
 	if t.SubjectTokenType != string(oidc.JWTTokenType) {
-		return NewErrorResponse(CodeInvalidRequest, "subject_token_type must be %s", oidc.JWTTokenType)
+		return ErrInvalidRequest.Describe("subject_token_type must be %s", oidc.JWTTokenType)
 	}
 	if t.RequestedTokenType != string(oidc.AccessTokenType) {
-		return NewErrorResponse(CodeInvalidRequest, "requested_token_type must be %s", oidc.AccessTokenType)
+		return ErrInvalidRequest.Describe("requested_token_type must be %s", oidc.AccessTokenType)
 	}
 	_, err := t.Target()
 	return err

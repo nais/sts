@@ -92,9 +92,9 @@ func readTokenForm(w http.ResponseWriter, r *http.Request) (url.Values, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxTokenRequestBodySize)
 	if err := r.ParseForm(); err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			return nil, NewErrorResponse(CodeInvalidRequest, "request body exceeds %d bytes", maxTokenRequestBodySize).Wrap(err).WithStatus(http.StatusRequestEntityTooLarge)
+			return nil, ErrRequestTooLarge.Describe("request body exceeds %d bytes", maxTokenRequestBodySize).Wrap(err)
 		}
-		return nil, NewErrorResponse(CodeInvalidRequest, "error parsing form").Wrap(err)
+		return nil, ErrInvalidRequest.Describe("error parsing form").Wrap(err)
 	}
 	return r.PostForm, nil
 }
@@ -105,63 +105,60 @@ func (a *AuthorizationServer) parseTokenRequest(form url.Values) (TokenRequest, 
 		return parseClientCredentialsRequest(form), nil
 	case oidc.GrantTypeTokenExchange:
 		if len(a.SubjectTokenIssuers) == 0 {
-			return nil, NewErrorResponse(CodeUnsupportedGrantType, "%s not supported", grantType)
+			return nil, ErrUnsupportedGrantType.Describe("%s not supported", grantType)
 		}
 		return parseTokenExchangeRequest(form), nil
 	case "":
-		return nil, NewErrorResponse(CodeInvalidRequest, "grant_type missing")
+		return nil, ErrInvalidRequest.Describe("grant_type missing")
 	default:
-		return nil, NewErrorResponse(CodeUnsupportedGrantType, "%s not supported", grantType)
+		return nil, ErrUnsupportedGrantType.Describe("%s not supported", grantType)
 	}
 }
 
-// RequireContentType returns a 415 error if the request body is not of mediaType.
 func RequireContentType(r *http.Request, mediaType string) error {
 	header := r.Header.Get("Content-Type")
 	got, _, err := mime.ParseMediaType(header)
 	if err != nil || got != mediaType {
-		return NewErrorResponse(CodeInvalidRequest, "content type must be %s", mediaType).
-			Wrap(fmt.Errorf("got content type %q", header)).
-			WithStatus(http.StatusUnsupportedMediaType)
+		return ErrUnsupportedMediaType.Describe("content type must be %s", mediaType).Wrap(fmt.Errorf("got content type %q", header))
 	}
 	return nil
 }
 
-// HandlerFunc writes errors returned by f as OAuth error responses.
 func HandlerFunc(f func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := f(w, r); err != nil {
-			WriteError(w, r, err)
+		err := f(w, r)
+		if err == nil {
+			return
 		}
+		e, ok := errors.AsType[*Error](err)
+		if !ok {
+			e = ErrServerError.Wrap(err)
+		} else if err != error(e) {
+			e = e.Wrap(err) // log the context that f added around e
+		}
+		WriteError(w, r, e)
 	}
 }
 
-// WriteError writes err as an OAuth error response and logs it once.
-// Any error that is not an ErrorResponse with a client code becomes 500 "internal error".
-func WriteError(w http.ResponseWriter, r *http.Request, err error) {
-	e, ok := clientErrorResponse(err)
-	if !ok {
-		e = NewErrorResponse(CodeServerError, "internal error").Wrap(err)
-	}
-	status := e.status()
-
+func WriteError(w http.ResponseWriter, r *http.Request, e *Error) {
 	level := slog.LevelWarn
-	if status >= http.StatusInternalServerError {
+	if e.status >= http.StatusInternalServerError {
 		level = slog.LevelError
 	}
 	attrs := []slog.Attr{
-		slog.String("code", e.Code),
-		slog.String("description", e.Description),
-		slog.Int("status_code", status),
+		slog.String("code", e.code),
+		slog.String("description", e.description),
+		slog.Int("status_code", e.status),
 	}
-	if e.Cause != nil {
-		attrs = append(attrs, slog.Any("error", e.Cause))
+	if e.cause != nil {
+		attrs = append(attrs, slog.Any("error", e.cause))
 	}
 	slog.LogAttrs(r.Context(), level, "request error", attrs...)
 
+	resp := e.HTTPError()
 	w.Header().Set("Content-Type", MediaTypeJSON)
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(e); err != nil {
+	w.WriteHeader(resp.Status)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		slog.ErrorContext(r.Context(), "encode error response", "error", err)
 	}
 }
