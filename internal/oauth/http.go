@@ -130,34 +130,18 @@ func HandlerFunc(f func(http.ResponseWriter, *http.Request) error) http.HandlerF
 		if err == nil {
 			return
 		}
-		e, ok := errors.AsType[*Error](err)
-		if !ok {
-			e = serverError(err)
-		} else if err != error(e) {
-			c := *e
-			c.cause = err // log the context that f added around e
-			e = &c
-		}
-		WriteError(w, r, e)
+		WriteError(w, r, toError(err))
 	}
 }
 
-func WriteError(w http.ResponseWriter, r *http.Request, e *Error) {
+func WriteError(w http.ResponseWriter, r *http.Request, e Error) {
+	resp := e.HTTPError()
 	level := slog.LevelWarn
-	if e.status >= http.StatusInternalServerError {
+	if e.internal() {
 		level = slog.LevelError
 	}
-	attrs := []slog.Attr{
-		slog.String("code", e.code),
-		slog.String("description", e.description),
-		slog.Int("status_code", e.status),
-	}
-	if e.cause != nil {
-		attrs = append(attrs, slog.Any("error", e.cause))
-	}
-	slog.LogAttrs(r.Context(), level, "request error", attrs...)
+	slog.LogAttrs(r.Context(), level, "request error", e.logAttrs()...)
 
-	resp := e.HTTPError()
 	w.Header().Set("Content-Type", MediaTypeJSON)
 	w.WriteHeader(resp.Status)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {

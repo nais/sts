@@ -153,7 +153,7 @@ func TestHandlerFuncLogsWrappingContext(t *testing.T) {
 
 func TestWriteError(t *testing.T) {
 	for name, test := range map[string]struct {
-		err         error
+		err         Error
 		status      int
 		errorType   string
 		description string
@@ -181,7 +181,7 @@ func TestWriteError(t *testing.T) {
 			t.Cleanup(func() { slog.SetDefault(previous) })
 
 			recorder := httptest.NewRecorder()
-			WriteError(recorder, httptest.NewRequest(http.MethodPost, "/token", nil), test.err.(*Error))
+			WriteError(recorder, httptest.NewRequest(http.MethodPost, "/token", nil), test.err)
 
 			assert.Equal(t, test.status, recorder.Code)
 			assert.NotContains(t, recorder.Body.String(), "private detail")
