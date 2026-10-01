@@ -57,7 +57,7 @@ func (a *Api) PostEndpoint() http.HandlerFunc {
 
 		if err := a.SaveRegistration(r.Context(), registrator, ss); err != nil {
 			if errors.Is(err, oauth.ErrRegistrationUnauthorized) {
-				return oauth.NewErrorResponse(oauth.CodeInvalidClient, "registrator is not authorized for client").Wrap(err).WithStatus(http.StatusForbidden)
+				return oauth.NewErrorResponse(oauth.CodeUnauthorizedClient, "registrator is not authorized for client").Wrap(err)
 			}
 			if errors.Is(err, oauth.ErrImmutableFieldsChanged) {
 				return oauth.NewErrorResponse(oauth.CodeInvalidClientMetadata, "registration conflicts with existing client: immutable fields cannot change").Wrap(err)
@@ -91,7 +91,7 @@ func (a *Api) DeleteEndpoint() http.HandlerFunc {
 		err = a.store.Delete(r.Context(), clientID, registrator.AuthIssuer)
 		if err != nil {
 			if errors.Is(err, oauth.ErrRegistrationUnauthorized) {
-				return oauth.NewErrorResponse(oauth.CodeInvalidClient, "registrator is not authorized to delete client").Wrap(err).WithStatus(http.StatusForbidden)
+				return oauth.NewErrorResponse(oauth.CodeUnauthorizedClient, "registrator is not authorized to delete client").Wrap(err)
 			}
 			return err
 		}

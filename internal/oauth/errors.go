@@ -10,6 +10,7 @@ const (
 	// RFC 6749 section 5.2
 	CodeInvalidRequest       = "invalid_request"
 	CodeInvalidClient        = "invalid_client"
+	CodeUnauthorizedClient   = "unauthorized_client"
 	CodeUnsupportedGrantType = "unsupported_grant_type"
 	CodeServerError          = "server_error"
 

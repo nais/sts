@@ -234,14 +234,15 @@ func TestSts(t *testing.T) {
 			status, response := postRegistration[oauth.ErrorResponse](t, stsAddress, otherRegistratorToken, registration.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, replacement),
 			})
-			require.Equal(t, http.StatusForbidden, status, response)
+			require.Equal(t, http.StatusBadRequest, status, response)
+			assert.Equal(t, oauth.CodeUnauthorizedClient, response.Code)
 			assert.Equal(t, "registrator is not authorized for client", response.Description)
 		})
 
 		t.Run("does not delete registration outside issuer authority", func(t *testing.T) {
 			status, response := deleteRegistration[oauth.ErrorResponse](t, stsAddress, otherRegistratorToken, statement.ClientId)
-			require.Equal(t, http.StatusForbidden, status, response)
-			assert.Equal(t, oauth.CodeInvalidClient, response.Code)
+			require.Equal(t, http.StatusBadRequest, status, response)
+			assert.Equal(t, oauth.CodeUnauthorizedClient, response.Code)
 		})
 
 		t.Run("deletes missing registration", func(t *testing.T) {
