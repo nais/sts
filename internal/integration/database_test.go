@@ -202,6 +202,7 @@ func testPostgresKeyStore(t *testing.T, pool *pgxpool.Pool) {
 		require.True(t, ok, "public key type = %T", jwk.Key)
 		require.Equal(t, elliptic.P256(), publicKey.Curve)
 		require.Equal(t, string(jose.ES256), jwk.Algorithm)
+		require.True(t, jwk.IsPublic())
 	}
 
 	// A second replica must load the existing keys instead of creating another set.
