@@ -44,8 +44,8 @@ type ClientStore interface {
 
 var (
 	ErrRegistrationUnauthorized = errors.New("client owned by another issuer")
+	ErrRegistrationConflict     = errors.New("registration conflicts with existing client")
 	ErrImmutableFieldsChanged   = errors.New("immutable fields differ")
-	ErrWorkloadTaken            = errors.New("workload belongs to another client")
 	ErrClientNotFound           = errors.New("client not found")
 	ErrTargetUnauthorized       = errors.New("no authorization policy")
 )

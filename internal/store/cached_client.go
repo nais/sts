@@ -147,7 +147,7 @@ func (c *CachedClient) Save(ctx context.Context, client *oauth.Client, policies 
 			return fmt.Errorf("%w: client %q", oauth.ErrImmutableFieldsChanged, client.ID)
 		}
 		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgerrcode.UniqueViolation {
-			return fmt.Errorf("%w: %s: %v", oauth.ErrWorkloadTaken, clientKeyFromRow(client.KubernetesClient), err)
+			return fmt.Errorf("%w: %s: %v", oauth.ErrRegistrationConflict, clientKeyFromRow(client.KubernetesClient), err)
 		}
 		if err != nil {
 			return fmt.Errorf("upsert client: %w", err)

@@ -386,7 +386,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 
 		colliding := testClient("other-scope")
 		colliding.ID = "other-client"
-		require.ErrorIs(t, clients.Save(t.Context(), colliding, nil, client.Issuer), oauth.ErrWorkloadTaken)
+		require.ErrorIs(t, clients.Save(t.Context(), colliding, nil, client.Issuer), oauth.ErrRegistrationConflict)
 
 		queries := sqlgen.New(pool)
 		stored, err := queries.GetKubernetesClientByIDForUpdate(t.Context(), client.ID)

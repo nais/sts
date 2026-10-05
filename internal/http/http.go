@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"mime"
 	nethttp "net/http"
@@ -81,4 +82,24 @@ func ReadForm(w nethttp.ResponseWriter, r *nethttp.Request) (url.Values, error) 
 		return nil, errs.InvalidRequest(err, "error parsing form")
 	}
 	return r.PostForm, nil
+}
+
+func ReadJSON[T any](w nethttp.ResponseWriter, r *nethttp.Request) (T, error) {
+	var obj T
+	r.Body = nethttp.MaxBytesReader(w, r.Body, MaxRequestBodySize)
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&obj); err != nil {
+		return obj, err
+	}
+
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return obj, errors.New("request body must contain exactly one JSON value")
+		}
+		return obj, err
+	}
+	return obj, nil
 }

@@ -2,11 +2,12 @@ package registration
 
 import (
 	"encoding/json"
-	"net/http"
+	nethttp "net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/nais/sts/internal/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,12 +15,12 @@ import (
 func TestDecodeClientRegistration(t *testing.T) {
 	tests := map[string]struct {
 		body    string
-		want    ClientRegistration
+		want    *ClientRegistration
 		wantErr bool
 	}{
 		"valid": {
 			body: `{"software_statement":"statement"}`,
-			want: ClientRegistration{SoftwareStatement: "statement"},
+			want: &ClientRegistration{SoftwareStatement: "statement"},
 		},
 		"unknown field": {
 			body:    `{"software_statement":"statement","unknown":true}`,
@@ -65,7 +66,7 @@ func TestDecodeClientRegistration(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/v1/registration/client", strings.NewReader(test.body))
+			request := httptest.NewRequest(nethttp.MethodPost, "/v1/registration/client", strings.NewReader(test.body))
 			response := httptest.NewRecorder()
 
 			got, err := decodeClientRegistration(response, request)
@@ -81,15 +82,15 @@ func TestDecodeClientRegistration(t *testing.T) {
 
 func TestDecodeClientRegistrationRejectsOversizedBody(t *testing.T) {
 	body, err := json.Marshal(ClientRegistration{
-		SoftwareStatement: strings.Repeat("a", maxRegistrationBodySize),
+		SoftwareStatement: strings.Repeat("a", http.MaxRequestBodySize),
 	})
 	require.NoError(t, err)
 
-	request := httptest.NewRequest(http.MethodPost, "/v1/registration/client", strings.NewReader(string(body)))
+	request := httptest.NewRequest(nethttp.MethodPost, "/v1/registration/client", strings.NewReader(string(body)))
 	response := httptest.NewRecorder()
 
 	_, err = decodeClientRegistration(response, request)
-	var maxBytesError *http.MaxBytesError
+	var maxBytesError *nethttp.MaxBytesError
 	require.ErrorAs(t, err, &maxBytesError)
-	require.EqualValues(t, maxRegistrationBodySize, maxBytesError.Limit)
+	require.EqualValues(t, http.MaxRequestBodySize, maxBytesError.Limit)
 }
