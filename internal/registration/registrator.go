@@ -2,12 +2,12 @@ package registration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -57,7 +57,7 @@ func NewRegistrators(ctx context.Context, httpClient *http.Client, authServerCfg
 func (r *Registrators) Authenticate(request *http.Request) (*Registrator, error) {
 	token, ok := bearerToken(request)
 	if !ok {
-		return nil, errs.NewErrorDescription("missing bearer token")
+		return nil, errors.New("missing bearer token")
 	}
 	claims, err := r.clientAuthVerifier.Verify(request.Context(), token, func(claims *oauth.AccessTokenClaims) error {
 		return oauth.ValidateClientAuthClaims(claims, r.expectedAudience, r.maxTokenLifetime)
@@ -77,10 +77,10 @@ func (r *Registrator) VerifySoftwareStatement(ctx context.Context, softwareState
 	ss := new(SoftwareStatement)
 	payload, err := oidc.ParseToken(softwareStatementString, ss)
 	if err != nil {
-		return nil, oauth.FromZitadelTokenError(err)
+		return nil, err
 	}
 	if err := oidc.CheckSignature(ctx, softwareStatementString, payload, ss, r.RequiredAlgs, r.KeySet); err != nil {
-		return nil, oauth.FromZitadelTokenError(err)
+		return nil, err
 	}
 	if err := ss.validate(); err != nil {
 		return nil, err

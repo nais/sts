@@ -258,7 +258,7 @@ func TestSts(t *testing.T) {
 			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, request)
 			require.Equal(t, http.StatusBadRequest, status, response)
 			assert.Equal(t, "invalid_software_statement", response.Code)
-			assert.Equal(t, "software statement is invalid: invalid signature", response.Description)
+			assert.Equal(t, "software statement is invalid", response.Description)
 		})
 
 		t.Run("rejects invalid signed software statement claims", func(t *testing.T) {
@@ -310,8 +310,8 @@ func TestSts(t *testing.T) {
 			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, registration.ClientRegistration{
 				SoftwareStatement: strings.Repeat("x", 65<<10),
 			})
-			require.Equal(t, http.StatusRequestEntityTooLarge, status, response)
-			assert.Equal(t, "request body exceeds 65536 bytes", response.Description)
+			require.Equal(t, http.StatusBadRequest, status, response)
+			assert.Equal(t, "invalid request body", response.Description)
 		})
 
 		t.Run("rejects missing bearer token", func(t *testing.T) {
@@ -319,7 +319,7 @@ func TestSts(t *testing.T) {
 				SoftwareStatement: signed,
 			})
 			require.Equal(t, http.StatusUnauthorized, status, response)
-			assert.Equal(t, "authentication failed: missing bearer token", response.Description)
+			assert.Equal(t, "authentication failed", response.Description)
 		})
 
 		for _, id := range []string{
@@ -416,10 +416,7 @@ func TestSts(t *testing.T) {
 		clientCredentials := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
 
 		assert.Equal(t, "invalid_client", clientCredentials.Code)
-		assert.Equal(t,
-			fmt.Sprintf("client assertion is invalid: issuer %q is not trusted", oauthServer.Endpoint(issuer)),
-			clientCredentials.Description,
-		)
+		assert.Equal(t, "client assertion is invalid", clientCredentials.Description)
 	})
 
 	t.Run("token exchange", func(t *testing.T) {
@@ -474,10 +471,7 @@ func TestSts(t *testing.T) {
 		firstExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
 		secondExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, firstExchange.AccessToken, target))
 		assert.Equal(t, "invalid_request", secondExchange.Code)
-		assert.Equal(t,
-			fmt.Sprintf("subject token is invalid: subject token audience %q does not contain client_id %q", []string{target}, consumer.ID),
-			secondExchange.Description,
-		)
+		assert.Equal(t, "subject token is invalid", secondExchange.Description)
 	})
 
 	t.Run("token exchange ignores external actor chain", func(t *testing.T) {
@@ -524,10 +518,7 @@ func TestSts(t *testing.T) {
 		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(secondClientAssertion, clientCredentials.AccessToken, secondTarget))
 
 		assert.Equal(t, "invalid_request", tokenExchange.Code)
-		assert.Equal(t,
-			`subject token is invalid: grant_type claim is invalid: got "client_credentials", want "urn:ietf:params:oauth:grant-type:token-exchange"`,
-			tokenExchange.Description,
-		)
+		assert.Equal(t, "subject token is invalid", tokenExchange.Description)
 	})
 
 	t.Run("token exchange denies unauthorized audience", func(t *testing.T) {
@@ -568,10 +559,7 @@ func TestSts(t *testing.T) {
 		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID))
 
 		assert.Equal(t, "invalid_client", tokenExchange.Code)
-		assert.Equal(t,
-			fmt.Sprintf("client assertion is invalid: issuer %q is not trusted", oauthServer.Endpoint(issuer)),
-			tokenExchange.Description,
-		)
+		assert.Equal(t, "client assertion is invalid", tokenExchange.Description)
 	})
 
 	t.Run("token exchange denies untrusted subject token issuer", func(t *testing.T) {
@@ -584,10 +572,7 @@ func TestSts(t *testing.T) {
 		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
 
 		assert.Equal(t, "invalid_request", tokenExchange.Code)
-		assert.Equal(t,
-			fmt.Sprintf("subject token is invalid: issuer %q is not trusted", oauthServer.Endpoint(subjectIssuer)),
-			tokenExchange.Description,
-		)
+		assert.Equal(t, "subject token is invalid", tokenExchange.Description)
 	})
 }
 

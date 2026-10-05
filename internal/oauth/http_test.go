@@ -65,8 +65,8 @@ func TestTokenEndpointRejectsInvalidRequests(t *testing.T) {
 		},
 		"body too large": {
 			form:        url.Values{"grant_type": {strings.Repeat("a", http.MaxRequestBodySize)}},
-			status:      nethttp.StatusRequestEntityTooLarge,
-			description: "request body exceeds 65536 bytes",
+			status:      nethttp.StatusBadRequest,
+			description: "invalid request body",
 		},
 		"grant type in query": {
 			query:       "?grant_type=" + string(oidc.GrantTypeClientCredentials),
@@ -144,12 +144,12 @@ func TestHandlerFuncLogsWrappingContext(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	http.HandlerFunc(func(nethttp.ResponseWriter, *nethttp.Request) error {
-		return fmt.Errorf("context: %w", errs.InvalidTarget(errs.NewErrorDescription("reason"), "described"))
+		return fmt.Errorf("context: %w", errs.InvalidTarget(errors.New("reason"), "described"))
 	})(recorder, httptest.NewRequest(nethttp.MethodPost, "/", nil))
 
 	var body errs.ErrorResponse
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
-	assert.Equal(t, "described: reason", body.Description)
+	assert.Equal(t, "described", body.Description)
 	assert.Contains(t, logs.String(), "context: described: reason")
 }
 

@@ -127,7 +127,7 @@ func decodeClientRegistration(w nethttp.ResponseWriter, r *nethttp.Request) (*Cl
 	obj, err := http.ReadJSON[ClientRegistration](w, r)
 	if err != nil {
 		if _, ok := errors.AsType[*nethttp.MaxBytesError](err); ok {
-			return nil, errs.RequestTooLarge(err, "request body exceeds %d bytes", http.MaxRequestBodySize)
+			return nil, errs.InvalidRequest(err, "invalid request body")
 		}
 		return nil, errs.InvalidClientMetadata(err, "invalid request body")
 	}

@@ -184,41 +184,41 @@ func (a *AuthorizationServer) verifySTSIssuedSubjectTokenClaims(claims *AccessTo
 
 	rawGrantType, ok := claims.Claims["urn:nais:grant_type"]
 	if !ok {
-		return errs.NewErrorDescription("grant_type claim is missing")
+		return errors.New("grant_type claim is missing")
 	}
 
 	var grantType oidc.GrantType
 	if err := json.Unmarshal(rawGrantType, &grantType); err != nil {
-		return errs.NewErrorDescription("grant_type claim must be a string")
+		return errors.New("grant_type claim must be a string")
 	}
 
 	if grantType != oidc.GrantTypeTokenExchange {
-		return errs.NewErrorDescription("grant_type claim is invalid: got %q, want %q", grantType, oidc.GrantTypeTokenExchange)
+		return fmt.Errorf("grant_type claim is invalid: got %q, want %q", grantType, oidc.GrantTypeTokenExchange)
 	}
 
 	if !slices.Contains(claims.Audience, clientID) {
-		return errs.NewErrorDescription("subject token audience %q does not contain client_id %q", claims.Audience, clientID)
+		return fmt.Errorf("subject token audience %q does not contain client_id %q", claims.Audience, clientID)
 	}
 	return nil
 }
 
 func ValidateClientAuthClaims(claims *AccessTokenClaims, expectedAudience string, maxLifetime time.Duration) error {
 	if len(claims.Audience) != 1 || claims.Audience[0] != expectedAudience {
-		return errs.NewErrorDescription("audience %q is invalid, expected %q", claims.Audience, expectedAudience)
+		return fmt.Errorf("audience %q is invalid, expected %q", claims.Audience, expectedAudience)
 	}
 	issuedAt := claims.IssuedAt.AsTime()
 	if issuedAt.IsZero() {
-		return errs.NewErrorDescription("issued-at claim is missing")
+		return errors.New("issued at claim is missing")
 	}
 	expiration := claims.Expiration.AsTime()
 	if expiration.IsZero() {
-		return errs.NewErrorDescription("expiration claim is missing")
+		return errors.New("expiration claim is missing")
 	}
 	if !expiration.After(issuedAt) {
-		return errs.NewErrorDescription("expiration must be after issued-at")
+		return errors.New("expiration must be after issued-at")
 	}
 	if expiration.Sub(issuedAt) > maxLifetime+time.Minute {
-		return errs.NewErrorDescription("token lifetime %s exceeds maximum %s", expiration.Sub(issuedAt), maxLifetime)
+		return fmt.Errorf("token lifetime %s exceeds maximum %s", expiration.Sub(issuedAt), maxLifetime)
 	}
 	return nil
 }

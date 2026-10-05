@@ -77,7 +77,7 @@ func ReadForm(w nethttp.ResponseWriter, r *nethttp.Request) (url.Values, error) 
 	r.Body = nethttp.MaxBytesReader(w, r.Body, MaxRequestBodySize)
 	if err := r.ParseForm(); err != nil {
 		if _, ok := errors.AsType[*nethttp.MaxBytesError](err); ok {
-			return nil, errs.RequestTooLarge(err, "request body exceeds %d bytes", MaxRequestBodySize)
+			return nil, errs.InvalidRequest(err, "invalid request body")
 		}
 		return nil, errs.InvalidRequest(err, "error parsing form")
 	}

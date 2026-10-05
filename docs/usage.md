@@ -327,6 +327,6 @@ STS logs the full cause.
 | `invalid_target`         | The target is invalid, or the client is not authorized for it.              |
 | `server_error`           | An internal error occurred. The status is `500`.                            |
 
-Errors use status `400`, with two exceptions for malformed requests.
+Malformed requests use status `400`, except for an unsupported content type.
 A body that is not `application/x-www-form-urlencoded` returns `415`.
-A body larger than 64 KiB returns `413`.
+An oversized body returns `400` with `invalid_request` and the description `invalid request body`.

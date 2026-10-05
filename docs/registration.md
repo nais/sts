@@ -207,6 +207,6 @@ STS logs the full cause.
 | 400    | `unapproved_software_statement` | [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html#section-3.2.2)   | The workload issuer does not match the registrator issuer.                                      |
 | 400    | `unauthorized_client`           | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2)     | The client belongs to another registrator issuer.                                               |
 | 401    | `invalid_token`                 | [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html#section-3.1)     | Registrator authentication failed.                                                              |
-| 413    | `invalid_request`               | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2)     | The body is too large.                                                                          |
+| 400    | `invalid_request`               | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2)     | The body is too large.                                                                          |
 | 415    | `invalid_request`               | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2)     | The content type is not `application/json`.                                                     |
 | 500    | `server_error`                  | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-4.1.2.1) | An internal error occurred.                                                                     |

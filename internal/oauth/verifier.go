@@ -2,12 +2,10 @@ package oauth
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/nais/sts/internal/errs"
 	oauthclient "github.com/zitadel/oidc/v3/pkg/client"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -32,17 +30,17 @@ func (v MultiIssuerTokenVerifier) Verify(ctx context.Context, rawToken string, f
 	claims := new(AccessTokenClaims)
 	payload, err := oidc.ParseToken(rawToken, claims)
 	if err != nil {
-		return nil, FromZitadelTokenError(err)
+		return nil, err
 	}
 
 	verifier, ok := v[Issuer(claims.Issuer)]
 	if !ok {
-		return nil, errs.NewErrorDescription("issuer %q is not trusted", claims.Issuer)
+		return nil, fmt.Errorf("issuer %q is not trusted", claims.Issuer)
 	}
 
 	verifiedClaims, err := verifier.Verify(ctx, rawToken, payload, claims)
 	if err != nil {
-		return nil, FromZitadelTokenError(err)
+		return nil, err
 	}
 
 	for _, fn := range fns {
@@ -120,7 +118,7 @@ func (i *TokenVerifier) Verify(ctx context.Context, rawToken string, payload []b
 	if !claims.NotBefore.AsTime().IsZero() {
 		nowWithOffset := time.Now().Add(SkewTime).Round(time.Second)
 		if claims.NotBefore.AsTime().After(nowWithOffset) {
-			return nil, errs.NewErrorDescription("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
+			return nil, fmt.Errorf("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
 		}
 	}
 	return claims, nil
@@ -195,34 +193,4 @@ func asymmetricAlgorithms(advertised []string) []string {
 		}
 	}
 	return algorithms
-}
-
-var publicTokenErrors = []error{
-	oidc.ErrParse,
-	oidc.ErrIssuerInvalid,
-	oidc.ErrSubjectMissing,
-	oidc.ErrSignatureMissing,
-	oidc.ErrSignatureMultiple,
-	oidc.ErrSignatureUnsupportedAlg,
-	oidc.ErrSignatureInvalidPayload,
-	// TODO: zitadel also returns ErrSignatureInvalid when the JWKS cannot be fetched.
-	// An issuer outage then returns 400 "invalid signature" and logs a warning, not an error.
-	oidc.ErrSignatureInvalid,
-	oidc.ErrExpired,
-	oidc.ErrIatMissing,
-	oidc.ErrIatInFuture,
-}
-
-func FromZitadelTokenError(err error) error {
-	for _, public := range publicTokenErrors {
-		if errors.Is(err, public) {
-			message := public.Error()
-			if public == oidc.ErrParse {
-				// zitadel says "parsing of request failed", which does not tell the HTTP client that the token is the problem.
-				message = "token is not a valid JWT"
-			}
-			return errs.WrapErrorDescription(err, "%s", message)
-		}
-	}
-	return err
 }

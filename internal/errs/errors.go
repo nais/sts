@@ -5,17 +5,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 )
 
 // Error is an OAuth error response. The rules for errors are:
 //
-//  1. A check returns [NewErrorDescription] when its text may be displayed in error_description.
-//     A check does not know the OAuth code.
-//     [WrapErrorDescription] also attaches a cause, which is only logged.
+//  1. A check returns a plain error and does not know the OAuth code.
 //  2. A handler returns a constructor such as [InvalidClient], which sets the code and the status.
 //     The format sets error_description. The cause is only logged; pass nil if there is none.
-//     Every [ErrorDescription] and [Error] description in the cause is appended, in the order that Error() prints them.
 //  3. Any other error is an internal failure. [HandlerFunc] responds with [ServerError].
 type Error struct {
 	code        string
@@ -35,10 +31,6 @@ type ErrorResponse struct {
 
 func InvalidRequest(cause error, format string, args ...any) Error {
 	return newError("invalid_request", http.StatusBadRequest, cause, format, args...)
-}
-
-func RequestTooLarge(cause error, format string, args ...any) Error {
-	return newError("invalid_request", http.StatusRequestEntityTooLarge, cause, format, args...)
 }
 
 func UnsupportedMediaType(cause error, format string, args ...any) Error {
@@ -108,22 +100,8 @@ func (e Error) HTTPError() ErrorResponse {
 	return ErrorResponse{
 		Status:      e.status,
 		Code:        e.code,
-		Description: strings.Join(appendErrorDescriptions(nil, e), ": "),
+		Description: e.description,
 	}
-}
-
-type ErrorDescription string
-
-func NewErrorDescription(format string, args ...any) error {
-	return ErrorDescription(fmt.Sprintf(format, args...))
-}
-
-func WrapErrorDescription(cause error, format string, args ...any) error {
-	return fmt.Errorf("%w: %w", NewErrorDescription(format, args...), cause)
-}
-
-func (r ErrorDescription) Error() string {
-	return string(r)
 }
 
 func newError(code string, status int, cause error, format string, args ...any) Error {
@@ -154,35 +132,6 @@ func ToError(err error) Error {
 	if !ok {
 		return ServerError(err)
 	}
-	// The cause is err, not inner.cause, so that logAttrs also includes any text that the handler wrapped around inner.
-	return Error{code: inner.code, status: inner.status, cause: err}
-}
-
-// multiWrapper is the interface of errors from errors.Join and fmt.Errorf with several %w verbs.
-type multiWrapper interface{ Unwrap() []error }
-
-// appendErrorDescriptions appends the text in err that goes into error_description, in the order of err.Error().
-// It skips plain errors, and an internal Error together with its cause.
-func appendErrorDescriptions(parts []string, err error) []string {
-	switch e := err.(type) {
-	case nil:
-		return parts
-	case ErrorDescription:
-		return append(parts, string(e))
-	case Error:
-		if e.Internal() {
-			return parts
-		}
-		if e.description != "" {
-			parts = append(parts, e.description)
-		}
-		return appendErrorDescriptions(parts, e.cause)
-	case multiWrapper:
-		for _, inner := range e.Unwrap() {
-			parts = appendErrorDescriptions(parts, inner)
-		}
-		return parts
-	default:
-		return appendErrorDescriptions(parts, errors.Unwrap(err))
-	}
+	// Preserve the full error chain for logs without exposing it in the response.
+	return Error{code: inner.code, description: inner.description, status: inner.status, cause: err}
 }
