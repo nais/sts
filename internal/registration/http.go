@@ -2,19 +2,13 @@ package registration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
-	"log/slog"
-	"mime"
-	"net/http"
-	"reflect"
+	nethttp "net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nais/sts/internal/errs"
+	"github.com/nais/sts/internal/http"
 	"github.com/nais/sts/internal/oauth"
-	"github.com/zitadel/oidc/v3/pkg/oidc"
-	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
 type Api struct {
@@ -22,7 +16,7 @@ type Api struct {
 	store        oauth.ClientStore
 }
 
-func NewApi(ctx context.Context, httpClient *http.Client, registrators ClientRegistrators, authServerCfg oauth.AuthorizationServerConfig, store oauth.ClientStore) (*Api, error) {
+func NewApi(ctx context.Context, httpClient *nethttp.Client, registrators ClientRegistrators, authServerCfg oauth.AuthorizationServerConfig, store oauth.ClientStore) (*Api, error) {
 	registry, err := NewRegistrators(ctx, httpClient, authServerCfg, registrators...)
 	if err != nil {
 		return nil, err
@@ -33,86 +27,78 @@ func NewApi(ctx context.Context, httpClient *http.Client, registrators ClientReg
 	}, nil
 }
 
-func (a *Api) PostEndpoint() http.HandlerFunc {
-	return errorAwareHandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
-		if err := validateContentType(r); err != nil {
-			return withHTTPStatus(err, http.StatusUnsupportedMediaType)
+func (a *Api) AuthenticateRequest(r *nethttp.Request) (*Registrator, error) {
+	return a.registrators.Authenticate(r)
+}
+
+func (a *Api) PostEndpoint() nethttp.HandlerFunc {
+	return http.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) error {
+		if err := http.RequireContentType(r, http.MediaTypeJSON); err != nil {
+			return err
 		}
 
 		registrator, err := a.AuthenticateRequest(r)
 		if err != nil {
-			return withLoggedHTTPStatus(r.Context(), "unauthorized", err, http.StatusUnauthorized)
+			return errs.InvalidToken(err, "authentication failed")
 		}
 
 		registration, err := decodeClientRegistration(w, r)
 		if err != nil {
-			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-				return withHTTPStatus(fmt.Errorf("request body too large"), http.StatusRequestEntityTooLarge)
-			}
-			return withHTTPStatus(fmt.Errorf("invalid request body"), http.StatusBadRequest)
+			return err
 		}
+
 		ss, err := registrator.VerifySoftwareStatement(r.Context(), registration.SoftwareStatement)
 		if err != nil {
-			return withLoggedHTTPStatus(r.Context(), "invalid software statement", err, http.StatusBadRequest)
+			return errs.InvalidSoftwareStatement(err, "software statement is invalid")
 		}
 
 		if err := a.SaveRegistration(r.Context(), registrator, ss); err != nil {
-			if errors.Is(err, oauth.ErrRegistrationUnauthorized) {
-				return withHTTPStatus(errors.New("registrator is not authorized for registration"), http.StatusForbidden)
-			}
-			if errors.Is(err, oauth.ErrRegistrationConflict) {
-				return withHTTPStatus(oidc.ErrInvalidClient().WithDescription("registration conflicts with existing client"), http.StatusConflict)
-			}
-			return withLoggedHTTPStatus(r.Context(), "failed to save registration", err, http.StatusInternalServerError)
+			return err
 		}
 
-		respond(w, &ClientRegistrationResponse{
-			ClientRegistration: registration,
+		http.WriteJSON(w, r, &ClientRegistrationResponse{
+			ClientRegistration: *registration,
 			ClientID:           ss.ClientId,
 		})
 		return nil
 	})
 }
 
-func (a *Api) DeleteEndpoint() http.HandlerFunc {
-	return errorAwareHandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+func (a *Api) DeleteEndpoint() nethttp.HandlerFunc {
+	return http.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) error {
 		registrator, err := a.AuthenticateRequest(r)
 		if err != nil {
-			return withLoggedHTTPStatus(r.Context(), "unauthorized", err, http.StatusUnauthorized)
+			return errs.InvalidToken(err, "authentication failed")
 		}
 
 		clientID := oauth.ClientID(chi.URLParam(r, "id"))
 		if err := clientID.Validate(); err != nil {
-			return withHTTPStatus(err, http.StatusBadRequest)
+			return errs.InvalidRequest(err, "client ID is invalid")
 		}
 
 		err = a.store.Delete(r.Context(), clientID, registrator.AuthIssuer)
 		if err != nil {
 			if errors.Is(err, oauth.ErrRegistrationUnauthorized) {
-				return withHTTPStatus(oidc.ErrInvalidClient().WithDescription("registrator is not authorized to delete client"), http.StatusForbidden)
+				return errs.UnauthorizedClient(err, "registrator is not authorized to delete client")
 			}
-			return withLoggedHTTPStatus(r.Context(), "failed to delete registration", err, http.StatusInternalServerError)
+			return err
 		}
 
-		w.WriteHeader(http.StatusNoContent)
+		w.WriteHeader(nethttp.StatusNoContent)
 		return nil
 	})
 }
 
-func (a *Api) AuthenticateRequest(r *http.Request) (*Registrator, error) {
-	return a.registrators.Authenticate(r)
-}
-
 func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s *SoftwareStatement) error {
 	if s.Workload.Issuer != registrator.AuthIssuer {
-		return oauth.ErrRegistrationUnauthorized
+		return errs.UnapprovedSoftwareStatement(nil, "workload issuer %q does not match the registrator issuer %q", s.Workload.Issuer, registrator.AuthIssuer)
 	}
 	policies := make([]oauth.AuthorizationPolicy, len(s.AuthorizationPolicies))
 	for i, policy := range s.AuthorizationPolicies {
 		policies[i] = oauth.AuthorizationPolicy{
 			Owner:    oauth.ClientID(s.ClientId),
 			Consumer: oauth.ClientID(policy.Consumer),
-			Roles:    oauth.Roles(policy.Roles),
+			Roles:    policy.Roles,
 		}
 	}
 	err := a.store.Save(ctx, &oauth.Client{
@@ -123,76 +109,31 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 		Issuer:        s.Workload.Issuer,
 		AllowedScopes: []string{},
 	}, policies, registrator.AuthIssuer)
-	return err
-}
-
-func withHTTPStatus(err error, status int) error {
-	return op.NewStatusError(err, status)
-}
-
-func withLoggedHTTPStatus(ctx context.Context, message string, err error, status int) error {
-	level := slog.LevelWarn
-	if status == http.StatusInternalServerError {
-		level = slog.LevelError
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, oauth.ErrRegistrationUnauthorized):
+		return errs.UnauthorizedClient(err, "registrator is not authorized for client")
+	case errors.Is(err, oauth.ErrImmutableFieldsChanged):
+		return errs.InvalidClientMetadata(err, "registration conflicts with existing client: immutable fields cannot change")
+	case errors.Is(err, oauth.ErrRegistrationConflict):
+		return errs.InvalidClientMetadata(err, "workload is already registered to another client")
+	default:
+		return err
 	}
-	slog.Log(ctx, level, message, "error", err)
-	return withHTTPStatus(errors.New(message), status)
 }
 
-func errorAwareHandlerFunc(f func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		err := f(w, r)
-		if err != nil {
-			op.WriteError(w, r, err, slog.Default())
+func decodeClientRegistration(w nethttp.ResponseWriter, r *nethttp.Request) (*ClientRegistration, error) {
+	obj, err := http.ReadJSON[ClientRegistration](w, r)
+	if err != nil {
+		if _, ok := errors.AsType[*nethttp.MaxBytesError](err); ok {
+			return nil, errs.InvalidRequest(err, "invalid request body")
 		}
-	}
-}
-
-func validateContentType(r *http.Request) error {
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || mediaType != "application/json" {
-		return errors.New("content type must be application/json")
-	}
-	return nil
-}
-
-const maxRegistrationBodySize = 64 << 10
-
-func decodeClientRegistration(w http.ResponseWriter, r *http.Request) (ClientRegistration, error) {
-	var registration ClientRegistration
-	r.Body = http.MaxBytesReader(w, r.Body, maxRegistrationBodySize)
-
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&registration); err != nil {
-		return registration, err
+		return nil, errs.InvalidClientMetadata(err, "invalid request body")
 	}
 
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return registration, errors.New("request body must contain exactly one JSON value")
-		}
-		return registration, err
+	if err := obj.validate(); err != nil {
+		return nil, errs.InvalidClientMetadata(err, "invalid request body")
 	}
-
-	if err := registration.validate(); err != nil {
-		return registration, err
-	}
-	return registration, nil
-}
-
-func respond(w http.ResponseWriter, resp any) {
-	if resp == nil || (reflect.ValueOf(resp).Kind() == reflect.Pointer && reflect.ValueOf(resp).IsNil()) {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	if h := w.Header().Get("content-type"); h == "" {
-		w.Header().Set("content-type", "application/json")
-	}
-
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	return &obj, nil
 }

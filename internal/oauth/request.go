@@ -1,22 +1,15 @@
 package oauth
 
-import "github.com/zitadel/oidc/v3/pkg/oidc"
+import (
+	"net/url"
+	"strings"
 
-type ClientAuthCredentials struct {
-	ClientID            string `schema:"client_id"`
-	ClientAssertion     string `schema:"client_assertion"` // JWT
-	ClientAssertionType string `schema:"client_assertion_type"`
-}
-
-func (c *ClientAuthCredentials) Validate() error {
-	if c.ClientAssertion == "" || c.ClientAssertionType != oidc.ClientAssertionTypeJWTAssertion {
-		return oidc.ErrInvalidRequest().WithDescription("client_assertion must be provided and be of type %s", oidc.ClientAssertionTypeJWTAssertion)
-	}
-	return nil
-}
+	"github.com/nais/sts/internal/errs"
+	"github.com/zitadel/oidc/v3/pkg/oidc"
+)
 
 type TokenRequest interface {
-	oidc.TokenRequest
+	GrantType() oidc.GrantType
 	Target() (Target, error)
 	Validate() error
 	GetClientAuthCredentials() *ClientAuthCredentials
@@ -27,62 +20,93 @@ var (
 	_ TokenRequest = (*TokenExchangeRequest)(nil)
 )
 
-type ClientCredentialsRequest struct {
-	oidc.ClientCredentialsRequest
+type ClientAuthCredentials struct {
+	ClientAssertion     string
+	ClientAssertionType string
 }
 
-func (c *ClientCredentialsRequest) GetClientAuthCredentials() *ClientAuthCredentials {
-	return &ClientAuthCredentials{
-		ClientID:            c.ClientID,
-		ClientAssertion:     c.ClientAssertion,
-		ClientAssertionType: c.ClientAssertionType,
+func parseClientAuthCredentials(form url.Values) ClientAuthCredentials {
+	return ClientAuthCredentials{
+		ClientAssertion:     form.Get("client_assertion"),
+		ClientAssertionType: form.Get("client_assertion_type"),
+	}
+}
+
+func (c *ClientAuthCredentials) Validate() error {
+	if c.ClientAssertion == "" || c.ClientAssertionType != oidc.ClientAssertionTypeJWTAssertion {
+		return errs.InvalidRequest(nil, "client_assertion must be provided and be of type %s", oidc.ClientAssertionTypeJWTAssertion)
+	}
+	return nil
+}
+
+func (c *ClientAuthCredentials) GetClientAuthCredentials() *ClientAuthCredentials {
+	return c
+}
+
+type ClientCredentialsRequest struct {
+	ClientAuthCredentials
+	Scope []string
+}
+
+func parseClientCredentialsRequest(form url.Values) *ClientCredentialsRequest {
+	// TODO: consider rejecting repeated parameters, as RFC 6749 section 3.1 requires.
+	//  form.Get uses the first value and ignores the rest.
+	return &ClientCredentialsRequest{
+		ClientAuthCredentials: parseClientAuthCredentials(form),
+		Scope:                 strings.Fields(form.Get("scope")),
 	}
 }
 
 func (c *ClientCredentialsRequest) GrantType() oidc.GrantType {
-	return c.ClientCredentialsRequest.GrantType
+	return oidc.GrantTypeClientCredentials
 }
 
 func (c *ClientCredentialsRequest) Target() (Target, error) {
 	if len(c.Scope) != 1 {
-		return nil, oidc.ErrInvalidTarget().WithDescription("scope must contain exactly one target scope")
+		return nil, errs.InvalidTarget(nil, "scope must contain exactly one target scope")
 	}
 	return TargetScope(c.Scope[0]), nil
 }
 
 func (c *ClientCredentialsRequest) Validate() error {
-	ca := &ClientAuthCredentials{
-		ClientID:            c.ClientID,
-		ClientAssertion:     c.ClientAssertion,
-		ClientAssertionType: c.ClientAssertionType,
-	}
-	if err := ca.Validate(); err != nil {
+	if err := c.ClientAuthCredentials.Validate(); err != nil {
 		return err
 	}
-	if len(c.Scope) != 1 {
-		return oidc.ErrInvalidTarget().WithDescription("scope must contain exactly one target scope")
-	}
-	return nil
+	_, err := c.Target()
+	return err
 }
 
 type TokenExchangeRequest struct {
-	oidc.TokenExchangeRequest
-	*ClientAuthCredentials
+	ClientAuthCredentials
+	SubjectToken       string
+	SubjectTokenType   string
+	ActorToken         string
+	RequestedTokenType string
+	Audience           string
 }
 
-func (t *TokenExchangeRequest) GetClientAuthCredentials() *ClientAuthCredentials {
-	return t.ClientAuthCredentials
+func parseTokenExchangeRequest(form url.Values) *TokenExchangeRequest {
+	// TODO: consider rejecting repeated parameters, as RFC 6749 section 3.1 requires.
+	//  form.Get uses the first value and ignores the rest.
+	return &TokenExchangeRequest{
+		ClientAuthCredentials: parseClientAuthCredentials(form),
+		SubjectToken:          form.Get("subject_token"),
+		SubjectTokenType:      form.Get("subject_token_type"),
+		ActorToken:            form.Get("actor_token"),
+		RequestedTokenType:    form.Get("requested_token_type"),
+		Audience:              form.Get("audience"),
+	}
 }
 
 func (t *TokenExchangeRequest) GrantType() oidc.GrantType {
-	return t.TokenExchangeRequest.GrantType
+	return oidc.GrantTypeTokenExchange
 }
 
 func (t *TokenExchangeRequest) Target() (Target, error) {
-	if len(t.Audience) != 1 {
-		return nil, oidc.ErrInvalidTarget().WithDescription("audience must contain exactly one audience")
+	if t.Audience == "" {
+		return nil, errs.InvalidTarget(nil, "audience must contain exactly one audience")
 	}
-	return TargetAudience(t.Audience[0]), nil
+	return TargetAudience(t.Audience), nil
 }
 
 func (t *TokenExchangeRequest) Validate() error {
@@ -90,22 +114,19 @@ func (t *TokenExchangeRequest) Validate() error {
 		return err
 	}
 	if t.ActorToken != "" {
-		return oidc.ErrInvalidRequest().WithDescription("actor_token is not supported")
+		return errs.InvalidRequest(nil, "actor_token is not supported")
 	}
 	if t.SubjectToken == "" {
-		return oidc.ErrInvalidRequest().WithDescription("subject_token missing")
+		return errs.InvalidRequest(nil, "subject_token missing")
 	}
-	if t.SubjectTokenType != oidc.JWTTokenType {
-		return oidc.ErrInvalidRequest().WithDescription("subject_token_type must be %s", oidc.JWTTokenType)
+	if t.SubjectTokenType != string(oidc.JWTTokenType) {
+		return errs.InvalidRequest(nil, "subject_token_type must be %s", oidc.JWTTokenType)
 	}
-	if t.RequestedTokenType != oidc.AccessTokenType {
-		return oidc.ErrInvalidRequest().WithDescription("requested_token_type must be %s", oidc.AccessTokenType)
+	if t.RequestedTokenType != string(oidc.AccessTokenType) {
+		return errs.InvalidRequest(nil, "requested_token_type must be %s", oidc.AccessTokenType)
 	}
-	if len(t.Audience) != 1 {
-		return oidc.ErrInvalidTarget().WithDescription("audience must contain exactly one audience")
-	}
-
-	return nil
+	_, err := t.Target()
+	return err
 }
 
 type Target interface {

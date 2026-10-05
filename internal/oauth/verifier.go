@@ -35,7 +35,7 @@ func (v MultiIssuerTokenVerifier) Verify(ctx context.Context, rawToken string, f
 
 	verifier, ok := v[Issuer(claims.Issuer)]
 	if !ok {
-		return nil, fmt.Errorf("issuer %q not supported", claims.Issuer)
+		return nil, fmt.Errorf("issuer %q is not trusted", claims.Issuer)
 	}
 
 	verifiedClaims, err := verifier.Verify(ctx, rawToken, payload, claims)
@@ -118,7 +118,7 @@ func (i *TokenVerifier) Verify(ctx context.Context, rawToken string, payload []b
 	if !claims.NotBefore.AsTime().IsZero() {
 		nowWithOffset := time.Now().Add(SkewTime).Round(time.Second)
 		if claims.NotBefore.AsTime().After(nowWithOffset) {
-			return nil, fmt.Errorf("nbf is in the future: (nbf: %v, now with offset: %v)", claims.NotBefore, nowWithOffset)
+			return nil, fmt.Errorf("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
 		}
 	}
 	return claims, nil

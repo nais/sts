@@ -149,7 +149,8 @@ On a repeated `POST` for the same client:
   - `workload.namespace`
   - `workload.workload`
   - `workload.issuer`
-- A conflicting client ID or workload identity returns `409 Conflict`.
+- A change to an immutable field returns `400 Bad Request` with `invalid_client_metadata`.
+- A workload that another client already uses returns the same error.
 
 ### Response
 
@@ -184,8 +185,28 @@ Deleted or already absent:
 HTTP/1.1 204 No Content
 ```
 
-Owned by another issuer:
+## Errors
 
-```http
-HTTP/1.1 403 Forbidden
+Error responses use the format from [RFC 6749, section 5.2](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2).
+
+```json
+{
+  "error": "invalid_software_statement",
+  "error_description": "software statement is invalid: invalid signature"
+}
 ```
+
+The description names the check that failed.
+STS logs the full cause.
+
+| Status | `error`                         | Defined in                                                              | Cause                                                                                           |
+|--------|---------------------------------|-------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
+| 400    | `invalid_request`               | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2)     | The client ID in the path is invalid.                                                           |
+| 400    | `invalid_client_metadata`       | [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html#section-3.2.2)   | The body is invalid, the request changes immutable fields, or another client uses the workload. |
+| 400    | `invalid_software_statement`    | [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html#section-3.2.2)   | The software statement has an invalid signature or invalid content.                             |
+| 400    | `unapproved_software_statement` | [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html#section-3.2.2)   | The workload issuer does not match the registrator issuer.                                      |
+| 400    | `unauthorized_client`           | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2)     | The client belongs to another registrator issuer.                                               |
+| 401    | `invalid_token`                 | [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html#section-3.1)     | Registrator authentication failed.                                                              |
+| 400    | `invalid_request`               | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2)     | The body is too large.                                                                          |
+| 415    | `invalid_request`               | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2)     | The content type is not `application/json`.                                                     |
+| 500    | `server_error`                  | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-4.1.2.1) | An internal error occurred.                                                                     |

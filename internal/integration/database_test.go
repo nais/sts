@@ -356,9 +356,9 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 			mutate  func(*oauth.Client)
 			wantErr error
 		}{
-			"environment": {func(client *oauth.Client) { client.Environment = "new-environment" }, oauth.ErrRegistrationConflict},
-			"namespace":   {func(client *oauth.Client) { client.Namespace = "new-namespace" }, oauth.ErrRegistrationConflict},
-			"workload":    {func(client *oauth.Client) { client.Workload = "new-workload" }, oauth.ErrRegistrationConflict},
+			"environment": {func(client *oauth.Client) { client.Environment = "new-environment" }, oauth.ErrImmutableFieldsChanged},
+			"namespace":   {func(client *oauth.Client) { client.Namespace = "new-namespace" }, oauth.ErrImmutableFieldsChanged},
+			"workload":    {func(client *oauth.Client) { client.Workload = "new-workload" }, oauth.ErrImmutableFieldsChanged},
 			"issuer":      {func(client *oauth.Client) { client.Issuer = "https://new-issuer.example" }, oauth.ErrRegistrationUnauthorized},
 		} {
 			t.Run(name, func(t *testing.T) {

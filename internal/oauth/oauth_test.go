@@ -18,5 +18,5 @@ func TestValidateClientAuthClaimsLifetime(t *testing.T) {
 	assert.NoError(t, ValidateClientAuthClaims(claims, "expected", time.Hour))
 
 	claims.Expiration = oidc.FromTime(now.Add(time.Hour + time.Minute + time.Second))
-	assert.ErrorContains(t, ValidateClientAuthClaims(claims, "expected", time.Hour), "token lifetime exceeds maximum")
+	assert.ErrorContains(t, ValidateClientAuthClaims(claims, "expected", time.Hour), "token lifetime 1h1m1s exceeds maximum 1h0m0s")
 }

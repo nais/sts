@@ -303,3 +303,30 @@ The previous `act` claim becomes the nested actor:
   }
 }</code></pre></td></tr></tbody>
 </table>
+
+## Errors
+
+Error responses follow [RFC 6749, section 5.2](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2).
+
+```json
+{
+  "error": "invalid_client",
+  "error_description": "client assertion is invalid: token has expired"
+}
+```
+
+The description names problems in the caller's own input, such as an untrusted issuer or a wrong audience.
+It does not include internal details.
+STS logs the full cause.
+
+| `error`                  | Cause                                                                       |
+|--------------------------|-----------------------------------------------------------------------------|
+| `invalid_request`        | A request parameter, such as the subject token, is missing or invalid.      |
+| `unsupported_grant_type` | STS does not support the grant type.                                        |
+| `invalid_client`         | The client assertion is invalid, or the client is unknown.                  |
+| `invalid_target`         | The target is invalid, or the client is not authorized for it.              |
+| `server_error`           | An internal error occurred. The status is `500`.                            |
+
+Malformed requests use status `400`, except for an unsupported content type.
+A body that is not `application/x-www-form-urlencoded` returns `415`.
+An oversized body returns `400` with `invalid_request` and the description `invalid request body`.

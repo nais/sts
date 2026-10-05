@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+#MISE description="Send failing requests to the local registration endpoint"
+#MISE env={CONFIG_FILE = "config.yaml"}
+
+set -euo pipefail
+
+ISSUER=$(yq -er '.authorizationServer.issuer' "${CONFIG_FILE}")
+MOCK="http://localhost:3004"
+ENDPOINT="${ISSUER}/v1/registration/client"
+
+workload_token() {
+  curl -sS --fail-with-body "${MOCK}/$1/token" \
+    -d 'grant_type=client_credentials' \
+    -d 'client_secret=yolo' \
+    -d 'ns=namespace1' \
+    -d "workload=$2" \
+    -d 'client_id=default_client' | jq -r '.access_token'
+}
+
+request() {
+  printf '### %s\n' "$1"
+  shift
+  curl -sS -w ' [%{http_code}]\n' "$@"
+}
+
+REGISTRATOR_TOKEN=$(workload_token env1 client-registrator)
+WORKLOAD_TOKEN=$(workload_token env1 workload1)
+
+request "missing bearer token" \
+  -X POST "${ENDPOINT}" \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+
+request "workload token instead of registrator token" \
+  -X POST "${ENDPOINT}" \
+  -H "Authorization: Bearer ${WORKLOAD_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+
+request "unconfigured registrator issuer" \
+  -X DELETE "${ENDPOINT}/env1:namespace1:workload1" \
+  -H "Authorization: Bearer $(workload_token env2 client-registrator)"
+
+request "wrong content type" \
+  -X POST "${ENDPOINT}" \
+  -H "Authorization: Bearer ${REGISTRATOR_TOKEN}" \
+  -H 'Content-Type: text/plain' \
+  -d '{}'
+
+request "malformed request body" \
+  -X POST "${ENDPOINT}" \
+  -H "Authorization: Bearer ${REGISTRATOR_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d '{'
+
+request "unknown request field" \
+  -X POST "${ENDPOINT}" \
+  -H "Authorization: Bearer ${REGISTRATOR_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d '{"unknown":true}'
+
+request "malformed software statement" \
+  -X POST "${ENDPOINT}" \
+  -H "Authorization: Bearer ${REGISTRATOR_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d '{"software_statement":"not-a-jwt"}'
+
+request "software statement with invalid content" \
+  -X POST "${ENDPOINT}" \
+  -H "Authorization: Bearer ${REGISTRATOR_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d "{\"software_statement\":\"${WORKLOAD_TOKEN}\"}"
+
+request "invalid client ID" \
+  -X DELETE "${ENDPOINT}/NOT-VALID" \
+  -H "Authorization: Bearer ${REGISTRATOR_TOKEN}"

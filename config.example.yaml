@@ -18,7 +18,7 @@ authorizationServer:
 
 registrators:
   - issuer: http://localhost:3004/env1
-    subject: client-registrator
+    subject: system:serviceaccount:namespace1:client-registrator
     clientJwksUri: http://localhost:3004/env1/jwks
     requiredAlgs:
       - RS256

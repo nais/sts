@@ -2,6 +2,7 @@ package registration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -56,13 +57,13 @@ func NewRegistrators(ctx context.Context, httpClient *http.Client, authServerCfg
 func (r *Registrators) Authenticate(request *http.Request) (*Registrator, error) {
 	token, ok := bearerToken(request)
 	if !ok {
-		return nil, oidc.ErrUnauthorizedClient().WithDescription("missing bearer token")
+		return nil, errors.New("missing bearer token")
 	}
 	claims, err := r.clientAuthVerifier.Verify(request.Context(), token, func(claims *oauth.AccessTokenClaims) error {
 		return oauth.ValidateClientAuthClaims(claims, r.expectedAudience, r.maxTokenLifetime)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("verify client auth token: %w", err)
+		return nil, err
 	}
 
 	registrator := r.byIdentity[registratorIdentity{issuer: claims.Issuer, subject: claims.Subject}]
@@ -78,7 +79,7 @@ func (r *Registrator) VerifySoftwareStatement(ctx context.Context, softwareState
 	if err != nil {
 		return nil, err
 	}
-	if err = oidc.CheckSignature(ctx, softwareStatementString, payload, ss, r.RequiredAlgs, r.KeySet); err != nil {
+	if err := oidc.CheckSignature(ctx, softwareStatementString, payload, ss, r.RequiredAlgs, r.KeySet); err != nil {
 		return nil, err
 	}
 	if err := ss.validate(); err != nil {
