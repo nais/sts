@@ -41,7 +41,7 @@ func (a *AuthorizationServer) JwksEndpoint() nethttp.HandlerFunc {
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Add("Vary", "Accept")
 
-		resp, err := a.Keys(r.Context())
+		resp, err := a.KeyStore.PublicKeys()
 		if err != nil {
 			return err
 		}

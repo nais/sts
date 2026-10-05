@@ -19,13 +19,11 @@ import (
 
 	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/ioconvenience"
-	"github.com/nais/sts/internal/jwk"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/registration"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
-	"github.com/zitadel/oidc/v3/pkg/crypto"
 	httphelper "github.com/zitadel/oidc/v3/pkg/http"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
@@ -794,10 +792,7 @@ func getSubjectTokenFromIssuer(t testing.TB, oauthServer testServer, issuer stri
 
 func signSoftwareStatement(t testing.TB, statement registration.SoftwareStatement) string {
 	t.Helper()
-	signer, err := jwk.NewSigner(key)
-	require.NoError(t, err)
-
-	signed, err := crypto.Sign(statement, signer)
+	signed, err := signer.SignJWT(statement)
 	require.NoError(t, err)
 	return signed
 }

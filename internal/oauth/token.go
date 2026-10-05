@@ -8,8 +8,7 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/go-jose/go-jose/v4"
-	"github.com/zitadel/oidc/v3/pkg/crypto"
+	"github.com/nais/sts/internal/jwk"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
@@ -39,8 +38,8 @@ func (s *STSTokenClaims) ExpiresIn() time.Duration {
 	return time.Until(s.Expiration.AsTime())
 }
 
-func (s *STSTokenClaims) Sign(signer jose.Signer) (string, error) {
-	return crypto.Sign(s.Claims, signer)
+func (s *STSTokenClaims) Sign(signer *jwk.Signer) (string, error) {
+	return signer.SignJWT(s.Claims)
 }
 
 var _ json.Unmarshaler = (*AccessTokenClaims)(nil)

@@ -1,8 +1,6 @@
-// Package jwk creates and verifies signatures with JSON Web Keys.
 package jwk
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -10,17 +8,24 @@ import (
 	"uuid"
 
 	"github.com/go-jose/go-jose/v4"
+	"github.com/zitadel/oidc/v3/pkg/crypto"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
 const Algorithm = jose.ES256
 
-func Generate() (jose.JSONWebKey, error) {
+var _ jose.Signer = (*Signer)(nil)
+
+type Key struct {
+	jose.JSONWebKey
+}
+
+func Generate() (Key, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return jose.JSONWebKey{}, fmt.Errorf("generate signing key: %w", err)
+		return Key{}, fmt.Errorf("generate signing key: %w", err)
 	}
-	return jose.JSONWebKey{
+	return Key{
 		Key:       key,
 		KeyID:     uuid.New().String(),
 		Algorithm: string(Algorithm),
@@ -28,34 +33,65 @@ func Generate() (jose.JSONWebKey, error) {
 	}, nil
 }
 
-// NewSigner returns a signer that sets the key ID of key in each signature header.
-func NewSigner(key jose.JSONWebKey) (jose.Signer, error) {
-	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.SignatureAlgorithm(key.Algorithm), Key: &key}, nil)
+func (k Key) Public() Key {
+	return Key{JSONWebKey: k.JSONWebKey.Public()}
+}
+
+func (k Key) Signer() (*Signer, error) {
+	signer, err := jose.NewSigner(jose.SigningKey{
+		Algorithm: jose.SignatureAlgorithm(k.Algorithm),
+		Key:       &k.JSONWebKey,
+	}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create signer: %w", err)
 	}
-	return signer, nil
+
+	return &Signer{
+		Signer:    signer,
+		publicKey: k.Public(),
+	}, nil
 }
 
-type KeySet jose.JSONWebKeySet
-
-func (s KeySet) VerifySignature(_ context.Context, jws *jose.JSONWebSignature) ([]byte, error) {
-	key, err := s.Key(jws)
-	if err != nil {
-		return nil, fmt.Errorf("find verification key: %w", err)
-	}
-	return Verify(jws, key)
-}
-
-func (s KeySet) Key(jws *jose.JSONWebSignature) (jose.JSONWebKey, error) {
-	keyID, alg := oidc.GetKeyIDAndAlg(jws)
-	return oidc.FindMatchingKey(keyID, oidc.KeyUseSignature, alg, s.Keys...)
-}
-
-func Verify(jws *jose.JSONWebSignature, key jose.JSONWebKey) ([]byte, error) {
-	payload, err := jws.Verify(&key)
+func (k Key) Verify(jws *jose.JSONWebSignature) ([]byte, error) {
+	payload, err := jws.Verify(&k.JSONWebKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid signature: %w", err)
 	}
 	return payload, nil
+}
+
+type Signer struct {
+	jose.Signer
+	publicKey Key
+}
+
+func GenerateSigner() (*Signer, error) {
+	key, err := Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate key: %w", err)
+	}
+	return key.Signer()
+}
+
+func (s *Signer) Algorithm() string {
+	return s.publicKey.Algorithm
+}
+
+func (s *Signer) PublicKeySet() KeySet {
+	return KeySet{Keys: []jose.JSONWebKey{s.publicKey.JSONWebKey}}
+}
+
+func (s *Signer) SignJWT(claims any) (string, error) {
+	return crypto.Sign(claims, s.Signer)
+}
+
+type KeySet jose.JSONWebKeySet
+
+func (s KeySet) FindKey(jws *jose.JSONWebSignature) (*Key, error) {
+	keyID, alg := oidc.GetKeyIDAndAlg(jws)
+	key, err := oidc.FindMatchingKey(keyID, oidc.KeyUseSignature, alg, s.Keys...)
+	if err != nil {
+		return nil, err
+	}
+	return &Key{JSONWebKey: key}, nil
 }

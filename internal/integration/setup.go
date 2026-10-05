@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-jose/go-jose/v4"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/api"
 	"github.com/nais/sts/internal/config"
@@ -28,12 +27,12 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-var key = func() jose.JSONWebKey {
-	key, err := jwk.Generate()
+var signer = func() *jwk.Signer {
+	s, err := jwk.GenerateSigner()
 	if err != nil {
 		panic(err)
 	}
-	return key
+	return s
 }()
 
 type testFixtures struct {
@@ -125,7 +124,7 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Add("Vary", "Accept")
 
-		if err := json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{key.Public()}}); err != nil {
+		if err := json.NewEncoder(w).Encode(signer.PublicKeySet()); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}))
@@ -156,13 +155,13 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 				Issuer:        oauthServer.Endpoint("env1"),
 				Subject:       "system:serviceaccount:namespace1:registrator1",
 				ClientJwksUri: registratorServer.URL,
-				RequiredAlgs:  []string{string(jwk.Algorithm)},
+				RequiredAlgs:  []string{signer.Algorithm()},
 			},
 			{
 				Issuer:        oauthServer.Endpoint("env2"),
 				Subject:       "system:serviceaccount:namespace1:registrator2",
 				ClientJwksUri: registratorServer.URL,
-				RequiredAlgs:  []string{string(jwk.Algorithm)},
+				RequiredAlgs:  []string{signer.Algorithm()},
 			},
 		},
 	}

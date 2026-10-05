@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/go-jose/go-jose/v4"
 	"github.com/nais/sts/internal/jwk"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
@@ -54,7 +53,7 @@ var (
 const InternalSigningAlgorithm = jwk.Algorithm
 
 type KeyStore interface {
-	Signer() (jose.Signer, error)
-	PublicKeys() (*jose.JSONWebKeySet, error)
+	Signer() (*jwk.Signer, error)
+	PublicKeys() (*jwk.KeySet, error)
 	oidc.KeySet
 }

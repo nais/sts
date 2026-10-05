@@ -9,7 +9,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/go-jose/go-jose/v4"
 	"github.com/nais/sts/internal/errs"
 	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -133,14 +132,6 @@ func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenReq
 		return nil, err
 	}
 	return response, nil
-}
-
-func (a *AuthorizationServer) Keys(_ context.Context) (*jose.JSONWebKeySet, error) {
-	keys, err := a.KeyStore.PublicKeys()
-	if err != nil {
-		return nil, fmt.Errorf("get public keys: %w", err)
-	}
-	return keys, nil
 }
 
 func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *AuthorizationResult) (*AccessTokenResponse, error) {

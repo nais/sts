@@ -46,10 +46,9 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, original, source)
 
-	key, err := jwk.Generate()
+	signer, err := jwk.GenerateSigner()
 	require.NoError(t, err)
-	signer, err := jwk.NewSigner(key)
-	require.NoError(t, err)
+
 	signed, err := accessToken.Sign(signer)
 	require.NoError(t, err)
 
