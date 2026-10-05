@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/nais/sts/internal/errs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -21,14 +22,14 @@ func TestFromZitadelTokenError(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := FromZitadelTokenError(test.err)
-			reason, ok := errors.AsType[ErrorDescription](err)
+			reason, ok := errors.AsType[errs.ErrorDescription](err)
 			if test.want == "" {
 				assert.False(t, ok)
 				assert.Equal(t, test.err, err)
 				return
 			}
 			require.True(t, ok)
-			assert.Equal(t, ErrorDescription(test.want), reason)
+			assert.Equal(t, errs.ErrorDescription(test.want), reason)
 			assert.ErrorIs(t, err, test.err)
 		})
 	}

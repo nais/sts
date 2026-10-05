@@ -8,6 +8,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nais/sts/internal/errs"
+	http2 "github.com/nais/sts/internal/http"
 	"github.com/nais/sts/internal/oauth"
 )
 
@@ -32,34 +34,34 @@ func (a *Api) AuthenticateRequest(r *http.Request) (*Registrator, error) {
 }
 
 func (a *Api) PostEndpoint() http.HandlerFunc {
-	return oauth.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
-		if err := oauth.RequireContentType(r, oauth.MediaTypeJSON); err != nil {
+	return http2.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+		if err := http2.RequireContentType(r, http2.MediaTypeJSON); err != nil {
 			return err
 		}
 
 		registrator, err := a.AuthenticateRequest(r)
 		if err != nil {
-			return oauth.InvalidToken(err, "authentication failed")
+			return errs.InvalidToken(err, "authentication failed")
 		}
 
 		registration, err := decodeClientRegistration(w, r)
 		if err != nil {
 			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-				return oauth.RequestTooLarge(err, "request body exceeds %d bytes", maxRegistrationBodySize)
+				return errs.RequestTooLarge(err, "request body exceeds %d bytes", maxRegistrationBodySize)
 			}
-			return oauth.InvalidClientMetadata(err, "invalid request body")
+			return errs.InvalidClientMetadata(err, "invalid request body")
 		}
 
 		ss, err := registrator.VerifySoftwareStatement(r.Context(), registration.SoftwareStatement)
 		if err != nil {
-			return oauth.InvalidSoftwareStatement(err, "software statement is invalid")
+			return errs.InvalidSoftwareStatement(err, "software statement is invalid")
 		}
 
 		if err := a.SaveRegistration(r.Context(), registrator, ss); err != nil {
 			return err
 		}
 
-		oauth.WriteJSON(w, r, &ClientRegistrationResponse{
+		http2.WriteJSON(w, r, &ClientRegistrationResponse{
 			ClientRegistration: registration,
 			ClientID:           ss.ClientId,
 		})
@@ -68,21 +70,21 @@ func (a *Api) PostEndpoint() http.HandlerFunc {
 }
 
 func (a *Api) DeleteEndpoint() http.HandlerFunc {
-	return oauth.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+	return http2.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
 		registrator, err := a.AuthenticateRequest(r)
 		if err != nil {
-			return oauth.InvalidToken(err, "authentication failed")
+			return errs.InvalidToken(err, "authentication failed")
 		}
 
 		clientID := oauth.ClientID(chi.URLParam(r, "id"))
 		if err := clientID.Validate(); err != nil {
-			return oauth.InvalidRequest(err, "client ID is invalid")
+			return errs.InvalidRequest(err, "client ID is invalid")
 		}
 
 		err = a.store.Delete(r.Context(), clientID, registrator.AuthIssuer)
 		if err != nil {
 			if errors.Is(err, oauth.ErrRegistrationUnauthorized) {
-				return oauth.UnauthorizedClient(err, "registrator is not authorized to delete client")
+				return errs.UnauthorizedClient(err, "registrator is not authorized to delete client")
 			}
 			return err
 		}
@@ -94,7 +96,7 @@ func (a *Api) DeleteEndpoint() http.HandlerFunc {
 
 func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s *SoftwareStatement) error {
 	if s.Workload.Issuer != registrator.AuthIssuer {
-		return oauth.UnapprovedSoftwareStatement(nil, "workload issuer %q does not match the registrator issuer %q", s.Workload.Issuer, registrator.AuthIssuer)
+		return errs.UnapprovedSoftwareStatement(nil, "workload issuer %q does not match the registrator issuer %q", s.Workload.Issuer, registrator.AuthIssuer)
 	}
 	policies := make([]oauth.AuthorizationPolicy, len(s.AuthorizationPolicies))
 	for i, policy := range s.AuthorizationPolicies {
@@ -116,11 +118,11 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 	case err == nil:
 		return nil
 	case errors.Is(err, oauth.ErrRegistrationUnauthorized):
-		return oauth.UnauthorizedClient(err, "registrator is not authorized for client")
+		return errs.UnauthorizedClient(err, "registrator is not authorized for client")
 	case errors.Is(err, oauth.ErrImmutableFieldsChanged):
-		return oauth.InvalidClientMetadata(err, "registration conflicts with existing client: immutable fields cannot change")
+		return errs.InvalidClientMetadata(err, "registration conflicts with existing client: immutable fields cannot change")
 	case errors.Is(err, oauth.ErrWorkloadTaken):
-		return oauth.InvalidClientMetadata(err, "workload is already registered to another client")
+		return errs.InvalidClientMetadata(err, "workload is already registered to another client")
 	default:
 		return err
 	}

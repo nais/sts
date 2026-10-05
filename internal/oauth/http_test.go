@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
+	nethttp "net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/nais/sts/internal/errs"
+	"github.com/nais/sts/internal/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -24,11 +26,11 @@ func TestDiscoveryOmitsTokenExchangeWhenDisabled(t *testing.T) {
 		JwksURI: op.NewEndpoint("/jwks"),
 	}
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", nil)
+	request := httptest.NewRequest(nethttp.MethodGet, "/.well-known/oauth-authorization-server", nil)
 
 	DiscoveryEndpoint(endpoints, AuthorizationServerConfig{Issuer: "https://sts.example"})(recorder, request)
 
-	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, nethttp.StatusOK, recorder.Code)
 	var discovery oidc.DiscoveryConfiguration
 	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&discovery))
 	assert.Equal(t, []oidc.GrantType{oidc.GrantTypeClientCredentials}, discovery.GrantTypesSupported)
@@ -36,14 +38,14 @@ func TestDiscoveryOmitsTokenExchangeWhenDisabled(t *testing.T) {
 
 func TestTokenEndpointRejectsTokenExchangeWhenDisabled(t *testing.T) {
 	form := url.Values{"grant_type": {string(oidc.GrantTypeTokenExchange)}}
-	request := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(form.Encode()))
+	request := httptest.NewRequest(nethttp.MethodPost, "/token", strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	recorder := httptest.NewRecorder()
 
 	new(AuthorizationServer).TokenEndpoint()(recorder, request)
 
-	require.Equal(t, http.StatusBadRequest, recorder.Code)
-	var response ErrorResponse
+	require.Equal(t, nethttp.StatusBadRequest, recorder.Code)
+	var response errs.ErrorResponse
 	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
 	assert.Equal(t, "unsupported_grant_type", response.Code)
 }
@@ -58,12 +60,12 @@ func TestTokenEndpointRejectsInvalidRequests(t *testing.T) {
 	}{
 		"json content type": {
 			contentType: "application/json",
-			status:      http.StatusUnsupportedMediaType,
+			status:      nethttp.StatusUnsupportedMediaType,
 			description: "content type must be application/x-www-form-urlencoded",
 		},
 		"body too large": {
-			form:        url.Values{"grant_type": {strings.Repeat("a", maxTokenRequestBodySize)}},
-			status:      http.StatusRequestEntityTooLarge,
+			form:        url.Values{"grant_type": {strings.Repeat("a", http.MaxRequestBodySize)}},
+			status:      nethttp.StatusRequestEntityTooLarge,
 			description: "request body exceeds 65536 bytes",
 		},
 		"grant type in query": {
@@ -72,7 +74,7 @@ func TestTokenEndpointRejectsInvalidRequests(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/token"+test.query, strings.NewReader(test.form.Encode()))
+			request := httptest.NewRequest(nethttp.MethodPost, "/token"+test.query, strings.NewReader(test.form.Encode()))
 			contentType := test.contentType
 			if contentType == "" {
 				contentType = "application/x-www-form-urlencoded"
@@ -84,10 +86,10 @@ func TestTokenEndpointRejectsInvalidRequests(t *testing.T) {
 
 			status := test.status
 			if status == 0 {
-				status = http.StatusBadRequest
+				status = nethttp.StatusBadRequest
 			}
 			require.Equal(t, status, recorder.Code)
-			var response ErrorResponse
+			var response errs.ErrorResponse
 			require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
 			assert.Equal(t, "invalid_request", response.Code)
 			assert.Equal(t, test.description, response.Description)
@@ -109,12 +111,12 @@ func TestRequireContentType(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/", nil)
+			request := httptest.NewRequest(nethttp.MethodPost, "/", nil)
 			if test.contentType != "" {
 				request.Header.Set("Content-Type", test.contentType)
 			}
 
-			err := RequireContentType(request, "application/json")
+			err := http.RequireContentType(request, "application/json")
 			if test.wantErr {
 				require.Error(t, err)
 				return
@@ -126,10 +128,10 @@ func TestRequireContentType(t *testing.T) {
 
 func TestHandlerFuncHidesPlainError(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	HandlerFunc(func(http.ResponseWriter, *http.Request) error { return errors.New("private detail") })(recorder, httptest.NewRequest(http.MethodPost, "/", nil))
+	http.HandlerFunc(func(nethttp.ResponseWriter, *nethttp.Request) error { return errors.New("private detail") })(recorder, httptest.NewRequest(nethttp.MethodPost, "/", nil))
 
-	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
-	var body ErrorResponse
+	assert.Equal(t, nethttp.StatusInternalServerError, recorder.Code)
+	var body errs.ErrorResponse
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
 	assert.Equal(t, "internal error", body.Description)
 }
@@ -141,11 +143,11 @@ func TestHandlerFuncLogsWrappingContext(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
 	recorder := httptest.NewRecorder()
-	HandlerFunc(func(http.ResponseWriter, *http.Request) error {
-		return fmt.Errorf("context: %w", InvalidTarget(NewErrorDescription("reason"), "described"))
-	})(recorder, httptest.NewRequest(http.MethodPost, "/", nil))
+	http.HandlerFunc(func(nethttp.ResponseWriter, *nethttp.Request) error {
+		return fmt.Errorf("context: %w", errs.InvalidTarget(errs.NewErrorDescription("reason"), "described"))
+	})(recorder, httptest.NewRequest(nethttp.MethodPost, "/", nil))
 
-	var body ErrorResponse
+	var body errs.ErrorResponse
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
 	assert.Equal(t, "described: reason", body.Description)
 	assert.Contains(t, logs.String(), "context: described: reason")
@@ -153,22 +155,22 @@ func TestHandlerFuncLogsWrappingContext(t *testing.T) {
 
 func TestWriteError(t *testing.T) {
 	for name, test := range map[string]struct {
-		err         Error
+		err         errs.Error
 		status      int
 		errorType   string
 		description string
 		level       string
 	}{
 		"server error": {
-			err:         ServerError(errors.New("private detail")),
-			status:      http.StatusInternalServerError,
+			err:         errs.ServerError(errors.New("private detail")),
+			status:      nethttp.StatusInternalServerError,
 			errorType:   "server_error",
 			description: "internal error",
 			level:       "ERROR",
 		},
 		"sentinel status": {
-			err:         UnsupportedMediaType(errors.New("private detail"), "authentication failed"),
-			status:      http.StatusUnsupportedMediaType,
+			err:         errs.UnsupportedMediaType(errors.New("private detail"), "authentication failed"),
+			status:      nethttp.StatusUnsupportedMediaType,
 			errorType:   "invalid_request",
 			description: "authentication failed",
 			level:       "WARN",
@@ -181,7 +183,7 @@ func TestWriteError(t *testing.T) {
 			t.Cleanup(func() { slog.SetDefault(previous) })
 
 			recorder := httptest.NewRecorder()
-			WriteError(recorder, httptest.NewRequest(http.MethodPost, "/token", nil), test.err)
+			http.WriteError(recorder, httptest.NewRequest(nethttp.MethodPost, "/token", nil), test.err)
 
 			assert.Equal(t, test.status, recorder.Code)
 			assert.NotContains(t, recorder.Body.String(), "private detail")

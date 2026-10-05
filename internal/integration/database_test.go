@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/store"
 	"github.com/stretchr/testify/require"
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"go.opentelemetry.io/otel"
 )
 
@@ -262,7 +264,7 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 		direct := store.NewClientStore(pool)
 		require.NoError(t, direct.Save(t.Context(), testClient("scope")))
 
-		client, err := cached.Get(t.Context(), testClientIssuer, testWorkload())
+		client, err := cached.Get(t.Context(), testClientClaims())
 		require.NoError(t, err)
 		require.Equal(t, []string{"scope"}, client.AllowedScopes)
 	})
@@ -288,7 +290,7 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 
 		require.NoError(t, direct.Save(t.Context(), testClient("new-scope")))
 		require.Eventually(t, func() bool {
-			client, err := cached.Get(t.Context(), testClientIssuer, testWorkload())
+			client, err := cached.Get(t.Context(), testClientClaims())
 			return err == nil && len(client.AllowedScopes) == 1 && client.AllowedScopes[0] == "new-scope"
 		}, 5*time.Second, 10*time.Millisecond)
 	})
@@ -462,12 +464,13 @@ func testClient(scopes ...string) *oauth.Client {
 	}}
 }
 
-const testClientIssuer = "https://issuer.example"
-
-func testWorkload() *oauth.KubernetesClaims {
-	workload := &oauth.KubernetesClaims{Namespace: "namespace"}
-	workload.ServiceAccount.Name = "workload"
-	return workload
+func testClientClaims() *oauth.AccessTokenClaims {
+	return &oauth.AccessTokenClaims{
+		TokenClaims: oidc.TokenClaims{Issuer: "https://issuer.example"},
+		Claims: map[string]json.RawMessage{
+			"kubernetes.io": json.RawMessage(`{"namespace":"namespace","serviceaccount":{"name":"workload"}}`),
+		},
+	}
 }
 
 func newTestPool(t *testing.T) *pgxpool.Pool {

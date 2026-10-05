@@ -104,8 +104,12 @@ func (c *CachedClient) Run(ctx context.Context) {
 	listener.Wait()
 }
 
-func (c *CachedClient) Get(ctx context.Context, issuer string, workload *oauth.KubernetesClaims) (*oauth.Client, error) {
-	key := clientKey{issuer: issuer, namespace: workload.Namespace, workload: workload.ServiceAccount.Name}
+func (c *CachedClient) Get(ctx context.Context, claims *oauth.AccessTokenClaims) (*oauth.Client, error) {
+	workload, err := claims.Kubernetes()
+	if err != nil {
+		return nil, err
+	}
+	key := clientKey{issuer: claims.Issuer, namespace: workload.Namespace, workload: workload.ServiceAccount.Name}
 
 	snapshot, ok := c.snapshot.Current()
 	if !ok {

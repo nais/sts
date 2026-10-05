@@ -9,10 +9,3 @@ type AccessTokenResponse struct {
 	ExpiresIn       uint64                   `json:"expires_in,omitempty"`
 	Scopes          oidc.SpaceDelimitedArray `json:"scope,omitempty"`
 }
-
-// ErrorResponse is the body of an error response (RFC 6749 section 5.2).
-type ErrorResponse struct {
-	Status      int    `json:"-"`
-	Code        string `json:"error"`
-	Description string `json:"error_description,omitempty"`
-}

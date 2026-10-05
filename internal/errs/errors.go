@@ -1,4 +1,4 @@
-package oauth
+package errs
 
 import (
 	"errors"
@@ -22,6 +22,13 @@ type Error struct {
 	description string
 	status      int
 	cause       error
+}
+
+// ErrorResponse is the body of an error response (RFC 6749 section 5.2).
+type ErrorResponse struct {
+	Status      int    `json:"-"`
+	Code        string `json:"error"`
+	Description string `json:"error_description,omitempty"`
 }
 
 // RFC 6749 section 5.2
@@ -94,7 +101,7 @@ func (e Error) Unwrap() error {
 }
 
 func (e Error) HTTPError() ErrorResponse {
-	if e.internal() {
+	if e.Internal() {
 		s := ServerError(nil)
 		return ErrorResponse{Status: s.status, Code: s.code, Description: s.description}
 	}
@@ -123,12 +130,12 @@ func newError(code string, status int, cause error, format string, args ...any) 
 	return Error{code: code, status: status, cause: cause, description: fmt.Sprintf(format, args...)}
 }
 
-// internal reports whether e is a server failure, whose details must not reach the HTTP client.
-func (e Error) internal() bool {
+// Internal reports whether e is a server failure, whose details must not reach the HTTP client.
+func (e Error) Internal() bool {
 	return e.status >= http.StatusInternalServerError
 }
 
-func (e Error) logAttrs() []slog.Attr {
+func (e Error) LogAttrs() []slog.Attr {
 	resp := e.HTTPError()
 	attrs := []slog.Attr{
 		slog.String("code", resp.Code),
@@ -141,8 +148,8 @@ func (e Error) logAttrs() []slog.Attr {
 	return attrs
 }
 
-// toError converts any handler error into the Error that WriteError writes as the HTTP response.
-func toError(err error) Error {
+// ToError converts any handler error into the Error that WriteError writes as the HTTP response.
+func ToError(err error) Error {
 	inner, ok := errors.AsType[Error](err)
 	if !ok {
 		return ServerError(err)
@@ -163,7 +170,7 @@ func appendErrorDescriptions(parts []string, err error) []string {
 	case ErrorDescription:
 		return append(parts, string(e))
 	case Error:
-		if e.internal() {
+		if e.Internal() {
 			return parts
 		}
 		if e.description != "" {

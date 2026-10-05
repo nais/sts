@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
+	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/registration"
@@ -147,7 +148,7 @@ func TestSts(t *testing.T) {
 			token := stsToken[oauth.AccessTokenResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target))
 			require.NotEmpty(t, token.AccessToken)
 
-			status, _ = deleteRegistration[oauth.ErrorResponse](t, stsAddress, registratorToken, another.ClientId)
+			status, _ = deleteRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, another.ClientId)
 			require.Equal(t, http.StatusNoContent, status)
 		})
 
@@ -174,18 +175,18 @@ func TestSts(t *testing.T) {
 
 			// A policy owned by the consumer cannot authorize client credentials for Client3.
 			clientAssertion := getClientToken(t, oauthServer, consumer)
-			clientCredentials := stsToken[oauth.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target))
+			clientCredentials := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target))
 			assert.Equal(t, "invalid_target", clientCredentials.Code)
 			assert.Equal(t, fmt.Sprintf("client is not authorized for target %q", target), clientCredentials.Description)
 
 			// A policy owned by the consumer cannot authorize token exchange for Client3.
 			const subjectIssuer = "subject1"
 			subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, subjectIssuer)
-			tokenExchange := stsToken[oauth.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
+			tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
 			assert.Equal(t, "invalid_target", tokenExchange.Code)
 			assert.Equal(t, fmt.Sprintf("client is not authorized for target %q", target), tokenExchange.Description)
 
-			status, _ = deleteRegistration[oauth.ErrorResponse](t, stsAddress, registratorToken, selfGrant.ClientId)
+			status, _ = deleteRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, selfGrant.ClientId)
 			require.Equal(t, http.StatusNoContent, status)
 		})
 
@@ -195,7 +196,7 @@ func TestSts(t *testing.T) {
 			unauthorized.ClientId = "env2:namespace1:unauthorized-workload"
 			unauthorized.Workload.Environment = "env2"
 			unauthorized.Workload.Issuer = oauthServer.Endpoint("env2")
-			status, response := postRegistration[oauth.ErrorResponse](t, stsAddress, registratorToken, registration.ClientRegistration{
+			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, registration.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, unauthorized),
 			})
 			require.Equal(t, http.StatusBadRequest, status, response)
@@ -207,7 +208,7 @@ func TestSts(t *testing.T) {
 			collision := statement
 			collision.AuthorizationPolicies = slices.Clone(statement.AuthorizationPolicies)
 			collision.ClientId = "env1:namespace1:other-client"
-			status, response := postRegistration[oauth.ErrorResponse](t, stsAddress, registratorToken, registration.ClientRegistration{
+			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, registration.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, collision),
 			})
 			require.Equal(t, http.StatusBadRequest, status, response)
@@ -219,7 +220,7 @@ func TestSts(t *testing.T) {
 			changed := statement
 			changed.AuthorizationPolicies = slices.Clone(statement.AuthorizationPolicies)
 			changed.Workload.Namespace = "other-namespace"
-			status, response := postRegistration[oauth.ErrorResponse](t, stsAddress, registratorToken, registration.ClientRegistration{
+			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, registration.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, changed),
 			})
 			require.Equal(t, http.StatusBadRequest, status, response)
@@ -231,7 +232,7 @@ func TestSts(t *testing.T) {
 			replacement := statement
 			replacement.Workload.Environment = "env2"
 			replacement.Workload.Issuer = oauthServer.Endpoint("env2")
-			status, response := postRegistration[oauth.ErrorResponse](t, stsAddress, otherRegistratorToken, registration.ClientRegistration{
+			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, otherRegistratorToken, registration.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, replacement),
 			})
 			require.Equal(t, http.StatusBadRequest, status, response)
@@ -240,13 +241,13 @@ func TestSts(t *testing.T) {
 		})
 
 		t.Run("does not delete registration outside issuer authority", func(t *testing.T) {
-			status, response := deleteRegistration[oauth.ErrorResponse](t, stsAddress, otherRegistratorToken, statement.ClientId)
+			status, response := deleteRegistration[errs.ErrorResponse](t, stsAddress, otherRegistratorToken, statement.ClientId)
 			require.Equal(t, http.StatusBadRequest, status, response)
 			assert.Equal(t, "unauthorized_client", response.Code)
 		})
 
 		t.Run("deletes missing registration", func(t *testing.T) {
-			status, _ := deleteRegistration[oauth.ErrorResponse](t, stsAddress, registratorToken, "env1:namespace1:missing")
+			status, _ := deleteRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, "env1:namespace1:missing")
 			require.Equal(t, http.StatusNoContent, status)
 		})
 
@@ -254,7 +255,7 @@ func TestSts(t *testing.T) {
 			request := registration.ClientRegistration{
 				SoftwareStatement: tamperJWTSignature(t, signed),
 			}
-			status, response := postRegistration[oauth.ErrorResponse](t, stsAddress, registratorToken, request)
+			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, request)
 			require.Equal(t, http.StatusBadRequest, status, response)
 			assert.Equal(t, "invalid_software_statement", response.Code)
 			assert.Equal(t, "software statement is invalid: invalid signature", response.Description)
@@ -263,7 +264,7 @@ func TestSts(t *testing.T) {
 		t.Run("rejects invalid signed software statement claims", func(t *testing.T) {
 			invalid := statement
 			invalid.ClientId = "Invalid"
-			status, response := postRegistration[oauth.ErrorResponse](t, stsAddress, registratorToken, registration.ClientRegistration{
+			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, registration.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, invalid),
 			})
 			require.Equal(t, http.StatusBadRequest, status, response)
@@ -275,14 +276,14 @@ func TestSts(t *testing.T) {
 			request := registration.ClientRegistration{
 				SoftwareStatement: signed,
 			}
-			status, response := postRegistration[oauth.ErrorResponse](t, stsAddress, unauthorizedToken, request)
+			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, unauthorizedToken, request)
 			require.Equal(t, http.StatusUnauthorized, status, response)
 			assert.Equal(t, "invalid_token", response.Code)
 			assert.Equal(t, "authentication failed", response.Description)
 		})
 
 		t.Run("rejects malformed request", func(t *testing.T) {
-			status, response := postRegistration[oauth.ErrorResponse](t, stsAddress, registratorToken, map[string]any{
+			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, map[string]any{
 				"software_statement": signed,
 				"unknown":            true,
 			})
@@ -300,13 +301,13 @@ func TestSts(t *testing.T) {
 			req.Header.Set("Content-Type", "text/plain")
 			req.Header.Set("Authorization", "Bearer "+registratorToken)
 
-			status, response := registrationRequest[oauth.ErrorResponse](t, req)
+			status, response := registrationRequest[errs.ErrorResponse](t, req)
 			require.Equal(t, http.StatusUnsupportedMediaType, status, response)
 			assert.Equal(t, "content type must be application/json", response.Description)
 		})
 
 		t.Run("rejects oversized request", func(t *testing.T) {
-			status, response := postRegistration[oauth.ErrorResponse](t, stsAddress, registratorToken, registration.ClientRegistration{
+			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, registration.ClientRegistration{
 				SoftwareStatement: strings.Repeat("x", 65<<10),
 			})
 			require.Equal(t, http.StatusRequestEntityTooLarge, status, response)
@@ -314,7 +315,7 @@ func TestSts(t *testing.T) {
 		})
 
 		t.Run("rejects missing bearer token", func(t *testing.T) {
-			status, response := postRegistration[oauth.ErrorResponse](t, stsAddress, "", registration.ClientRegistration{
+			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, "", registration.ClientRegistration{
 				SoftwareStatement: signed,
 			})
 			require.Equal(t, http.StatusUnauthorized, status, response)
@@ -330,14 +331,14 @@ func TestSts(t *testing.T) {
 			"client.name",
 		} {
 			t.Run("rejects invalid client ID "+id, func(t *testing.T) {
-				status, response := deleteRegistration[oauth.ErrorResponse](t, stsAddress, registratorToken, id)
+				status, response := deleteRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, id)
 				require.Equal(t, http.StatusBadRequest, status, response)
 				assert.Equal(t, "client ID is invalid", response.Description)
 			})
 		}
 
 		t.Run("deletes registration with valid client ID", func(t *testing.T) {
-			status, _ := deleteRegistration[oauth.ErrorResponse](t, stsAddress, registratorToken, statement.ClientId)
+			status, _ := deleteRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, statement.ClientId)
 			require.Equal(t, http.StatusNoContent, status)
 
 			// registered-workload cannot request a token after its registration is deleted.
@@ -387,7 +388,7 @@ func TestSts(t *testing.T) {
 		target := "env1:namespace1:unauthorized"
 
 		clientAssertion := getClientToken(t, oauthServer, consumer)
-		clientCredentials := stsToken[oauth.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target))
+		clientCredentials := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target))
 
 		assert.Equal(t, "invalid_target", clientCredentials.Code)
 		assert.Equal(t, fmt.Sprintf("client is not authorized for target %q", target), clientCredentials.Description)
@@ -402,7 +403,7 @@ func TestSts(t *testing.T) {
 		target := fixtures.Client2.ID
 
 		clientAssertion := getClientToken(t, oauthServer, consumer)
-		clientCredentials := stsToken[oauth.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target))
+		clientCredentials := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target))
 
 		assert.Equal(t, "invalid_client", clientCredentials.Code)
 		assert.Equal(t, "client authentication failed", clientCredentials.Description)
@@ -412,7 +413,7 @@ func TestSts(t *testing.T) {
 		const issuer = "untrusted"
 
 		clientAssertion := getKubernetesToken(t, oauthServer, issuer, fixtures.Client1.Namespace, fixtures.Client1.Workload)
-		clientCredentials := stsToken[oauth.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
+		clientCredentials := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
 
 		assert.Equal(t, "invalid_client", clientCredentials.Code)
 		assert.Equal(t,
@@ -471,7 +472,7 @@ func TestSts(t *testing.T) {
 		subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, subjectIssuer)
 
 		firstExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
-		secondExchange := stsToken[oauth.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, firstExchange.AccessToken, target))
+		secondExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, firstExchange.AccessToken, target))
 		assert.Equal(t, "invalid_request", secondExchange.Code)
 		assert.Equal(t,
 			fmt.Sprintf("subject token is invalid: subject token audience %q does not contain client_id %q", []string{target}, consumer.ID),
@@ -520,7 +521,7 @@ func TestSts(t *testing.T) {
 		secondConsumer := fixtures.Client2
 		secondTarget := fixtures.Client3.ID
 		secondClientAssertion := getClientToken(t, oauthServer, secondConsumer)
-		tokenExchange := stsToken[oauth.ErrorResponse](t, stsAddress, tokenExchangeForm(secondClientAssertion, clientCredentials.AccessToken, secondTarget))
+		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(secondClientAssertion, clientCredentials.AccessToken, secondTarget))
 
 		assert.Equal(t, "invalid_request", tokenExchange.Code)
 		assert.Equal(t,
@@ -536,7 +537,7 @@ func TestSts(t *testing.T) {
 
 		clientAssertion := getClientToken(t, oauthServer, consumer)
 		subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, subjectIssuer)
-		tokenExchange := stsToken[oauth.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
+		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
 
 		assert.Equal(t, "invalid_target", tokenExchange.Code)
 		assert.Equal(t, fmt.Sprintf("client is not authorized for target %q", target), tokenExchange.Description)
@@ -553,7 +554,7 @@ func TestSts(t *testing.T) {
 
 		clientAssertion := getClientToken(t, oauthServer, consumer)
 		subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, subjectIssuer)
-		tokenExchange := stsToken[oauth.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
+		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
 
 		assert.Equal(t, "invalid_client", tokenExchange.Code)
 		assert.Equal(t, "client authentication failed", tokenExchange.Description)
@@ -564,7 +565,7 @@ func TestSts(t *testing.T) {
 
 		clientAssertion := getKubernetesToken(t, oauthServer, issuer, fixtures.Client1.Namespace, fixtures.Client1.Workload)
 		subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, "subject1")
-		tokenExchange := stsToken[oauth.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID))
+		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID))
 
 		assert.Equal(t, "invalid_client", tokenExchange.Code)
 		assert.Equal(t,
@@ -580,7 +581,7 @@ func TestSts(t *testing.T) {
 
 		clientAssertion := getClientToken(t, oauthServer, consumer)
 		subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, subjectIssuer)
-		tokenExchange := stsToken[oauth.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
+		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
 
 		assert.Equal(t, "invalid_request", tokenExchange.Code)
 		assert.Equal(t,
@@ -732,7 +733,7 @@ func stsToken[T any](t testing.TB, sts testServer, form url.Values) *T {
 func assertTokenDenialAfterRefresh(t *testing.T, sts testServer, form url.Values, code, description string) {
 	t.Helper()
 	assert.Eventually(t, func() bool {
-		resp := stsToken[oauth.ErrorResponse](t, sts, form)
+		resp := stsToken[errs.ErrorResponse](t, sts, form)
 		return resp.Code == code && resp.Description == description
 	}, 5*time.Second, 10*time.Millisecond)
 }
@@ -895,7 +896,7 @@ func post[T any](t testing.TB, endpoint string, form url.Values) *T {
 	defer ioconvenience.CloseWithLog(resp.Body, slog.Default())
 
 	ret := new(T)
-	if _, wantError := any(ret).(*oauth.ErrorResponse); !wantError {
+	if _, wantError := any(ret).(*errs.ErrorResponse); !wantError {
 		require.Equal(t, http.StatusOK, resp.StatusCode, "HTTP status")
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(ret))

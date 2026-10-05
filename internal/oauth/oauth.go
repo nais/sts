@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
+	"github.com/nais/sts/internal/errs"
 	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
@@ -62,13 +63,9 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 
 	finishStep := a.Metrics.StartTokenStep(ctx, "verify_client_assertion")
 	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion, a.verifyClientAuthClaims)
-	var workload *KubernetesClaims
-	if err == nil {
-		workload, err = clientAuthClaims.Kubernetes()
-	}
 	finishStep(err)
 	if err != nil {
-		return nil, InvalidClient(err, "client assertion is invalid")
+		return nil, errs.InvalidClient(err, "client assertion is invalid")
 	}
 
 	target, err := request.Target()
@@ -77,10 +74,10 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "get_client")
-	client, err := a.ClientStore.Get(ctx, clientAuthClaims.Issuer, workload)
+	client, err := a.ClientStore.Get(ctx, clientAuthClaims)
 	finishStep(err)
 	if errors.Is(err, ErrClientNotFound) {
-		return nil, InvalidClient(err, "client authentication failed")
+		return nil, errs.InvalidClient(err, "client authentication failed")
 	}
 	if err != nil {
 		return nil, err
@@ -98,7 +95,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		})
 		finishStep(err)
 		if err != nil {
-			return nil, InvalidRequest(err, "subject token is invalid")
+			return nil, errs.InvalidRequest(err, "subject token is invalid")
 		}
 	}
 
@@ -106,7 +103,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	roles, err := a.ClientStore.AuthorizeTarget(ctx, ClientID(client.ID), target)
 	finishStep(err)
 	if errors.Is(err, ErrTargetUnauthorized) {
-		return nil, InvalidTarget(err, "client is not authorized for target %q", target.GetValue())
+		return nil, errs.InvalidTarget(err, "client is not authorized for target %q", target.GetValue())
 	}
 	if err != nil {
 		return nil, err
@@ -138,7 +135,7 @@ func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenReq
 	return response, nil
 }
 
-func (a *AuthorizationServer) Keys(ctx context.Context) (*jose.JSONWebKeySet, error) {
+func (a *AuthorizationServer) Keys(_ context.Context) (*jose.JSONWebKeySet, error) {
 	keys, err := a.KeyStore.PublicKeys()
 	if err != nil {
 		return nil, fmt.Errorf("get public keys: %w", err)
@@ -187,41 +184,41 @@ func (a *AuthorizationServer) verifySTSIssuedSubjectTokenClaims(claims *AccessTo
 
 	rawGrantType, ok := claims.Claims["urn:nais:grant_type"]
 	if !ok {
-		return NewErrorDescription("grant_type claim is missing")
+		return errs.NewErrorDescription("grant_type claim is missing")
 	}
 
 	var grantType oidc.GrantType
 	if err := json.Unmarshal(rawGrantType, &grantType); err != nil {
-		return NewErrorDescription("grant_type claim must be a string")
+		return errs.NewErrorDescription("grant_type claim must be a string")
 	}
 
 	if grantType != oidc.GrantTypeTokenExchange {
-		return NewErrorDescription("grant_type claim is invalid: got %q, want %q", grantType, oidc.GrantTypeTokenExchange)
+		return errs.NewErrorDescription("grant_type claim is invalid: got %q, want %q", grantType, oidc.GrantTypeTokenExchange)
 	}
 
 	if !slices.Contains(claims.Audience, clientID) {
-		return NewErrorDescription("subject token audience %q does not contain client_id %q", claims.Audience, clientID)
+		return errs.NewErrorDescription("subject token audience %q does not contain client_id %q", claims.Audience, clientID)
 	}
 	return nil
 }
 
 func ValidateClientAuthClaims(claims *AccessTokenClaims, expectedAudience string, maxLifetime time.Duration) error {
 	if len(claims.Audience) != 1 || claims.Audience[0] != expectedAudience {
-		return NewErrorDescription("audience %q is invalid, expected %q", claims.Audience, expectedAudience)
+		return errs.NewErrorDescription("audience %q is invalid, expected %q", claims.Audience, expectedAudience)
 	}
 	issuedAt := claims.IssuedAt.AsTime()
 	if issuedAt.IsZero() {
-		return NewErrorDescription("issued-at claim is missing")
+		return errs.NewErrorDescription("issued-at claim is missing")
 	}
 	expiration := claims.Expiration.AsTime()
 	if expiration.IsZero() {
-		return NewErrorDescription("expiration claim is missing")
+		return errs.NewErrorDescription("expiration claim is missing")
 	}
 	if !expiration.After(issuedAt) {
-		return NewErrorDescription("expiration must be after issued-at")
+		return errs.NewErrorDescription("expiration must be after issued-at")
 	}
 	if expiration.Sub(issuedAt) > maxLifetime+time.Minute {
-		return NewErrorDescription("token lifetime %s exceeds maximum %s", expiration.Sub(issuedAt), maxLifetime)
+		return errs.NewErrorDescription("token lifetime %s exceeds maximum %s", expiration.Sub(issuedAt), maxLifetime)
 	}
 	return nil
 }

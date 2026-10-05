@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
+	"github.com/nais/sts/internal/errs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -77,9 +78,9 @@ func TestAccessTokenClaimsKubernetes(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := (&AccessTokenClaims{Claims: test.claims}).Kubernetes()
-			reason, ok := errors.AsType[ErrorDescription](err)
+			reason, ok := errors.AsType[errs.ErrorDescription](err)
 			require.True(t, ok)
-			assert.Equal(t, ErrorDescription(test.want), reason)
+			assert.Equal(t, errs.ErrorDescription(test.want), reason)
 		})
 	}
 }

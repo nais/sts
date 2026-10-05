@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -56,7 +57,7 @@ func NewRegistrators(ctx context.Context, httpClient *http.Client, authServerCfg
 func (r *Registrators) Authenticate(request *http.Request) (*Registrator, error) {
 	token, ok := bearerToken(request)
 	if !ok {
-		return nil, oauth.NewErrorDescription("missing bearer token")
+		return nil, errs.NewErrorDescription("missing bearer token")
 	}
 	claims, err := r.clientAuthVerifier.Verify(request.Context(), token, func(claims *oauth.AccessTokenClaims) error {
 		return oauth.ValidateClientAuthClaims(claims, r.expectedAudience, r.maxTokenLifetime)

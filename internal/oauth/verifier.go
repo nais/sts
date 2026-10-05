@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/nais/sts/internal/errs"
 	oauthclient "github.com/zitadel/oidc/v3/pkg/client"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -36,7 +37,7 @@ func (v MultiIssuerTokenVerifier) Verify(ctx context.Context, rawToken string, f
 
 	verifier, ok := v[Issuer(claims.Issuer)]
 	if !ok {
-		return nil, NewErrorDescription("issuer %q is not trusted", claims.Issuer)
+		return nil, errs.NewErrorDescription("issuer %q is not trusted", claims.Issuer)
 	}
 
 	verifiedClaims, err := verifier.Verify(ctx, rawToken, payload, claims)
@@ -119,7 +120,7 @@ func (i *TokenVerifier) Verify(ctx context.Context, rawToken string, payload []b
 	if !claims.NotBefore.AsTime().IsZero() {
 		nowWithOffset := time.Now().Add(SkewTime).Round(time.Second)
 		if claims.NotBefore.AsTime().After(nowWithOffset) {
-			return nil, NewErrorDescription("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
+			return nil, errs.NewErrorDescription("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
 		}
 	}
 	return claims, nil
@@ -220,7 +221,7 @@ func FromZitadelTokenError(err error) error {
 				// zitadel says "parsing of request failed", which does not tell the HTTP client that the token is the problem.
 				message = "token is not a valid JWT"
 			}
-			return WrapErrorDescription(err, "%s", message)
+			return errs.WrapErrorDescription(err, "%s", message)
 		}
 	}
 	return err
