@@ -20,7 +20,8 @@ import (
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/oauth"
-	"github.com/nais/sts/internal/store"
+	"github.com/nais/sts/internal/store/clientstore"
+	"github.com/nais/sts/internal/store/keystore"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"go.opentelemetry.io/otel"
@@ -189,7 +190,7 @@ func testPostgresKeyStore(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 
 	ctx := t.Context()
-	st, err := store.NewRotatingKeyStore(ctx, pool, time.Minute)
+	st, err := keystore.New(ctx, pool, time.Minute)
 	require.NoError(t, err)
 
 	_, err = st.Signer()
@@ -206,7 +207,7 @@ func testPostgresKeyStore(t *testing.T, pool *pgxpool.Pool) {
 	}
 
 	// A second replica must load the existing keys instead of creating another set.
-	second, err := store.NewRotatingKeyStore(ctx, pool, time.Minute)
+	second, err := keystore.New(ctx, pool, time.Minute)
 	require.NoError(t, err)
 	secondKeys, err := second.PublicKeys()
 	require.NoError(t, err)
@@ -222,7 +223,7 @@ func testPostgresKeyStore(t *testing.T, pool *pgxpool.Pool) {
 
 	var group sync.WaitGroup
 	errs := make(chan error, 2)
-	for _, keyStore := range []*store.RotatingKeyStore{st, second} {
+	for _, keyStore := range []*keystore.Store{st, second} {
 		group.Go(func() {
 			errs <- keyStore.RotateSigningKeys(ctx)
 		})
@@ -258,12 +259,12 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 
 	t.Run("falls back to Postgres on miss", func(t *testing.T) {
 		resetClients(t, pool)
-		cached, err := store.NewCachedClientStore(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		cached, err := clientstore.New(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		require.NoError(t, err)
 		defer cached.Close()
 
-		direct := store.NewClientStore(pool)
-		require.NoError(t, direct.Save(t.Context(), testClient("scope")))
+		_, err = sqlgen.New(pool).UpsertKubernetesClient(t.Context(), testClientParams("scope"))
+		require.NoError(t, err)
 
 		client, err := cached.Get(t.Context(), testClientClaims())
 		require.NoError(t, err)
@@ -272,10 +273,11 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 
 	t.Run("refreshes after notification", func(t *testing.T) {
 		resetClients(t, pool)
-		direct := store.NewClientStore(pool)
-		require.NoError(t, direct.Save(t.Context(), testClient("old-scope")))
+		queries := sqlgen.New(pool)
+		_, err := queries.UpsertKubernetesClient(t.Context(), testClientParams("old-scope"))
+		require.NoError(t, err)
 
-		cached, err := store.NewCachedClientStore(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		cached, err := clientstore.New(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(t.Context())
@@ -289,7 +291,8 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 			<-done
 		}()
 
-		require.NoError(t, direct.Save(t.Context(), testClient("new-scope")))
+		_, err = queries.UpsertKubernetesClient(t.Context(), testClientParams("new-scope"))
+		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			client, err := cached.Get(t.Context(), testClientClaims())
 			return err == nil && len(client.AllowedScopes) == 1 && client.AllowedScopes[0] == "new-scope"
@@ -300,7 +303,7 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 
-	clients, err := store.NewCachedClientStore(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	clients, err := clientstore.New(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	require.NoError(t, err)
 	defer clients.Close()
 	queries := sqlgen.New(pool)
@@ -463,6 +466,18 @@ func testClient(scopes ...string) *oauth.Client {
 		Issuer:        "https://issuer.example",
 		AllowedScopes: scopes,
 	}}
+}
+
+func testClientParams(scopes ...string) sqlgen.UpsertKubernetesClientParams {
+	client := testClient(scopes...)
+	return sqlgen.UpsertKubernetesClientParams{
+		ID:            client.ID,
+		Environment:   client.Environment,
+		Namespace:     client.Namespace,
+		Workload:      client.Workload,
+		Issuer:        client.Issuer,
+		AllowedScopes: client.AllowedScopes,
+	}
 }
 
 func testClientClaims() *oauth.AccessTokenClaims {

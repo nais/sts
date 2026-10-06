@@ -19,7 +19,8 @@ import (
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/ioconvenience"
 	stsmetrics "github.com/nais/sts/internal/metrics"
-	"github.com/nais/sts/internal/store"
+	"github.com/nais/sts/internal/store/clientstore"
+	"github.com/nais/sts/internal/store/keystore"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sync/errgroup"
@@ -82,7 +83,7 @@ func startServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 	}
 	defer ioconvenience.CloseWithLog(internalListener, slog.Default())
 
-	clientStore, err := store.NewCachedClientStore(ctx,
+	clientStore, err := clientstore.New(ctx,
 		pool,
 		clientCacheRefreshInterval,
 		slog.With(slog.Default(), "component", "authorizationserver"))
@@ -91,7 +92,7 @@ func startServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 	}
 	defer clientStore.Close()
 
-	keyStore, err := store.NewRotatingKeyStore(ctx, pool, cfg.AuthorizationServerConfig.TokenExpiry)
+	keyStore, err := keystore.New(ctx, pool, cfg.AuthorizationServerConfig.TokenExpiry)
 	if err != nil {
 		return err
 	}

@@ -9,8 +9,6 @@ import (
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
-	"github.com/nais/sts/internal/oauth"
-	"github.com/nais/sts/internal/store"
 	"go.opentelemetry.io/otel"
 )
 
@@ -38,8 +36,8 @@ func run(ctx context.Context) error {
 	}
 	defer pool.Close()
 
-	cs := store.NewClientStore(pool)
-	clients := []*oauth.Client{
+	queries := sqlgen.New(pool)
+	clients := []sqlgen.UpsertKubernetesClientParams{
 		{
 			ID:            "env1:namespace1:workload1",
 			Environment:   "env1",
@@ -59,13 +57,12 @@ func run(ctx context.Context) error {
 	}
 
 	for _, client := range clients {
-		err := cs.Save(ctx, client)
+		_, err := queries.UpsertKubernetesClient(ctx, client)
 		if err != nil {
 			return err
 		}
 	}
 
-	queries := sqlgen.New(pool)
 	if err := queries.UpsertAuthorizationPolicy(ctx, sqlgen.UpsertAuthorizationPolicyParams{
 		OwnerClientID:    "env1:namespace1:workload2",
 		ConsumerClientID: "env1:namespace1:workload1",

@@ -1,4 +1,4 @@
-package store
+package keystore
 
 import (
 	"testing"
