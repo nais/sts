@@ -11,9 +11,70 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-type Issuer string
+type TokenVerifier struct {
+	issuer       Issuer
+	keyset       oidc.KeySet
+	requiredAlgs []string
+}
+
+func NewTokenVerifier(issuer Issuer, keyset oidc.KeySet, requiredAlgs ...string) (*TokenVerifier, error) {
+	if issuer == "" {
+		return nil, fmt.Errorf("issuer must not be empty")
+	}
+	if keyset == nil {
+		return nil, fmt.Errorf("key set must not be nil")
+	}
+	if len(requiredAlgs) == 0 {
+		return nil, fmt.Errorf("required algorithms must not be empty")
+	}
+	return &TokenVerifier{
+		issuer:       issuer,
+		keyset:       keyset,
+		requiredAlgs: requiredAlgs,
+	}, nil
+}
+
+func (i *TokenVerifier) Verify(ctx context.Context, rawToken string, payload []byte, claims *AccessTokenClaims) (*AccessTokenClaims, error) {
+	const SkewTime = time.Minute
+
+	if claims.Issuer != string(i.issuer) {
+		return nil, oidc.ErrIssuerInvalid
+	}
+	if err := oidc.CheckSignature(ctx, rawToken, payload, claims, i.requiredAlgs, i.keyset); err != nil {
+		return nil, err
+	}
+	if err := oidc.CheckExpiration(claims, SkewTime); err != nil {
+		return nil, err
+	}
+	if err := oidc.CheckIssuedAt(claims, 0, SkewTime); err != nil {
+		return nil, err
+	}
+	if err := oidc.CheckSubject(claims); err != nil {
+		return nil, err
+	}
+	if !claims.NotBefore.AsTime().IsZero() {
+		nowWithOffset := time.Now().Add(SkewTime).Round(time.Second)
+		if claims.NotBefore.AsTime().After(nowWithOffset) {
+			return nil, fmt.Errorf("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
+		}
+	}
+	return claims, nil
+}
 
 type MultiIssuerTokenVerifier map[Issuer]*TokenVerifier
+
+func NewMultiIssuerTokenVerifier(verifiers ...*TokenVerifier) (MultiIssuerTokenVerifier, error) {
+	if len(verifiers) == 0 {
+		return nil, fmt.Errorf("no verifiers configured")
+	}
+	verifier := make(MultiIssuerTokenVerifier, len(verifiers))
+	for _, v := range verifiers {
+		if err := verifier.Add(v); err != nil {
+			return nil, err
+		}
+	}
+	return verifier, nil
+}
 
 func (v MultiIssuerTokenVerifier) Add(i *TokenVerifier) error {
 	_, ok := v[i.issuer]
@@ -51,19 +112,6 @@ func (v MultiIssuerTokenVerifier) Verify(ctx context.Context, rawToken string, f
 	return verifiedClaims, nil
 }
 
-func NewMultiIssuerTokenVerifier(verifiers ...*TokenVerifier) (MultiIssuerTokenVerifier, error) {
-	if len(verifiers) == 0 {
-		return nil, fmt.Errorf("no verifiers configured")
-	}
-	verifier := make(MultiIssuerTokenVerifier, len(verifiers))
-	for _, v := range verifiers {
-		if err := verifier.Add(v); err != nil {
-			return nil, err
-		}
-	}
-	return verifier, nil
-}
-
 func NewTokenExchangeTokenVerifier(ctx context.Context, httpClient *http.Client, cfg AuthorizationServerConfig, keyStore KeyStore) (MultiIssuerTokenVerifier, error) {
 	subjectTokenVerifiers, err := ExternalTokenVerifiers(ctx, httpClient, cfg.SubjectTokenIssuers.Issuers()...)
 	if err != nil {
@@ -77,68 +125,6 @@ func NewTokenExchangeTokenVerifier(ctx context.Context, httpClient *http.Client,
 		subjectTokenVerifiers,
 		internalTokenVerifier,
 	)...)
-}
-
-func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, issuers []Issuer, allowedAlgorithms []string) (MultiIssuerTokenVerifier, error) {
-	clientAuthVerifiers := make([]*TokenVerifier, 0, len(issuers))
-	for _, issuer := range issuers {
-		verifier, err := externalTokenVerifier(ctx, httpClient, issuer, allowedAlgorithms)
-		if err != nil {
-			return nil, fmt.Errorf("resolving client auth verifiers: %w", err)
-		}
-		clientAuthVerifiers = append(clientAuthVerifiers, verifier)
-	}
-	return NewMultiIssuerTokenVerifier(clientAuthVerifiers...)
-}
-
-type TokenVerifier struct {
-	issuer       Issuer
-	keyset       oidc.KeySet
-	requiredAlgs []string
-}
-
-func (i *TokenVerifier) Verify(ctx context.Context, rawToken string, payload []byte, claims *AccessTokenClaims) (*AccessTokenClaims, error) {
-	const SkewTime = time.Minute
-
-	if claims.Issuer != string(i.issuer) {
-		return nil, oidc.ErrIssuerInvalid
-	}
-	if err := oidc.CheckSignature(ctx, rawToken, payload, claims, i.requiredAlgs, i.keyset); err != nil {
-		return nil, err
-	}
-	if err := oidc.CheckExpiration(claims, SkewTime); err != nil {
-		return nil, err
-	}
-	if err := oidc.CheckIssuedAt(claims, 0, SkewTime); err != nil {
-		return nil, err
-	}
-	if err := oidc.CheckSubject(claims); err != nil {
-		return nil, err
-	}
-	if !claims.NotBefore.AsTime().IsZero() {
-		nowWithOffset := time.Now().Add(SkewTime).Round(time.Second)
-		if claims.NotBefore.AsTime().After(nowWithOffset) {
-			return nil, fmt.Errorf("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
-		}
-	}
-	return claims, nil
-}
-
-func NewTokenVerifier(issuer Issuer, keyset oidc.KeySet, requiredAlgs ...string) (*TokenVerifier, error) {
-	if issuer == "" {
-		return nil, fmt.Errorf("issuer must not be empty")
-	}
-	if keyset == nil {
-		return nil, fmt.Errorf("key set must not be nil")
-	}
-	if len(requiredAlgs) == 0 {
-		return nil, fmt.Errorf("required algorithms must not be empty")
-	}
-	return &TokenVerifier{
-		issuer:       issuer,
-		keyset:       keyset,
-		requiredAlgs: requiredAlgs,
-	}, nil
 }
 
 func InternalTokenVerifier(cfg AuthorizationServerConfig, keyStore KeyStore) (*TokenVerifier, error) {

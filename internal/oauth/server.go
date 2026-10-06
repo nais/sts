@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"time"
 
 	"github.com/nais/sts/internal/errs"
 	stsmetrics "github.com/nais/sts/internal/metrics"
@@ -189,27 +188,6 @@ func (a *AuthorizationServer) verifySTSIssuedSubjectTokenClaims(claims *AccessTo
 
 	if !slices.Contains(claims.Audience, clientID) {
 		return fmt.Errorf("subject token audience %q does not contain client_id %q", claims.Audience, clientID)
-	}
-	return nil
-}
-
-func ValidateClientAuthClaims(claims *AccessTokenClaims, expectedAudience string, maxLifetime time.Duration) error {
-	if len(claims.Audience) != 1 || claims.Audience[0] != expectedAudience {
-		return fmt.Errorf("audience %q is invalid, expected %q", claims.Audience, expectedAudience)
-	}
-	issuedAt := claims.IssuedAt.AsTime()
-	if issuedAt.IsZero() {
-		return errors.New("issued at claim is missing")
-	}
-	expiration := claims.Expiration.AsTime()
-	if expiration.IsZero() {
-		return errors.New("expiration claim is missing")
-	}
-	if !expiration.After(issuedAt) {
-		return errors.New("expiration must be after issued-at")
-	}
-	if expiration.Sub(issuedAt) > maxLifetime+time.Minute {
-		return fmt.Errorf("token lifetime %s exceeds maximum %s", expiration.Sub(issuedAt), maxLifetime)
 	}
 	return nil
 }

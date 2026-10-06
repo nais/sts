@@ -3,6 +3,7 @@ package oauth
 import (
 	nethttp "net/http"
 	"net/url"
+	"strings"
 
 	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/http"
@@ -86,5 +87,34 @@ func (a *AuthorizationServer) parseTokenRequest(form url.Values) (TokenRequest, 
 		return nil, errs.InvalidRequest(nil, "grant_type missing")
 	default:
 		return nil, errs.UnsupportedGrantType(nil, "%s not supported", grantType)
+	}
+}
+
+func parseClientAuthCredentials(form url.Values) ClientAuthCredentials {
+	return ClientAuthCredentials{
+		ClientAssertion:     form.Get("client_assertion"),
+		ClientAssertionType: form.Get("client_assertion_type"),
+	}
+}
+
+func parseClientCredentialsRequest(form url.Values) *ClientCredentialsRequest {
+	// TODO: consider rejecting repeated parameters, as RFC 6749 section 3.1 requires.
+	//  form.Get uses the first value and ignores the rest.
+	return &ClientCredentialsRequest{
+		ClientAuthCredentials: parseClientAuthCredentials(form),
+		Scope:                 strings.Fields(form.Get("scope")),
+	}
+}
+
+func parseTokenExchangeRequest(form url.Values) *TokenExchangeRequest {
+	// TODO: consider rejecting repeated parameters, as RFC 6749 section 3.1 requires.
+	//  form.Get uses the first value and ignores the rest.
+	return &TokenExchangeRequest{
+		ClientAuthCredentials: parseClientAuthCredentials(form),
+		SubjectToken:          form.Get("subject_token"),
+		SubjectTokenType:      form.Get("subject_token_type"),
+		ActorToken:            form.Get("actor_token"),
+		RequestedTokenType:    form.Get("requested_token_type"),
+		Audience:              form.Get("audience"),
 	}
 }

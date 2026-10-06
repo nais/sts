@@ -1,12 +1,90 @@
 package oauth
 
 import (
-	"net/url"
+	"fmt"
+	"regexp"
 	"strings"
 
+	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/errs"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
+
+type (
+	Issuer string
+	Roles  []string
+)
+
+type Name string
+
+var namePattern = regexp.MustCompile(`^[a-z](?:[a-z0-9-]*[a-z0-9])?$`)
+
+func (n Name) Validate() error {
+	if !namePattern.MatchString(string(n)) {
+		return fmt.Errorf("invalid name")
+	}
+	return nil
+}
+
+type ClientID string
+
+func (c ClientID) Validate() error {
+	for part := range strings.SplitSeq(string(c), ":") {
+		if err := Name(part).Validate(); err != nil {
+			return fmt.Errorf("invalid client ID: part %q: %w", part, err)
+		}
+	}
+	return nil
+}
+
+type Client struct {
+	sqlgen.KubernetesClient
+	// AllowedScopes is "static access", i.e. doesn't require the existence of a target client ID
+}
+
+type AuthorizationPolicy struct {
+	Owner    ClientID `json:"owner"`
+	Consumer ClientID `json:"consumer"`
+	Roles    Roles    `json:"roles"`
+}
+
+type Target interface {
+	GetValue() string
+	GetType() string
+	AsAudience() oidc.Audience
+}
+
+type TargetAudience string
+
+var _ Target = (*TargetAudience)(nil)
+
+func (t TargetAudience) GetValue() string {
+	return string(t)
+}
+
+func (t TargetAudience) GetType() string {
+	return "audience"
+}
+
+func (t TargetAudience) AsAudience() oidc.Audience {
+	return oidc.Audience{string(t)}
+}
+
+type TargetScope string
+
+var _ Target = (*TargetScope)(nil)
+
+func (t TargetScope) GetValue() string {
+	return string(t)
+}
+
+func (t TargetScope) GetType() string {
+	return "scope"
+}
+
+func (t TargetScope) AsAudience() oidc.Audience {
+	return oidc.Audience{string(t)}
+}
 
 type TokenRequest interface {
 	GrantType() oidc.GrantType
@@ -15,21 +93,9 @@ type TokenRequest interface {
 	GetClientAuthCredentials() *ClientAuthCredentials
 }
 
-var (
-	_ TokenRequest = (*ClientCredentialsRequest)(nil)
-	_ TokenRequest = (*TokenExchangeRequest)(nil)
-)
-
 type ClientAuthCredentials struct {
 	ClientAssertion     string
 	ClientAssertionType string
-}
-
-func parseClientAuthCredentials(form url.Values) ClientAuthCredentials {
-	return ClientAuthCredentials{
-		ClientAssertion:     form.Get("client_assertion"),
-		ClientAssertionType: form.Get("client_assertion_type"),
-	}
 }
 
 func (c *ClientAuthCredentials) Validate() error {
@@ -48,14 +114,7 @@ type ClientCredentialsRequest struct {
 	Scope []string
 }
 
-func parseClientCredentialsRequest(form url.Values) *ClientCredentialsRequest {
-	// TODO: consider rejecting repeated parameters, as RFC 6749 section 3.1 requires.
-	//  form.Get uses the first value and ignores the rest.
-	return &ClientCredentialsRequest{
-		ClientAuthCredentials: parseClientAuthCredentials(form),
-		Scope:                 strings.Fields(form.Get("scope")),
-	}
-}
+var _ TokenRequest = (*ClientCredentialsRequest)(nil)
 
 func (c *ClientCredentialsRequest) GrantType() oidc.GrantType {
 	return oidc.GrantTypeClientCredentials
@@ -85,18 +144,7 @@ type TokenExchangeRequest struct {
 	Audience           string
 }
 
-func parseTokenExchangeRequest(form url.Values) *TokenExchangeRequest {
-	// TODO: consider rejecting repeated parameters, as RFC 6749 section 3.1 requires.
-	//  form.Get uses the first value and ignores the rest.
-	return &TokenExchangeRequest{
-		ClientAuthCredentials: parseClientAuthCredentials(form),
-		SubjectToken:          form.Get("subject_token"),
-		SubjectTokenType:      form.Get("subject_token_type"),
-		ActorToken:            form.Get("actor_token"),
-		RequestedTokenType:    form.Get("requested_token_type"),
-		Audience:              form.Get("audience"),
-	}
-}
+var _ TokenRequest = (*TokenExchangeRequest)(nil)
 
 func (t *TokenExchangeRequest) GrantType() oidc.GrantType {
 	return oidc.GrantTypeTokenExchange
@@ -129,42 +177,10 @@ func (t *TokenExchangeRequest) Validate() error {
 	return err
 }
 
-type Target interface {
-	GetValue() string
-	GetType() string
-	AsAudience() oidc.Audience
-}
-
-type (
-	TargetScope    string
-	TargetAudience string
-)
-
-var (
-	_ Target = (*TargetScope)(nil)
-	_ Target = (*TargetAudience)(nil)
-)
-
-func (t TargetAudience) GetValue() string {
-	return string(t)
-}
-
-func (t TargetAudience) GetType() string {
-	return "audience"
-}
-
-func (t TargetAudience) AsAudience() oidc.Audience {
-	return oidc.Audience{string(t)}
-}
-
-func (t TargetScope) GetValue() string {
-	return string(t)
-}
-
-func (t TargetScope) GetType() string {
-	return "scope"
-}
-
-func (t TargetScope) AsAudience() oidc.Audience {
-	return oidc.Audience{string(t)}
+type AccessTokenResponse struct {
+	AccessToken     string                   `json:"access_token"`
+	IssuedTokenType oidc.TokenType           `json:"issued_token_type,omitempty"`
+	TokenType       string                   `json:"token_type"`
+	ExpiresIn       uint64                   `json:"expires_in,omitempty"`
+	Scopes          oidc.SpaceDelimitedArray `json:"scope,omitempty"`
 }

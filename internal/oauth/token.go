@@ -12,6 +12,8 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
+const InternalSigningAlgorithm = jwk.Algorithm
+
 type STSTokenClaims struct {
 	Issuer           string                     `json:"iss"`
 	Subject          string                     `json:"sub"`
@@ -40,22 +42,6 @@ func (s *STSTokenClaims) ExpiresIn() time.Duration {
 
 func (s *STSTokenClaims) Sign(signer *jwk.Signer) (string, error) {
 	return signer.SignJWT(s.Claims)
-}
-
-var _ json.Unmarshaler = (*AccessTokenClaims)(nil)
-
-type AccessTokenClaims struct {
-	oidc.TokenClaims
-	Claims map[string]json.RawMessage `json:"-"`
-}
-
-func (a *AccessTokenClaims) UnmarshalJSON(data []byte) error {
-	// Use a distinct type without UnmarshalJSON to avoid recursive unmarshalling.
-	type tokenClaims oidc.TokenClaims
-	if err := json.Unmarshal(data, (*tokenClaims)(&a.TokenClaims)); err != nil {
-		return err
-	}
-	return json.Unmarshal(data, &a.Claims)
 }
 
 func CreateAccessToken(issuer Issuer, subjectTokenIssuers map[Issuer]string, expiresIn time.Duration, result *AuthorizationResult) (*STSTokenClaims, error) {
@@ -131,6 +117,22 @@ func mergeClaims(base map[string]json.RawMessage, authoritative any) (map[string
 		return nil, err
 	}
 	return claims, nil
+}
+
+var _ json.Unmarshaler = (*AccessTokenClaims)(nil)
+
+type AccessTokenClaims struct {
+	oidc.TokenClaims
+	Claims map[string]json.RawMessage `json:"-"`
+}
+
+func (a *AccessTokenClaims) UnmarshalJSON(data []byte) error {
+	// Use a distinct type without UnmarshalJSON to avoid recursive unmarshalling.
+	type tokenClaims oidc.TokenClaims
+	if err := json.Unmarshal(data, (*tokenClaims)(&a.TokenClaims)); err != nil {
+		return err
+	}
+	return json.Unmarshal(data, &a.Claims)
 }
 
 type KubernetesClaims struct {
