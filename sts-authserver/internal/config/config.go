@@ -1,10 +1,12 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/nais/sts/internal/ioconvenience"
@@ -16,6 +18,7 @@ import (
 type Config struct {
 	BindAddress               string                          `yaml:"bindAddress"`
 	DatabaseURL               string                          `yaml:"databaseUrl"`
+	EncryptionKeyFile         string                          `yaml:"encryptionKeyFile"`
 	InternalBindAddress       string                          `yaml:"internalBindAddress"`
 	LogLevel                  slog.Level                      `yaml:"logLevel"`
 	LogFormat                 string                          `yaml:"logFormat"`
@@ -80,6 +83,9 @@ func (c Config) validate() error {
 	if c.DatabaseURL == "" {
 		return fmt.Errorf("database URL must not be empty")
 	}
+	if c.EncryptionKeyFile == "" {
+		return fmt.Errorf("encryption key file must not be empty")
+	}
 	if c.LogFormat != "text" && c.LogFormat != "json" {
 		return fmt.Errorf("log format must be text or json")
 	}
@@ -87,4 +93,16 @@ func (c Config) validate() error {
 		return err
 	}
 	return c.Registrators.Validate()
+}
+
+func (c Config) ReadEncryptionKey() ([]byte, error) {
+	contents, err := os.ReadFile(c.EncryptionKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("read encryption key file: %w", err)
+	}
+	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(contents)))
+	if err != nil {
+		return nil, fmt.Errorf("decode encryption key file: %w", err)
+	}
+	return key, nil
 }

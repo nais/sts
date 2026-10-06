@@ -61,16 +61,21 @@ func Run(ctx context.Context, cfg config.Config) error {
 		}
 	}()
 
+	encryptionKey, err := cfg.ReadEncryptionKey()
+	if err != nil {
+		return err
+	}
+
 	pool, err := database.NewPool(ctx, cfg.DatabaseURL, slog.Default(), metricsProvider.Meter())
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 
-	return startServer(ctx, cfg, pool, metricsProvider)
+	return startServer(ctx, cfg, pool, metricsProvider, encryptionKey)
 }
 
-func startServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, provider *stsmetrics.Provider) error {
+func startServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, provider *stsmetrics.Provider, encryptionKey []byte) error {
 	publicListener, err := net.Listen("tcp", cfg.BindAddress)
 	if err != nil {
 		return fmt.Errorf("listen on public address %q: %w", cfg.BindAddress, err)
@@ -92,7 +97,7 @@ func startServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 	}
 	defer clientStore.Close()
 
-	keyStore, err := keystore.New(ctx, pool, cfg.AuthorizationServerConfig.TokenExpiry)
+	keyStore, err := keystore.New(ctx, pool, cfg.AuthorizationServerConfig.TokenExpiry, encryptionKey)
 	if err != nil {
 		return err
 	}

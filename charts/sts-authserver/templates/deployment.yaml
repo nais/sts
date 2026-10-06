@@ -61,11 +61,21 @@ spec:
             - name: config
               mountPath: /etc/sts
               readOnly: true
+            - name: encryption-key
+              mountPath: /etc/sts-encryption
+              readOnly: true
       volumes:
         - name: config
           secret:
             secretName: {{ include "sts.fullname" . }}-config
             defaultMode: 0440
+        - name: encryption-key
+          secret:
+            secretName: {{ .Values.encryptionKeySecretName }}
+            defaultMode: 0440
+            items:
+              - key: encryption.key
+                path: encryption.key
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

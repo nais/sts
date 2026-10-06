@@ -3,6 +3,7 @@ internalBindAddress: :8081
 databaseUrl: postgres://postgres:postgres@localhost:5432/sts?sslmode=disable
 logLevel: info
 logFormat: text
+encryptionKeyFile: encryption.key
 
 authorizationServer:
   issuer: http://localhost:8080

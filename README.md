@@ -74,6 +74,8 @@ Try the token flows:
 Configuration:
 
 - Local setup copies `sts-authserver/config.example.yaml` to the gitignored `sts-authserver/config.yaml` if absent.
+- Local setup creates a base64-encoded 32-byte encryption key at the configured path if absent.
+- Keep the local encryption key when restarting STS; losing it makes stored keys unrecoverable.
 - Edit `sts-authserver/config.yaml` for local settings. See [configuration](docs/configuration.md).
 
 Run `mise tasks --all` for all commands.

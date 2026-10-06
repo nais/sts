@@ -7,5 +7,15 @@ set -e
 if [ ! -e "${CONFIG_FILE}" ]; then
 	cp config.example.yaml "${CONFIG_FILE}"
 fi
+
+if [ "$(yq 'has("encryptionKeyFile")' "${CONFIG_FILE}")" = "false" ]; then
+	yq -i '.encryptionKeyFile = "encryption.key"' "${CONFIG_FILE}"
+fi
+encryption_key_file=$(yq -r '.encryptionKeyFile' "${CONFIG_FILE}")
+if [ ! -e "${encryption_key_file}" ]; then
+	umask 077
+	openssl rand -base64 32 > "${encryption_key_file}"
+fi
+
 docker compose up -d
 go run ./cmd/setup_local_env
