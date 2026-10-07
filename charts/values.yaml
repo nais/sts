@@ -3,16 +3,15 @@ tenantName: example
 config:
   bindAddress: :8080
   internalBindAddress: :8081
-  # Fasit must inject the database URL and configured token issuers.
   databaseUrl: ""
   logLevel: info
   logFormat: json
   authorizationServer:
-    issuer: https://sts.external.example.cloud.nais.io
+    issuer: https://sts.environment.tenant.cloud.nais.io
     # Client assertions and registration bearer tokens use this as their sole audience.
     expectedAudience: nais
     clientAuthIssuers: []
-    subjectTokenIssuers: []
+    subjectTokenIssuers: {}
     tokenExpiry: "1h"
   registrators: []
 
@@ -28,7 +27,7 @@ fullnameOverride: ""
 serviceAccount:
   create: true
   annotations: {}
-  name: ""
+  name: "sts-sa"
 
 podAnnotations: {}
 
@@ -66,7 +65,7 @@ autoscaling:
 ingress:
   enabled: true
   className: external-haproxy
-  host: sts.external.example.cloud.nais.io
+  host: sts.environment.tenant.cloud.nais.io
 
 nodeSelector: {}
 tolerations: []

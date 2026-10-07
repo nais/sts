@@ -9,11 +9,25 @@ values:
   ingress.host:
     displayName: STS host
     computed:
-      template: "sts.external.{{.Tenant.Name}}.cloud.nais.io"
+      template: "{{ subdomain . "sts" }}"
   config.authorizationServer.issuer:
     displayName: STS issuer
     computed:
-      template: "https://sts.external.{{.Tenant.Name}}.cloud.nais.io"
+      template: 'https://{{ subdomain . "sts" }}'
+  config.authorizationServer.clientAuthIssuers:
+    displayName: Client Auth Issuers
+    computed:
+      template: '[{{ .Env.apiserver_oidc_issuer }}]'
+  config.authorizationServer.subjectTokenIssuers:
+    displayName: Subject Token Issuers
+    computed:
+      template: '{ {{ .Env.apiserver_oidc_issuer }}: gke }'
+  config.databaseUrl:
+    displayName: Database URL
+    required: true
+    config:
+      type: string
+      secret: true
   image.tag:
     displayName: Image version
     config:

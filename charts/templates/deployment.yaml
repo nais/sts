@@ -18,6 +18,7 @@ spec:
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        kubectl.kubernetes.io/default-container: {{ .Chart.Name }}
       labels:
         {{- include "sts.selectorLabels" . | nindent 8 }}
         app: {{ include "sts.name" . }}
@@ -31,7 +32,7 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-        - name: sts
+        - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
