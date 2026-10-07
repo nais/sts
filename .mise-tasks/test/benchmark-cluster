@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#MISE description="Benchmark STS from a cluster Job and report server metrics"
+#USAGE flag "--sts-url <url>" help="STS base URL" default="http://sts.nais-system.svc"
+#USAGE flag "--namespace <namespace>" help="STS namespace" default="nais-system"
+#USAGE flag "--deployment <deployment>" help="STS Deployment" default="sts"
+#USAGE flag "--client-namespace <namespace>" help="Client service-account namespace" default="basseng"
+#USAGE flag "--service-account <name>" help="Client service account" default="workload1"
+#USAGE flag "--target <target>" help="Target client ID" default="env1:basseng:workload2"
+#USAGE flag "--benchtime <duration>" help="Time per grant benchmark; keep below token lifetime" default="10s"
+#USAGE flag "--metrics-port <port>" help="First local metrics port; one consecutive port per pod" default="18081"
+#USAGE flag "--image <image>" help="Prebuilt and pushed benchmark image" required
+#USAGE flag "--timeout <duration>" help="Job timeout from 30s to 3600s" default="300s"
+
+set -euo pipefail
+
+if [[ ! "$usage_timeout" =~ ^([0-9]+)s$ ]] || (( 10#${BASH_REMATCH[1]:-0} < 30 || 10#${BASH_REMATCH[1]:-0} > 3600 )); then
+  printf 'Timeout must be an integer duration from 30s to 3600s\n' >&2
+  exit 2
+fi
+export STS_BENCHMARK_JOB_IMAGE="$usage_image"
+export STS_BENCHMARK_JOB_TIMEOUT_SECONDS=$((10#${BASH_REMATCH[1]}))
+export STS_BENCHMARK_REPORT_DIR="${STS_BENCHMARK_REPORT_DIR:-benchmark-report/cluster}"
+
+mise run test:benchmark-remote \
+  --sts-url "$usage_sts_url" \
+  --namespace "$usage_namespace" \
+  --deployment "$usage_deployment" \
+  --client-namespace "$usage_client_namespace" \
+  --service-account "$usage_service_account" \
+  --target "$usage_target" \
+  --benchtime "$usage_benchtime" \
+  --metrics-port "$usage_metrics_port"
