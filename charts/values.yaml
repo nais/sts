@@ -64,7 +64,7 @@ autoscaling:
 
 ingress:
   enabled: true
-  className: external-haproxy
+  className: internal-haproxy
   host: sts.environment.tenant.cloud.nais.io
 
 nodeSelector: {}
