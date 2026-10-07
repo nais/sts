@@ -87,7 +87,19 @@ The task shares remote server-metrics collection, which forwards each STS pod lo
 It runs one Job per grant and deletes both Jobs on exit.
 Job logs and the HTML report go to `benchmark-report/cluster/`.
 Server metrics include concurrent traffic during Job startup as well as the benchmark requests.
-Timed requests exclude Job startup, external network latency, and ingress.
+Timed requests exclude Job startup.
+The default Service URL bypasses ingress and the external client network.
+
+To measure ingress from the same Job, override the URL:
+
+```shell
+STS_BENCHMARK_REPORT_DIR=benchmark-report/cluster-ingress \
+  mise run test:benchmark-cluster --image <registry>/sts-benchmark:<tag> \
+  --sts-url https://sts.dev.dev-nais.cloud.nais.io
+```
+
+`hack/sts-netpol.yaml` permits Job egress to the ingress address `10.0.2.200` on TCP 443.
+Use the hostname rather than the IP address so TLS verification and ingress routing work.
 
 The Job projects a service-account token with audience `nais` for both the assertion and subject token.
 Your Kubernetes identity needs permission to read, create, and delete Jobs, and read pod logs.

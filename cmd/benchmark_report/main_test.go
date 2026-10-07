@@ -96,7 +96,7 @@ func TestRemoteAndIncompleteReportLabels(t *testing.T) {
 		omits    []string
 	}{
 		{name: "remote ingress", data: reportData{Remote: true, RequestPath: "ingress"}, contains: []string{"benchmark-client allocations", "ingress time", "concurrent traffic", "Server process metrics"}},
-		{name: "remote cluster", data: reportData{Remote: true, RequestPath: "cluster"}, contains: []string{"in-cluster service network and STS work", "excludes external network and ingress"}, omits: []string{"ingress time"}},
+		{name: "remote cluster", data: reportData{Remote: true, RequestPath: "cluster"}, contains: []string{"request from a cluster pod", "plus ingress when the target URL uses ingress"}, omits: []string{"ingress time", "excludes external network and ingress"}},
 		{name: "incomplete", data: reportData{Remote: true, RequestPath: "ingress", MetricsWarning: "one pod was unreachable"}, contains: []string{"one pod was unreachable", "Server metrics are incomplete"}, omits: []string{"Metrics: remote", "Database queries"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

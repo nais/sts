@@ -60,6 +60,12 @@ spec:
     - Egress
   egress:
     - to:
+        - ipBlock:
+            cidr: 10.0.2.200/32
+      ports:
+        - port: 443
+          protocol: TCP
+    - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: nais-system
