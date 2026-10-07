@@ -9,7 +9,7 @@ values:
   ingress.host:
     displayName: STS host
     computed:
-      template: "{{ subdomain . "sts" }}"
+      template: '{{ subdomain . "sts" }}'
   config.authorizationServer.issuer:
     displayName: STS issuer
     computed:
