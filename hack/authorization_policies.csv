@@ -1,0 +1,2 @@
+owner_client_id,consumer_client_id,roles
+env1:basseng:workload2,env1:basseng:workload1,{reader}

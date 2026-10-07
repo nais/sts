@@ -1,0 +1,3 @@
+id,environment,namespace,workload,issuer,allowed_scopes
+env1:basseng:workload1,env1,basseng,workload1,https://container.googleapis.com/v1/projects/nais-dev-cdea/locations/europe-north1/clusters/nais-dev,{env1:namespace1:workload2}
+env1:basseng:workload2,env1,basseng,workload2,https://container.googleapis.com/v1/projects/nais-dev-cdea/locations/europe-north1/clusters/nais-dev,{}
