@@ -24,10 +24,11 @@ func TestAccessTokenClaimsUnmarshal(t *testing.T) {
 
 func TestAccessTokenClaimsSign(t *testing.T) {
 	source := map[string]json.RawMessage{
-		"iss":    json.RawMessage(`"sts-issuer"`),
-		"sub":    json.RawMessage(`"source-subject"`),
-		"act":    json.RawMessage(`{"iss":"previous-issuer","client_id":"previous-actor"}`),
-		"custom": json.RawMessage(`{"number":9007199254740993}`),
+		"iss":            json.RawMessage(`"sts-issuer"`),
+		"sub":            json.RawMessage(`"source-subject"`),
+		"act":            json.RawMessage(`{"iss":"previous-issuer","client_id":"previous-actor"}`),
+		"custom":         json.RawMessage(`{"number":9007199254740993}`),
+		"urn:nais:roles": json.RawMessage(`["source-role"]`),
 	}
 	original := cloneClaims(source)
 	result := &AuthorizationResult{
@@ -60,6 +61,7 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 	assertJSONClaim(t, got, "client_id", "client")
 	assertActorClaim(t, got["act"], "client", "previous-actor")
 	assert.JSONEq(t, `{"number":9007199254740993}`, string(got["custom"]))
+	assert.NotContains(t, got, "urn:nais:roles")
 }
 
 func TestAccessTokenClaimsKubernetes(t *testing.T) {

@@ -100,6 +100,10 @@ func CreateAccessToken(issuer Issuer, subjectTokenIssuers map[Issuer]string, exp
 	if err != nil {
 		return nil, err
 	}
+	// Empty policy roles must not inherit roles from the subject token.
+	if len(result.Roles) == 0 {
+		delete(claims, "urn:nais:roles")
+	}
 	stsTokenClaims.Claims = claims
 
 	return &stsTokenClaims, nil
