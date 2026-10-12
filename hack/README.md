@@ -54,3 +54,13 @@ The workload token serves as both the client assertion and the subject token.
 ```shell
 ./hack/token-exchange.sh
 ```
+
+## cleanup
+
+Stop manual port-forwards, then delete the test resources and database:
+
+```shell
+kubectl delete -f hack/
+```
+
+If you patched `protect-cloudnative-pg-pods-connection`, restore its original configuration separately.

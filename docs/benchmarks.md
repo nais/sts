@@ -66,7 +66,19 @@ The local benchmark and report tasks retain their existing behavior.
 ### Benchmark from inside the cluster
 
 The cluster task runs the benchmark client as a Kubernetes Job and sends requests to the STS Service.
-Build and push the image yourself:
+Publish the image on demand with the `Publish benchmark image` GitHub Actions workflow:
+
+```shell
+gh workflow run benchmark-image.yaml --ref main
+```
+
+Use `--ref` to select the source branch.
+GitHub requires the workflow on the default branch before it accepts manual runs.
+The workflow builds, signs, and publishes a Linux amd64 image to the existing Artifact Registry.
+It does not run benchmarks or deploy STS.
+Copy the benchmark command with the immutable image reference from the completed run summary.
+
+Alternatively, build and push the image locally:
 
 ```shell
 docker build --platform linux/amd64 -f hack/benchmark.Dockerfile -t <registry>/sts-benchmark:<tag> .
@@ -113,7 +125,7 @@ If NetworkPolicies restrict traffic, permit the Job to resolve DNS and connect t
 Permit that connection in both the Job egress rules and the STS ingress rules.
 The Job pods have the label `app=sts-benchmark`.
 
-The task does not push images in CI or change NetworkPolicies automatically.
+The benchmark task does not publish images or change NetworkPolicies.
 
 ## Measurements
 

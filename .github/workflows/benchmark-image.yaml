@@ -1,0 +1,34 @@
+name: Publish benchmark image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build_and_push:
+    name: Build, sign, and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # ratchet:jdx/mise-action@v5.0.0
+      - name: Read Go version
+        id: go_version
+        run: echo "go_version=$(mise current go)" >> "$GITHUB_OUTPUT"
+      - uses: nais/platform-build-push-sign@07a21e2293624a78499c79eeea3ce6d314f8a8d9 # ratchet:nais/platform-build-push-sign@main
+        id: build-push-sign
+        with:
+          name: sts-benchmark
+          dockerfile: hack/benchmark.Dockerfile
+          build_args: |
+            GO_VERSION=${{ steps.go_version.outputs.go_version }}
+          google_service_account: gh-sts
+          workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
+          push: true
+      - name: Write benchmark command
+        env:
+          IMAGE: ${{ steps.build-push-sign.outputs.image }}
+        run: |
+          printf '### Run the cluster benchmark\n\n~~~shell\nmise run test:benchmark-cluster --image %s\n~~~\n' "$IMAGE" >> "$GITHUB_STEP_SUMMARY"
