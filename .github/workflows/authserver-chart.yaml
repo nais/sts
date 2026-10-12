@@ -22,19 +22,7 @@ env:
   FEATURE_REPOSITORY: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # ratchet:jdx/mise-action@v5
-        with:
-          install_args: helm
-      - run: mise run check:helm-lint
-
   publish:
-    needs: lint
     if: inputs.publish && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -56,6 +44,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          mise run check:helm-lint
+
           # Resolve under the chart lock so delayed runs cannot restore older images.
           IMAGE_TAG=$(gh release view --json tagName --jq .tagName)
           version="$(date -u +%Y-%m-%d-%H%M%S)-$(git rev-parse --short=7 HEAD)"

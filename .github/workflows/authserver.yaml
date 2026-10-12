@@ -47,12 +47,16 @@ jobs:
           echo "chart=$chart" >> "$GITHUB_OUTPUT"
 
   checks:
-    name: ${{ matrix.task }}
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        task: [check:ratchet]
+        include:
+          - task: check:ratchet
+            name: actions / lint
+          - task: check:helm-lint
+            name: chart / lint
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
@@ -74,11 +78,12 @@ jobs:
 
   chart:
     needs: changes
+    if: github.ref == 'refs/heads/main' && needs.changes.outputs.chart == 'true' && needs.changes.outputs.code != 'true'
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/authserver-chart.yaml
     with:
-      publish: ${{ github.ref == 'refs/heads/main' && needs.changes.outputs.chart == 'true' && needs.changes.outputs.code != 'true' }}
+      publish: true
     secrets:
       NAIS_IO_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
