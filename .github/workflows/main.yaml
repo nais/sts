@@ -87,4 +87,5 @@ jobs:
     uses: ./.github/workflows/chart.yaml
     with:
       image_tag: ${{ needs.build_and_push.outputs.version }}
-    secrets: inherit
+    secrets:
+      NAIS_IO_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}

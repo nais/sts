@@ -12,10 +12,12 @@ on:
       image_tag:
         required: true
         type: string
+    secrets:
+      NAIS_IO_WORKLOAD_IDENTITY_PROVIDER:
+        required: true
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: sts-chart-deploy-main
@@ -70,8 +72,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     outputs:
-      version: ${{ steps.chart.outputs.version }}
+      version: ${{ steps.push.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
@@ -112,16 +117,19 @@ jobs:
           username: oauth2accesstoken
           password: ${{ steps.auth.outputs.access_token }}
       - name: Push chart
+        id: push
         env:
           CHART_VERSION: ${{ steps.chart.outputs.version }}
-        run: helm push "$NAME-$CHART_VERSION.tgz" "$FEATURE_REPOSITORY"
+        run: |
+          helm push "$NAME-$CHART_VERSION.tgz" "$FEATURE_REPOSITORY"
+          echo "version=$CHART_VERSION" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: publish_chart
+    if: github.ref == 'refs/heads/main' && needs.publish_chart.outputs.version != ''
     runs-on: fasit-deploy
     permissions:
       id-token: write
-      contents: read
     steps:
       - uses: nais/fasit-deploy@53e433b1bdd08fc622e03a78584c0832c9083bd3 # ratchet:nais/fasit-deploy@v4.1.1
         with:
