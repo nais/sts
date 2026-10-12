@@ -44,16 +44,16 @@ The service supports:
 
 ## Documentation
 
-- [Architecture](../docs/architecture.md): components, project layout, request flows, and storage
-- [Configuration](../docs/configuration.md): YAML settings and deployment values
-- [Client registration](../docs/registration.md): register clients and policies
-- [Client usage](../docs/usage.md): request tokens with client credentials or token exchange
-- [Benchmarks](../docs/benchmarks.md): run and interpret local benchmarks
+- [Architecture](docs/architecture.md): components, project layout, request flows, and storage
+- [Configuration](docs/configuration.md): YAML settings and deployment values
+- [Client registration](docs/registration.md): register clients and policies
+- [Client usage](docs/usage.md): request tokens with client credentials or token exchange
+- [Benchmarks](docs/benchmarks.md): run and interpret local benchmarks
 
 ## Local development
 
 Install [mise](https://mise.jdx.dev/).
-Run the commands in this section from the `sts-authserver/` directory:
+Run the commands in this section from the repository root:
 
 ```shell
 mise run local
@@ -68,12 +68,12 @@ Endpoints:
 
 Try the token flows:
 
-- `mise run token:m2m`: get a client credentials token.
-- `mise run token:obo`: exchange a subject token.
+- `mise run sts-authserver:token:m2m`: get a client credentials token.
+- `mise run sts-authserver:token:obo`: exchange a subject token.
 
 Configuration:
 
-- Local setup copies `config.example.yaml` to the gitignored `config.yaml` if absent.
-- Edit `config.yaml` for local settings. See [configuration](../docs/configuration.md).
+- Local setup copies `sts-authserver/config.example.yaml` to the gitignored `sts-authserver/config.yaml` if absent.
+- Edit `sts-authserver/config.yaml` for local settings. See [configuration](docs/configuration.md).
 
-Run `mise tasks` in `sts-authserver/` for all component commands.
+Run `mise tasks --all` for all commands.
