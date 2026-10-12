@@ -41,20 +41,6 @@ PGPASSWORD="$(kubectl get secret -n nais-system sts-db-app -o jsonpath='{.data.p
   -c "\copy authorization_policies (owner_client_id, consumer_client_id, roles) FROM 'hack/authorization_policies.csv' WITH (FORMAT CSV, HEADER)"
 ```
 
-or from within a psql session:
-
-```shell
-\copy kubernetes_clients (id, environment, namespace, workload, issuer, allowed_scopes) FROM
- 'hack/kubernetes_clients.csv' WITH (FORMAT CSV, HEADER);
-```
-
-and
-
-```shell
-\copy authorization_policies (owner_client_id, consumer_client_id, roles) FROM
- 'hack/authorization_policies.csv' WITH (FORMAT CSV, HEADER)
-```
-
 ## create a client credentials token
 
 ```shell

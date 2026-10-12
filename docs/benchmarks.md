@@ -38,7 +38,8 @@ mise run test:benchmark-remote \
 open benchmark-report/remote/index.html
 ```
 
-The task sends token requests through ingress.
+Use an ingress URL for `--sts-url`.
+The report labels this request path as ingress.
 It creates one workload token for both the client assertion and subject token.
 The workload issuer must be configured for both client authentication and subject tokens.
 The client and target authorization policy must already exist.
@@ -84,7 +85,9 @@ The task uses client namespace `basseng`, service account `workload1`, and targe
 The service account, client registration, and target authorization policy must already exist.
 
 The task shares remote server-metrics collection, which forwards each STS pod locally.
-It runs one Job per grant and deletes both Jobs on exit.
+It runs one Job per grant and attempts to delete both Jobs on exit.
+If deletion fails, the task prints a manual cleanup command.
+Kubernetes also deletes finished Jobs after ten minutes.
 Job logs and the HTML report go to `benchmark-report/cluster/`.
 Server metrics include concurrent traffic during Job startup as well as the benchmark requests.
 Timed requests exclude Job startup.
@@ -102,6 +105,8 @@ STS_BENCHMARK_REPORT_DIR=benchmark-report/cluster-ingress \
 Use the hostname rather than the IP address so TLS verification and ingress routing work.
 
 The Job projects a service-account token with audience `nais` for both the assertion and subject token.
+The benchmark reads the token file before the timed requests.
+The runtime image contains only the benchmark binary and CA certificates.
 Your Kubernetes identity needs permission to read, create, and delete Jobs, and read pod logs.
 The STS pod and port-forward permissions from the remote task also apply.
 If NetworkPolicies restrict traffic, permit the Job to resolve DNS and connect to STS on pod port 8080.
@@ -112,8 +117,8 @@ The task does not push images in CI or change NetworkPolicies automatically.
 
 ## Measurements
 
-The benchmark starts PostgreSQL and a mock issuer, then creates fixture tokens.
-It sends one request to warm the JWKS and signing-key caches before timing requests to `/token`.
+The local benchmark starts PostgreSQL and a mock issuer, then creates fixture tokens.
+Every mode sends one request to warm the JWKS and signing-key caches before timed requests to `/token`.
 
 Go reports time, bytes, and allocations for the timed requests.
 Setup and the warm-up request are outside the timer.
@@ -122,8 +127,11 @@ Timed requests include JWT verification, client and policy lookups, and token si
 
 ## Report metrics
 
-The report collects Prometheus metrics after each grant benchmark.
-Unlike the Go timings, the counters and histograms also include STS setup and warm-up.
+The local report collects Prometheus metrics after each grant benchmark.
+Unlike the Go timings, these counters and histograms also include STS setup and warm-up.
+
+Remote and cluster reports use before/after snapshots from each STS pod.
+Their histogram deltas include warm-up, calibration, and concurrent traffic, but exclude earlier STS setup.
 
 Pool gauges show values at snapshot time.
 
