@@ -1,0 +1,37 @@
+name: checks
+
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - task: check:ratchet
+            name: actions / lint
+          - task: check:helm-lint
+            name: chart / lint
+          - task: sts-authserver:check
+            name: authserver / check
+          - task: sts-authserver:test
+            name: authserver / test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # ratchet:actions/setup-go@v7
+        with:
+          go-version-file: sts-authserver/go.mod
+          cache-dependency-path: sts-authserver/go.sum
+      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # ratchet:jdx/mise-action@v5
+        with:
+          install_args: --monorepo
+      - run: mise run ${{ matrix.task }}

@@ -2,7 +2,7 @@ name: authserver
 
 on:
   push:
-    branches: ["**"] # run on all branch pushes, not tag pushes.
+    branches: [main]
 
 permissions:
   contents: read
@@ -11,79 +11,49 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      code: ${{ steps.changes.outputs.code }}
-      chart: ${{ steps.changes.outputs.chart }}
+      code: ${{ steps.filter.outputs.code }}
+      chart: ${{ steps.filter.outputs.chart }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Classify changes
-        id: changes
+      - id: filter
         env:
           BEFORE: ${{ github.event.before }}
         run: |
-          if [[ "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+          # A missing base, e.g. after a force push, compares against an empty tree.
+          if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             BEFORE=$(git hash-object -t tree /dev/null)
           fi
+          changed() { ! git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "$@"; }
 
-          git diff --no-renames --name-only "$BEFORE" "$GITHUB_SHA" > "$RUNNER_TEMP/changes"
-          code=false
-          chart=false
-          while IFS= read -r file; do
-            case "$file" in
-              sts-authserver/*.md)
-                ;;
-              sts-authserver/*|mise.toml|.mise-tasks/*|.github/workflows/authserver.yaml|.github/workflows/authserver-image.yaml)
-                code=true
-                ;;
-              charts/sts-authserver/*|.github/workflows/authserver-chart.yaml)
-                chart=true
-                ;;
-            esac
-          done < "$RUNNER_TEMP/changes"
-
-          echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "chart=$chart" >> "$GITHUB_OUTPUT"
-
-  checks:
-    name: ${{ matrix.name }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - task: check:ratchet
-            name: actions / lint
-          - task: check:helm-lint
-            name: chart / lint
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # ratchet:jdx/mise-action@v5
-      - run: mise run ${{ matrix.task }}
+          if changed sts-authserver ':!sts-authserver/*.md' mise.toml .mise-tasks \
+            .github/workflows/authserver.yaml .github/workflows/authserver-image.yaml .github/workflows/checks.yaml; then
+            echo code=true >> "$GITHUB_OUTPUT"
+          fi
+          if changed charts/sts-authserver .github/workflows/authserver-chart.yaml; then
+            echo chart=true >> "$GITHUB_OUTPUT"
+          fi
 
   image:
     needs: changes
+    if: needs.changes.outputs.code == 'true'
     permissions:
       contents: write
       packages: write
       id-token: write
     uses: ./.github/workflows/authserver-image.yaml
-    with:
-      publish: ${{ github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true' }}
     secrets:
       NAIS_IO_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
 
   chart:
     needs: changes
-    if: github.ref == 'refs/heads/main' && needs.changes.outputs.chart == 'true' && needs.changes.outputs.code != 'true'
+    # Skip when code also changed; the image workflow deploys the chart after its release.
+    if: needs.changes.outputs.chart == 'true' && needs.changes.outputs.code != 'true'
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/authserver-chart.yaml
-    with:
-      publish: true
     secrets:
       NAIS_IO_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}

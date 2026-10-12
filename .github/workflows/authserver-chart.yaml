@@ -2,10 +2,6 @@ name: authserver-chart
 
 on:
   workflow_call:
-    inputs:
-      publish:
-        type: boolean
-        default: false
     secrets:
       NAIS_IO_WORKLOAD_IDENTITY_PROVIDER:
         required: true
@@ -14,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sts-authserver-chart-${{ github.ref }}-${{ inputs.publish }}
+  group: sts-authserver-chart
   cancel-in-progress: false
 
 env:
@@ -23,7 +19,7 @@ env:
 
 jobs:
   publish:
-    if: inputs.publish && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -81,7 +77,7 @@ jobs:
 
   deploy:
     needs: publish
-    if: inputs.publish && github.ref == 'refs/heads/main' && needs.publish.outputs.version != ''
+    if: github.ref == 'refs/heads/main'
     runs-on: fasit-deploy
     permissions:
       id-token: write
