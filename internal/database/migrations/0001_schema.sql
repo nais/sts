@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS kubernetes_clients(
 CREATE TABLE IF NOT EXISTS authorization_policies(
 	owner_client_id TEXT,
 	consumer_client_id TEXT,
-	roles TEXT[] DEFAULT '{}' NOT NULL,
+	roles TEXT[],
 	CONSTRAINT authorization_policies_pkey PRIMARY KEY (owner_client_id, consumer_client_id),
 	CONSTRAINT authorization_policies_owner_client_id_fkey FOREIGN KEY (owner_client_id) REFERENCES kubernetes_clients(id) ON DELETE CASCADE
 );

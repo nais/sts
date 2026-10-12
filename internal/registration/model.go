@@ -85,9 +85,6 @@ func (s SoftwareStatement) validate() error {
 		}
 		policies[key] = struct{}{}
 
-		if len(policy.Roles) == 0 {
-			return fmt.Errorf("authorization policy %d roles must not be empty", i)
-		}
 		roles := make(map[string]struct{}, len(policy.Roles))
 		for j, role := range policy.Roles {
 			if len(role) > maxRoleLength {

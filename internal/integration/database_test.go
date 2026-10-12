@@ -351,6 +351,30 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		})
 	})
 
+	run("accepts nil and empty roles", func(t *testing.T) {
+		client := testClient("scope")
+		policies := []oauth.AuthorizationPolicy{
+			{Owner: oauth.ClientID(client.ID), Consumer: "nil-consumer", Roles: nil},
+			{Owner: oauth.ClientID(client.ID), Consumer: "empty-consumer", Roles: oauth.Roles{}},
+		}
+		require.NoError(t, clients.Save(t.Context(), client, policies, client.Issuer))
+
+		assertStoredRegistration(t, queries, client.ID, client.AllowedScopes, []sqlgen.AuthorizationPolicy{
+			{OwnerClientID: client.ID, ConsumerClientID: "empty-consumer", Roles: []string{}},
+			{OwnerClientID: client.ID, ConsumerClientID: "nil-consumer", Roles: nil},
+		})
+		cached, err := clientstore.New(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		require.NoError(t, err)
+		defer cached.Close()
+		for _, store := range []*clientstore.Store{clients, cached} {
+			for _, policy := range policies {
+				roles, err := store.AuthorizeTarget(t.Context(), policy.Consumer, oauth.TargetAudience(client.ID))
+				require.NoError(t, err)
+				require.Equal(t, policy.Roles, roles)
+			}
+		}
+	})
+
 	run("rejects immutable identity changes", func(t *testing.T) {
 		client := testClient("old-scope")
 		policies := []oauth.AuthorizationPolicy{{Owner: oauth.ClientID(client.ID), Consumer: "consumer", Roles: oauth.Roles{"old-role"}}}

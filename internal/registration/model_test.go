@@ -61,9 +61,11 @@ func TestSoftwareStatementValidate(t *testing.T) {
 			},
 			wantErr: "duplicated",
 		},
+		"nil roles": {
+			mutate: func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = nil },
+		},
 		"empty roles": {
-			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = nil },
-			wantErr: "roles must not be empty",
+			mutate: func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = []string{} },
 		},
 		"invalid role": {
 			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = []string{"team:reader"} },
