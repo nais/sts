@@ -1,0 +1,125 @@
+name: Chart build and deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "charts/**"
+      - ".github/workflows/chart.yaml"
+  workflow_call:
+    inputs:
+      image_tag:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: sts-chart-deploy-main
+  cancel-in-progress: false
+
+env:
+  NAME: sts
+  FEATURE_REPOSITORY: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.changes.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Decide whether to publish
+        id: changes
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ -n "$IMAGE_TAG" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$BEFORE" =~ ^0+$ ]]; then
+            BEFORE=$(git hash-object -t tree /dev/null)
+          fi
+
+          git diff --no-renames --name-only "$BEFORE" "$AFTER" > "$RUNNER_TEMP/chart-changes"
+
+          while IFS= read -r file; do
+            # Match main.yaml push paths so combined changes publish only once.
+            case "$file" in
+              sts-authserver/*.md)
+                ;;
+              sts-authserver/*|mise.toml|.mise-tasks/*|.github/workflows/main.yaml)
+                echo "publish=false" >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+            esac
+          done < "$RUNNER_TEMP/chart-changes"
+
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+  publish_chart:
+    needs: changes
+    if: needs.changes.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.chart.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          ref: main
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # ratchet:jdx/mise-action@v5.0.0
+        with:
+          install_args: helm yq
+      - name: Package chart
+        id: chart
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          IMAGE_TAG=${IMAGE_TAG:-$(gh release view --json tagName --jq .tagName)}
+          version="$(date -u +%Y-%m-%d-%H%M%S)-$(git rev-parse --short=7 HEAD)"
+          export IMAGE_TAG CHART_VERSION="$version"
+
+          yq -i '.image.tag = strenv(IMAGE_TAG)' charts/values.yaml
+          yq -i '.version = strenv(CHART_VERSION) | .appVersion = strenv(IMAGE_TAG)' charts/Chart.yaml
+
+          # Timestamp versions package successfully but fail strict SemVer lint.
+          helm lint charts
+          helm package charts
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: nais/login@40b72a35a18ddf2ad74b632461139ab838cc2a2f # ratchet:nais/login@v0
+        with:
+          team: nais
+          project_id: nais-io
+          identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
+      - name: Push chart
+        env:
+          CHART_VERSION: ${{ steps.chart.outputs.version }}
+        run: helm push "$NAME-$CHART_VERSION.tgz" "$FEATURE_REPOSITORY"
+
+  deploy:
+    needs: publish_chart
+    runs-on: fasit-deploy
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: nais/fasit-deploy@53e433b1bdd08fc622e03a78584c0832c9083bd3 # ratchet:nais/fasit-deploy@v4.1.1
+        with:
+          chart: ${{ env.FEATURE_REPOSITORY }}/${{ env.NAME }}
+          version: ${{ needs.publish_chart.outputs.version }}
+          targets: |
+            [
+              { "target": { "kind": "tenant", "tenant": "dev-nais" } }
+            ]

@@ -5,8 +5,6 @@ on:
     paths:
       - "sts-authserver/**"
       - "!sts-authserver/**/*.md"
-      - "charts/**"
-      - "observability/**"
       - "mise.toml"
       - ".mise-tasks/**"
       - ".github/workflows/main.yaml"
@@ -14,9 +12,12 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sts-authserver-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   NAME: sts
-  FEATURE_REPOSITORY: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature
 
 jobs:
   test:
@@ -37,15 +38,14 @@ jobs:
           working_directory: sts-authserver
       - run: mise run ${{ matrix.task }}
         working-directory: sts-authserver
-      - if: matrix.task == 'check'
-        run: mise run check:helm-lint
 
   build_and_push:
     if: github.ref == 'refs/heads/main'
+    needs: test
     outputs:
       version: ${{ steps.build-push-sign.outputs.version }}
     permissions:
-      contents: read
+      contents: write
       packages: write
       id-token: write
     name: Build, sign, and publish
@@ -68,29 +68,23 @@ jobs:
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
           push_ghcr: true
           push: true
-      - name: Update chart values
-        run: yq -i ".image.tag = \"${{ steps.build-push-sign.outputs.version }}\"" charts/values.yaml
-      - name: Package chart
+      - name: Publish image release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          IMAGE_VERSION: ${{ steps.build-push-sign.outputs.version }}
+          IMAGE: ${{ steps.build-push-sign.outputs.image }}
         run: |
-          yq -i ".version = \"${{ steps.build-push-sign.outputs.version }}\"" charts/Chart.yaml
-          helm package charts
-      - name: Push chart
-        run: helm push "${{ env.NAME }}"*.tgz "${{ env.FEATURE_REPOSITORY }}"
+          gh release create "$IMAGE_VERSION" --target "$GITHUB_SHA" \
+            --title "$IMAGE_VERSION" --notes "$IMAGE" --latest
 
-  deploy:
+  publish_chart:
     if: github.ref == 'refs/heads/main'
-    needs:
-      - build_and_push
-      - test
-    runs-on: fasit-deploy
+    needs: build_and_push
     permissions:
+      contents: read
       id-token: write
-    steps:
-      - uses: nais/fasit-deploy@53e433b1bdd08fc622e03a78584c0832c9083bd3 # ratchet:nais/fasit-deploy@v4.1.1
-        with:
-          chart: ${{ env.FEATURE_REPOSITORY }}/${{ env.NAME }}
-          version: ${{ needs.build_and_push.outputs.version }}
-          targets: |
-            [
-              { "target": { "kind": "tenant", "tenant": "dev-nais" } }
-            ]
+    uses: ./.github/workflows/chart.yaml
+    with:
+      image_tag: ${{ needs.build_and_push.outputs.version }}
+    secrets: inherit
