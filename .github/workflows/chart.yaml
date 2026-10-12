@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - "charts/**"
+      - "charts/sts-authserver/**"
       - ".github/workflows/chart.yaml"
   workflow_call:
     inputs:
@@ -90,12 +90,12 @@ jobs:
           version="$(date -u +%Y-%m-%d-%H%M%S)-$(git rev-parse --short=7 HEAD)"
           export IMAGE_TAG CHART_VERSION="$version"
 
-          yq -i '.image.tag = strenv(IMAGE_TAG)' charts/values.yaml
-          yq -i '.version = strenv(CHART_VERSION) | .appVersion = strenv(IMAGE_TAG)' charts/Chart.yaml
+          yq -i '.image.tag = strenv(IMAGE_TAG)' charts/sts-authserver/values.yaml
+          yq -i '.version = strenv(CHART_VERSION) | .appVersion = strenv(IMAGE_TAG)' charts/sts-authserver/Chart.yaml
 
           # Timestamp versions package successfully but fail strict SemVer lint.
-          helm lint charts
-          helm package charts
+          helm lint charts/sts-authserver
+          helm package charts/sts-authserver
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: nais/login@40b72a35a18ddf2ad74b632461139ab838cc2a2f # ratchet:nais/login@v0
