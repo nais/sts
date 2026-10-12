@@ -49,6 +49,18 @@ func TestParseMetricDeltasMergesPodsBeforeStatistics(t *testing.T) {
 	}
 }
 
+func TestUnchangedHistogramSeriesIsOmitted(t *testing.T) {
+	path := writeHistogramFile(t, "unchanged.prom", "query", 5, 0.005, 3, 5)
+	files := metricFileList{{name: "remote", path: path}}
+	sections, err := parseMetricDeltas(files, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sections) != 1 || len(sections[0].Queries) != 0 {
+		t.Fatalf("sections = %+v, want no query samples", sections)
+	}
+}
+
 func TestMissingBaselineHistogramSeriesUsesZero(t *testing.T) {
 	before := writeTestFile(t, "empty.prom", "# unrelated family\nother_metric 12\n")
 	after := writeHistogramFile(t, "after.prom", "query", 4, 0.012, 3, 4)
@@ -141,12 +153,12 @@ func TestRemoteMetricResetWritesTimingReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sections, warning := remoteMetrics(metricFileList{{name: "remote", path: before}}, metricFileList{{name: "remote", path: after}})
-	if warning == "" || len(sections) != 0 {
-		t.Fatalf("remote metrics = (%+v, %q), want warning and no sections", sections, warning)
+	sections, err := parseMetricDeltas(metricFileList{{name: "remote", path: before}}, metricFileList{{name: "remote", path: after}})
+	if err == nil || len(sections) != 0 {
+		t.Fatalf("remote metrics = (%+v, %v), want error and no sections", sections, err)
 	}
 	path := filepath.Join(t.TempDir(), "report.html")
-	if err := writeReport(path, reportData{Benchmarks: benchmarks, Remote: true, MetricsWarning: warning}); err != nil {
+	if err := writeReport(path, reportData{Benchmarks: benchmarks, Remote: true, MetricsWarning: err.Error()}); err != nil {
 		t.Fatal(err)
 	}
 	contents, err := os.ReadFile(path)

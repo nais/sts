@@ -135,9 +135,9 @@ func main() {
 			sections = append(sections, section)
 		}
 		if *remote {
-			remoteSections, warning := remoteMetrics(metricsBefore, metricsAfter)
-			if warning != "" {
-				*metricsIncomplete = warning
+			remoteSections, err := parseMetricDeltas(metricsBefore, metricsAfter)
+			if err != nil {
+				*metricsIncomplete = err.Error()
 			} else {
 				sections = append(sections, remoteSections...)
 			}
@@ -257,18 +257,7 @@ func validateMetricPairs(before, after metricFileList) error {
 			return fmt.Errorf("metrics-before and metrics-after must have matching pod counts for %s", name)
 		}
 	}
-	if len(before) != len(after) {
-		return errors.New("metrics-before and metrics-after must have matching pod counts")
-	}
 	return nil
-}
-
-func remoteMetrics(before, after metricFileList) ([]reportSection, string) {
-	sections, err := parseMetricDeltas(before, after)
-	if err != nil {
-		return nil, err.Error()
-	}
-	return sections, ""
 }
 
 func parseMetricDeltas(before, after metricFileList) ([]reportSection, error) {
@@ -345,6 +334,9 @@ func histogramDelta(before, after *dto.MetricFamily) (map[string]*dto.Metric, er
 		delta, err := subtractHistogram(baseline, metric.GetHistogram())
 		if err != nil {
 			return nil, err
+		}
+		if delta.GetSampleCount() == 0 {
+			continue
 		}
 		copyMetric := &dto.Metric{Label: metric.Label, Histogram: delta}
 		result[key] = copyMetric
