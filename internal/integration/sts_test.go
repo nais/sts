@@ -150,6 +150,68 @@ func TestSts(t *testing.T) {
 			require.Equal(t, http.StatusNoContent, status)
 		})
 
+		for _, roles := range []string{"omitted", "empty"} {
+			t.Run("registers policy with "+roles+" roles before consumer", func(t *testing.T) {
+				consumer := clientFixture{
+					Environment: "env1",
+					Namespace:   "namespace1",
+					Workload:    roles + "-roles-consumer",
+					ID:          "env1:namespace1:" + roles + "-roles-consumer",
+				}
+				target := statement
+				target.ClientId = "env1:namespace1:" + roles + "-roles-target"
+				target.Workload.Name = roles + "-roles-target"
+				policy := map[string]any{"consumer": consumer.ID}
+				if roles == "empty" {
+					policy["roles"] = []string{}
+				}
+				status, response := postRegistration[registration.ClientRegistrationResponse](t, stsAddress, registratorToken, registration.ClientRegistration{
+					SoftwareStatement: signSoftwareStatement(t, map[string]any{
+						"client_id":              target.ClientId,
+						"workload":               target.Workload,
+						"authorization_policies": []map[string]any{policy},
+					}),
+				})
+				require.Equal(t, http.StatusOK, status, response)
+
+				clientAssertion := getClientToken(t, oauthServer, consumer)
+				denial := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target.ClientId))
+				require.Equal(t, "invalid_client", denial.Code)
+
+				status, response = postRegistration[registration.ClientRegistrationResponse](t, stsAddress, registratorToken, registration.ClientRegistration{
+					SoftwareStatement: signSoftwareStatement(t, registration.SoftwareStatement{
+						ClientId: consumer.ID,
+						Workload: registration.Workload{
+							Environment: consumer.Environment,
+							Issuer:      target.Workload.Issuer,
+							Namespace:   consumer.Namespace,
+							Name:        consumer.Workload,
+						},
+					}),
+				})
+				require.Equal(t, http.StatusOK, status, response)
+
+				subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, "subject1")
+				for grant, form := range map[string]url.Values{
+					"client credentials": clientCredentialsForm(clientAssertion, target.ClientId),
+					"token exchange":     tokenExchangeForm(clientAssertion, subjectToken, target.ClientId),
+				} {
+					t.Run(grant, func(t *testing.T) {
+						token := stsToken[oauth.AccessTokenResponse](t, stsAddress, form)
+						claims := assertTokenClaims(t, stsAddress, token, target.ClientId, consumer.ID, func(claims *oauth.STSTokenClaims) {
+							assert.Equal(t, oidc.GrantType(form.Get("grant_type")), claims.GrantType)
+						}, oauth.Roles(nil))
+						assert.NotContains(t, claims.Claims, "urn:nais:roles")
+					})
+				}
+
+				for _, id := range []string{target.ClientId, consumer.ID} {
+					status, _ := deleteRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, id)
+					require.Equal(t, http.StatusNoContent, status)
+				}
+			})
+		}
+
 		t.Run("consumer cannot grant itself access to another target", func(t *testing.T) {
 			selfGrant := statement
 			selfGrant.ClientId = "env1:namespace1:self-grant-workload"
@@ -647,6 +709,7 @@ func assertTokenClaims(
 	response *oauth.AccessTokenResponse,
 	targetID, consumerID string,
 	fn claimAssertions,
+	roles ...oauth.Roles,
 ) *oauth.AccessTokenClaims {
 	t.Helper()
 	require.NotEmpty(t, response.AccessToken)
@@ -675,7 +738,11 @@ func assertTokenClaims(
 	assert.Equal(t, sts.Endpoint(), claims.Issuer)
 	assert.Equal(t, oidc.Audience{targetID}, claims.Audience)
 	assert.Equal(t, consumerID, claims.ClientID)
-	assert.Equal(t, oauth.Roles{fixtures.Role}, claims.ApplicationRoles)
+	wantRoles := oauth.Roles{fixtures.Role}
+	if len(roles) > 0 {
+		wantRoles = roles[0]
+	}
+	assert.Equal(t, wantRoles, claims.ApplicationRoles)
 	assert.NotEmpty(t, claims.JWTID)
 
 	now := time.Now()
@@ -790,7 +857,7 @@ func getSubjectTokenFromIssuer(t testing.TB, oauthServer testServer, issuer stri
 	return token.AccessToken, claims
 }
 
-func signSoftwareStatement(t testing.TB, statement registration.SoftwareStatement) string {
+func signSoftwareStatement(t testing.TB, statement any) string {
 	t.Helper()
 	signed, err := signer.SignJWT(statement)
 	require.NoError(t, err)

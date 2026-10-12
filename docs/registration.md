@@ -95,6 +95,9 @@ The signed JWT contains these claims:
 In this example, `env1:namespace1:consumer` is granted permission to request a token targeting `my-workload`.
 STS adds all roles from the policy, including `reader`, to the issued token.
 
+Roles are optional.
+Omit `roles` or supply `"roles": []` to grant access without a `urn:nais:roles` claim.
+
 ### Public key
 
 The configured `clientJwksUri` must point to an endpoint that serves a [JWKS](https://www.rfc-editor.org/rfc/rfc7517.html#section-5)
@@ -152,6 +155,9 @@ On a repeated `POST` for the same client:
 - A change to an immutable field returns `400 Bad Request` with `invalid_client_metadata`.
 - A workload that another client already uses returns the same error.
 
+STS saves the client and its complete policy set in one transaction.
+If a write fails, STS preserves the previous client and policies.
+
 ### Response
 
 Both creation and replacement return:
@@ -169,6 +175,8 @@ Content-Type: application/json
 STS returns the supplied JWT and takes `client_id` from its verified claims.
 
 ## Delete a client
+
+Deleting a client also deletes its owned authorization policies.
 
 ### Request
 
