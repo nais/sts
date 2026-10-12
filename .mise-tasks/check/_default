@@ -1,3 +1,4 @@
 #!/usr/bin/env sh
 #MISE description="Run all static checks"
-#MISE depends=["check:golangci-lint", "check:deadcode", "check:gosec", "check:ratchet", "check:govulncheck", "check:helm-lint", "check:sqlc"]
+# TODO: requires new versions of gosec: #MISE depends=["check:golangci-lint", "check:deadcode", "check:gosec", "check:ratchet", "check:govulncheck", "check:helm-lint", "check:sqlc"]
+#MISE depends=["check:golangci-lint", "check:deadcode", "check:ratchet", "check:govulncheck", "check:helm-lint", "check:sqlc"]
