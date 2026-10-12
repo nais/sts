@@ -1,0 +1,94 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sts-allow-db
+  namespace: nais-system
+spec:
+  egress:
+    - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: nais-system
+        podSelector:
+          matchLabels:
+            cnpg.io/cluster: sts-db
+            cnpg.io/instanceRole: primary
+      ports:
+        - port: 5432
+          protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: sts
+      app.kubernetes.io/name: sts
+  policyTypes:
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sts-allow-benchmark
+  namespace: nais-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: sts
+      app.kubernetes.io/name: sts
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: basseng
+          podSelector:
+            matchLabels:
+              app: sts-benchmark
+      ports:
+        - port: 8080
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sts-benchmark-egress
+  namespace: basseng
+spec:
+  podSelector:
+    matchLabels:
+      app: sts-benchmark
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.0.2.200/32
+      ports:
+        - port: 443
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nais-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: sts
+              app.kubernetes.io/name: sts
+      ports:
+        - port: 8080
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchExpressions:
+              - key: k8s-app
+                operator: In
+                values:
+                  - kube-dns
+                  - node-local-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

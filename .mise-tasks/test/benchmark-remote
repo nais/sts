@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+#MISE description="Benchmark deployed STS through ingress and report metrics from all replicas"
+#USAGE flag "--sts-url <url>" help="Deployed STS base URL" default="https://sts.dev.dev-nais.cloud.nais.io"
+#USAGE flag "--namespace <namespace>" help="STS namespace" default="nais-system"
+#USAGE flag "--deployment <deployment>" help="STS Deployment" default="sts"
+#USAGE flag "--client-namespace <namespace>" help="Client service-account namespace" default="basseng"
+#USAGE flag "--service-account <name>" help="Client service account" default="workload1"
+#USAGE flag "--target <target>" help="Target client ID" default="env1:basseng:workload2"
+#USAGE flag "--benchtime <duration>" help="Time per grant benchmark; keep below token lifetime" default="10s"
+#USAGE flag "--metrics-port <port>" help="First local metrics port; one consecutive port per pod" default="18081"
+
+set -euo pipefail
+umask 077
+
+report_dir="${STS_BENCHMARK_REPORT_DIR:-benchmark-report/remote}"
+mkdir -p "$report_dir"
+forward_pids=()
+cleanup() {
+  local status=$?
+  for pid in ${forward_pids[@]+"${forward_pids[@]}"}; do
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+  for job in ${benchmark_jobs[@]+"${benchmark_jobs[@]}"}; do
+    if ! kubectl delete job "$job" -n "$usage_client_namespace" --wait=false >/dev/null 2>&1; then
+      printf 'Failed to delete benchmark Job %s; delete it with: kubectl delete job %s -n %s\n' \
+        "$job" "$job" "$usage_client_namespace" >&2
+    fi
+  done
+  exit "$status"
+}
+benchmark_jobs=()
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+deployment=$(kubectl get deployment "$usage_deployment" -n "$usage_namespace" -o json)
+selector=$(jq -r '.spec.selector.matchLabels | to_entries | map(.key + "=" + .value) | join(",")' <<< "$deployment")
+if [[ -z "$selector" ]]; then
+  printf 'Deployment has no label selector\n' >&2
+  exit 1
+fi
+pod_snapshot() {
+  kubectl get pods -n "$usage_namespace" -l "$selector" -o json | jq -c '
+    [.items[] | {
+      name: .metadata.name, uid: .metadata.uid, deleting: .metadata.deletionTimestamp,
+      ready: any(.status.conditions[]?; .type == "Ready" and .status == "True"),
+      containers: [.status.containerStatuses[]? | {name, restartCount, containerID}] | sort_by(.name)
+    }] | sort_by(.name)'
+}
+initial=$(pod_snapshot)
+if ! jq -e --argjson replicas "$(jq '.spec.replicas' <<< "$deployment")" \
+  'length == $replicas and length > 0 and all(.[]; .ready and .deleting == null)' <<< "$initial" >/dev/null; then
+  printf 'Wait for all STS replicas to be ready before the benchmark\n' >&2
+  exit 1
+fi
+pods=()
+while IFS= read -r pod; do pods+=("$pod"); done < <(jq -r '.[].name' <<< "$initial")
+urls=()
+for i in "${!pods[@]}"; do
+  port=$((usage_metrics_port + i))
+  log_file="$report_dir/${pods[$i]}-port-forward.log"
+  kubectl port-forward -n "$usage_namespace" "pod/${pods[$i]}" "$port:8081" > "$log_file" 2>&1 &
+  forward_pids+=("$!")
+  urls+=("http://127.0.0.1:$port")
+  ready=false
+  for ((attempt=0; attempt<30; attempt++)); do
+    if ! kill -0 "${forward_pids[$i]}" 2>/dev/null; then break; fi
+    # Check the forward's log too: an occupied port can serve another pod's /readyz.
+    forwarding=false
+    if [[ -f "$log_file" ]]; then
+      while IFS= read -r line; do
+        if [[ "$line" == "Forwarding from 127.0.0.1:$port -> 8081" ]]; then forwarding=true; fi
+      done < "$log_file"
+    fi
+    if $forwarding && curl -fsS --max-time 2 "${urls[$i]}/readyz" >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+    sleep 1
+  done
+  if ! $ready; then
+    printf 'Metrics port-forward failed for %s; see %s\n' "${pods[$i]}" "$log_file" >&2
+    exit 1
+  fi
+done
+
+export STS_BENCHMARK_URL="$usage_sts_url"
+export STS_BENCHMARK_TARGET="$usage_target"
+if [[ -z "${STS_BENCHMARK_JOB_IMAGE:-}" ]]; then
+  STS_BENCHMARK_CLIENT_ASSERTION=$(kubectl create token -n "$usage_client_namespace" "$usage_service_account" --audience nais --duration=1h)
+  export STS_BENCHMARK_CLIENT_ASSERTION
+  export STS_BENCHMARK_SUBJECT_TOKEN="$STS_BENCHMARK_CLIENT_ASSERTION"
+fi
+benchmark_output="$report_dir/benchmark.txt"
+: > "$benchmark_output"
+report_args=(-remote -benchmark "$benchmark_output" -output "$report_dir/index.html")
+if [[ -n "${STS_BENCHMARK_JOB_IMAGE:-}" ]]; then
+  report_args+=(-request-path cluster)
+fi
+incomplete=""
+
+run_cluster_benchmark() {
+  local grant="$1" output="$2" suffix job selector started state
+  suffix="$(date +%s)-$$-$RANDOM"
+  job="sts-benchmark-${grant//_/-}-${suffix}"
+  selector="^BenchmarkSts/${grant}$"
+  jq -n \
+    --arg name "$job" \
+    --arg image "$STS_BENCHMARK_JOB_IMAGE" \
+    --arg serviceAccount "$usage_service_account" \
+    --arg url "$usage_sts_url" \
+    --arg target "$usage_target" \
+    --arg selector "$selector" \
+    --arg benchtime "$usage_benchtime" \
+    --argjson deadline "${STS_BENCHMARK_JOB_TIMEOUT_SECONDS:?}" \
+    '{apiVersion:"batch/v1",kind:"Job",metadata:{name:$name,labels:{app:"sts-benchmark"}},spec:{backoffLimit:0,activeDeadlineSeconds:$deadline,ttlSecondsAfterFinished:600,template:{metadata:{labels:{app:"sts-benchmark"}},spec:{serviceAccountName:$serviceAccount,automountServiceAccountToken:false,securityContext:{runAsNonRoot:true,runAsUser:65532,runAsGroup:65532,seccompProfile:{type:"RuntimeDefault"}},containers:[{name:"benchmark",image:$image,command:["/usr/local/bin/sts-benchmark","-test.run","^$","-test.bench",$selector,"-test.benchtime",$benchtime,"-test.benchmem"],env:[{name:"STS_BENCHMARK_URL",value:$url},{name:"STS_BENCHMARK_TARGET",value:$target},{name:"STS_BENCHMARK_TOKEN_FILE",value:"/var/run/assertion/token"}],volumeMounts:[{name:"assertion",mountPath:"/var/run/assertion",readOnly:true}],securityContext:{allowPrivilegeEscalation:false,readOnlyRootFilesystem:true,capabilities:{drop:["ALL"]}}}],volumes:[{name:"assertion",projected:{sources:[{serviceAccountToken:{path:"token",audience:"nais"}}]}}],restartPolicy:"Never"}}}}' |
+    kubectl create -n "$usage_client_namespace" -f - >/dev/null
+  benchmark_jobs+=("$job")
+
+  started=$(date +%s)
+  while :; do
+    state=$(kubectl get job "$job" -n "$usage_client_namespace" -o json 2>/dev/null | jq -r '[.status.conditions[]? | select(.status == "True") | .type] | join(",")' || true)
+    if [[ "$state" == *Complete* ]]; then
+      kubectl logs "job/$job" -n "$usage_client_namespace" > "$output" 2>&1
+      return $?
+    fi
+    if [[ "$state" == *Failed* ]] || (( $(date +%s) - started >= STS_BENCHMARK_JOB_TIMEOUT_SECONDS )); then
+      kubectl logs "job/$job" -n "$usage_client_namespace" > "$output" 2>&1 || true
+      printf 'Cluster benchmark job %s did not complete (%s).\n' "$job" "${state:-timeout}" >&2
+      kubectl describe job "$job" -n "$usage_client_namespace" >&2 || true
+      kubectl get pods -n "$usage_client_namespace" -l "job-name=$job" -o wide >&2 || true
+      cat "$output" >&2
+      return 1
+    fi
+    sleep 2
+  done
+}
+
+for grant in client_credentials token_exchange; do
+  if [[ "$(pod_snapshot)" != "$initial" ]]; then incomplete="STS pods or restart counts changed during the run."; fi
+  for i in "${!pods[@]}"; do
+    before="$report_dir/$grant-${pods[$i]}-before.prom"
+    if ! curl -fsS --max-time 10 "${urls[$i]}/metrics" -o "$before"; then
+      incomplete="A server metrics snapshot failed."
+    fi
+    report_args+=(-metrics-before "$grant=$before")
+  done
+  run_output="$report_dir/$grant.txt"
+  if [[ -n "${STS_BENCHMARK_JOB_IMAGE:-}" ]]; then
+    if ! run_cluster_benchmark "$grant" "$run_output"; then
+      exit 1
+    fi
+  elif ! go test -run '^$' -bench "^BenchmarkSts/$grant$" -benchtime "$usage_benchtime" \
+      -benchmem -tags=integration_test ./internal/integration > "$run_output" 2>&1; then
+    cat "$run_output"
+    exit 1
+  fi
+  cat "$run_output"
+  cat "$run_output" >> "$benchmark_output"
+  for i in "${!pods[@]}"; do
+    after="$report_dir/$grant-${pods[$i]}-after.prom"
+    if ! curl -fsS --max-time 10 "${urls[$i]}/metrics" -o "$after"; then
+      incomplete="A server metrics snapshot failed."
+    fi
+    report_args+=(-metrics-after "$grant=$after")
+  done
+  if [[ "$(pod_snapshot)" != "$initial" ]]; then incomplete="STS pods or restart counts changed during the run."; fi
+done
+
+if [[ -n "$incomplete" ]]; then
+  printf 'Server metrics incomplete: %s\n' "$incomplete" >&2
+  report_args+=(-metrics-incomplete "$incomplete")
+fi
+go run ./cmd/benchmark_report "${report_args[@]}"
