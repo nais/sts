@@ -1,4 +1,4 @@
-name: Publish benchmark image
+name: authserver-benchmark-image
 
 on:
   workflow_dispatch:
@@ -8,12 +8,14 @@ permissions:
   id-token: write
 
 jobs:
-  build_and_push:
-    name: Build, sign, and publish
+  build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
-      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # ratchet:jdx/mise-action@v5.0.0
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # ratchet:jdx/mise-action@v5
       - name: Read Go version
         id: go_version
         run: echo "go_version=$(mise current go)" >> "$GITHUB_OUTPUT"

@@ -67,10 +67,10 @@ The local benchmark and report tasks retain their existing behavior.
 ### Benchmark from inside the cluster
 
 The cluster task runs the benchmark client as a Kubernetes Job and sends requests to the STS Service.
-Publish the image on demand with the `Publish benchmark image` GitHub Actions workflow:
+Publish the image on demand with the `authserver-benchmark-image` GitHub Actions workflow:
 
 ```shell
-gh workflow run benchmark-image.yaml --ref main
+gh workflow run authserver-benchmark-image.yaml --ref main
 ```
 
 Use `--ref` to select the source branch.

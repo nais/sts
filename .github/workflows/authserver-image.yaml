@@ -1,19 +1,20 @@
-name: Authserver build and publish
+name: authserver-image
 
 on:
-  push:
-    paths:
-      - "sts-authserver/**"
-      - "!sts-authserver/**/*.md"
-      - "mise.toml"
-      - ".mise-tasks/**"
-      - ".github/workflows/main.yaml"
+  workflow_call:
+    inputs:
+      publish:
+        type: boolean
+        default: false
+    secrets:
+      NAIS_IO_WORKLOAD_IDENTITY_PROVIDER:
+        required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: sts-authserver-${{ github.ref }}
+  group: sts-authserver-image-${{ github.ref }}-${{ inputs.publish }}
   cancel-in-progress: false
 
 env:
@@ -29,63 +30,67 @@ jobs:
         task: [check, test]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # ratchet:actions/setup-go@v7
         with:
           go-version-file: sts-authserver/go.mod
           cache-dependency-path: sts-authserver/go.sum
-      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # ratchet:jdx/mise-action@v5.0.0
+      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # ratchet:jdx/mise-action@v5
         with:
           working_directory: sts-authserver
       - run: mise run ${{ matrix.task }}
         working-directory: sts-authserver
 
-  build_and_push:
-    if: github.ref == 'refs/heads/main'
-    needs: test
-    outputs:
-      version: ${{ steps.build-push-sign.outputs.version }}
+  build:
+    if: inputs.publish && github.ref == 'refs/heads/main'
     permissions:
-      contents: write
+      contents: read
       packages: write
       id-token: write
-    name: Build, sign, and publish
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.build-push-sign.outputs.version }}
+      image: ${{ steps.build-push-sign.outputs.image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
-      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # ratchet:jdx/mise-action@v5.0.0
-      - name: Read Go version
-        id: go_version
-        run: echo "go_version=$(mise current go)" >> "$GITHUB_OUTPUT"
+        with:
+          persist-credentials: false
       - uses: nais/platform-build-push-sign@07a21e2293624a78499c79eeea3ce6d314f8a8d9 # ratchet:nais/platform-build-push-sign@main
         id: build-push-sign
         with:
           name: ${{ env.NAME }}
           dockerfile: sts-authserver/Dockerfile
           context: sts-authserver
-          build_args: |
-            GO_VERSION=${{ steps.go_version.outputs.go_version }}
           google_service_account: gh-${{ env.NAME }}
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
           push_ghcr: true
           push: true
-      - name: Publish image release
-        env:
+
+  release:
+    needs: [test, build]
+    if: inputs.publish && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          IMAGE_VERSION: ${{ steps.build-push-sign.outputs.version }}
-          IMAGE: ${{ steps.build-push-sign.outputs.image }}
+          IMAGE_VERSION: ${{ needs.build.outputs.version }}
+          IMAGE: ${{ needs.build.outputs.image }}
         run: |
           gh release create "$IMAGE_VERSION" --target "$GITHUB_SHA" \
             --title "$IMAGE_VERSION" --notes "$IMAGE" --latest
 
-  publish_chart:
-    if: github.ref == 'refs/heads/main'
-    needs: build_and_push
+  chart:
+    needs: release
+    if: inputs.publish && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/chart.yaml
+    uses: ./.github/workflows/authserver-chart.yaml
     with:
-      image_tag: ${{ needs.build_and_push.outputs.version }}
+      publish: true
     secrets:
       NAIS_IO_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
