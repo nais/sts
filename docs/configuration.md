@@ -4,7 +4,7 @@ STS reads one YAML configuration file.
 Set `CONFIG_FILE` to change its path; the default is `config.yaml`.
 Unknown fields and multi-document YAML files are rejected.
 
-See [`config.example.yaml`](../config.example.yaml) for a local example.
+See [`config.example.yaml`](../sts-authserver/config.example.yaml) for a local example.
 It sets `tokenExpiry` to `1h` instead of the `15m` default.
 
 | Field                                             | Default   | Required | Constraints                                                   | Description                                                                                         |

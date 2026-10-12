@@ -1,0 +1,7 @@
+.git
+.github
+.idea
+.env
+config.yaml
+charts
+README.md

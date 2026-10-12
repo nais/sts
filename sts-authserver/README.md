@@ -44,15 +44,16 @@ The service supports:
 
 ## Documentation
 
-- [Architecture](docs/architecture.md): components, project layout, request flows, and storage
-- [Configuration](docs/configuration.md): YAML settings and deployment values
-- [Client registration](docs/registration.md): register clients and policies
-- [Client usage](docs/usage.md): request tokens with client credentials or token exchange
-- [Benchmarks](docs/benchmarks.md): run and interpret local benchmarks
+- [Architecture](../docs/architecture.md): components, project layout, request flows, and storage
+- [Configuration](../docs/configuration.md): YAML settings and deployment values
+- [Client registration](../docs/registration.md): register clients and policies
+- [Client usage](../docs/usage.md): request tokens with client credentials or token exchange
+- [Benchmarks](../docs/benchmarks.md): run and interpret local benchmarks
 
 ## Local development
 
-Install [mise](https://mise.jdx.dev/), then run:
+Install [mise](https://mise.jdx.dev/).
+Run the commands in this section from the `sts-authserver/` directory:
 
 ```shell
 mise run local
@@ -73,6 +74,6 @@ Try the token flows:
 Configuration:
 
 - Local setup copies `config.example.yaml` to the gitignored `config.yaml` if absent.
-- Edit `config.yaml` for local settings. See [configuration](docs/configuration.md).
+- Edit `config.yaml` for local settings. See [configuration](../docs/configuration.md).
 
-Run `mise tasks` for all commands.
+Run `mise tasks` in `sts-authserver/` for all component commands.

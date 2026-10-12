@@ -1,0 +1,22 @@
+name: Repository checks
+
+on:
+  push:
+    paths:
+      - ".github/**"
+      - "mise.toml"
+      - ".mise-tasks/**"
+
+permissions:
+  contents: read
+
+jobs:
+  ratchet:
+    name: Pinned GitHub Actions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # ratchet:jdx/mise-action@v5.0.0
+        with:
+          install_args: go:github.com/sethvargo/ratchet
+      - run: mise run check:ratchet

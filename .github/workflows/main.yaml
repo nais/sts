@@ -1,9 +1,15 @@
-name: Build and publish
+name: Authserver build and publish
 
 on:
   push:
-    paths-ignore:
-      - "*.md"
+    paths:
+      - "sts-authserver/**"
+      - "!sts-authserver/**/*.md"
+      - "charts/**"
+      - "observability/**"
+      - "mise.toml"
+      - ".mise-tasks/**"
+      - ".github/workflows/main.yaml"
 
 permissions:
   contents: read
@@ -24,9 +30,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # ratchet:actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version-file: sts-authserver/go.mod
+          cache-dependency-path: sts-authserver/go.sum
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # ratchet:jdx/mise-action@v5.0.0
+        with:
+          working_directory: sts-authserver
       - run: mise run ${{ matrix.task }}
+        working-directory: sts-authserver
+      - if: matrix.task == 'check'
+        run: mise run check:helm-lint
 
   build_and_push:
     if: github.ref == 'refs/heads/main'
@@ -48,6 +60,8 @@ jobs:
         id: build-push-sign
         with:
           name: ${{ env.NAME }}
+          dockerfile: sts-authserver/Dockerfile
+          context: sts-authserver
           build_args: |
             GO_VERSION=${{ steps.go_version.outputs.go_version }}
           google_service_account: gh-${{ env.NAME }}

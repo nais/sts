@@ -51,31 +51,41 @@ flowchart TB
 
 ## Project layout
 
+Root shared directories:
+
 ```text
-cmd/
-  sts/               Service entry point
-  setup_local_env/   Local database seed
-  local_traffic/     Local load generator
-  benchmark_report/  Benchmark report generator
-
-internal/
-  api/               Server startup, routes, HTTP listeners
-  config/            YAML configuration and defaults
-  registration/      Registrator authentication and software statements
-  oauth/             Client authentication, grants, authorization, token signing
-  store/             PostgreSQL-backed client and signing-key stores
-  cache/             Snapshot refresh and PostgreSQL notification listener
-  database/          Connection, migrations, SQL queries, generated sqlc code
-  metrics/           Token and HTTP metrics
-  integration/       End-to-end and database tests (integration_test tag)
-  ioconvenience/     Shared cleanup helpers
-
+.mise-tasks/         Shared checks and component task aggregates
 charts/              Helm chart
-observability/       Grafana dashboard
-.mise-tasks/         Local development, checks, and generation tasks
 docs/                API guides and architectural decisions
+hack/                Kubernetes manifests, sample data, and benchmark image Dockerfile
+observability/       Grafana dashboard
 ```
 
+Component directory `sts-authserver/`:
+
+```text
+sts-authserver/
+  cmd/
+    sts/               Service entry point
+    setup_local_env/   Local database seed
+    local_traffic/     Local load generator
+    benchmark_report/  Benchmark report generator
+  internal/
+    api/               Server startup, routes, HTTP listeners
+    config/            YAML configuration and defaults
+    registration/      Registrator authentication and software statements
+    oauth/             Client authentication, grants, authorization, token signing
+    store/             PostgreSQL-backed client and signing-key stores
+    cache/             Snapshot refresh and PostgreSQL notification listener
+    database/          Connection, migrations, SQL queries, generated sqlc code
+    metrics/           Token and HTTP metrics
+    integration/       End-to-end and database tests (integration_test tag)
+    ioconvenience/     Shared cleanup helpers
+  .mise-tasks/         Local development, checks, and generation tasks
+  Dockerfile           Service image
+```
+
+Code paths in the rest of this document are relative to `sts-authserver/`.
 `internal/api` connects the registration and OAuth handlers to the same client store.
 The OAuth handler also uses a signing-key store.
 STS owns its routes and grant logic; it uses Zitadel OIDC types and helpers.

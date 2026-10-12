@@ -5,20 +5,21 @@
 Run the Go benchmarks:
 
 ```shell
-mise run test:benchmark
+mise -C sts-authserver run test:benchmark
 ```
 
 Generate an HTML report with token request timings, allocations, database queries, and token-processing steps:
 
 ```shell
-mise run test:benchmark-report
-open benchmark-report/index.html
+mise -C sts-authserver run test:benchmark-report
+open sts-authserver/benchmark-report/index.html
 ```
 
 The report task runs each grant separately.
-It writes raw Go output, Prometheus snapshots, and the HTML report to `benchmark-report/`.
+It writes raw Go output, Prometheus snapshots, and the HTML report to `sts-authserver/benchmark-report/`.
 
 Set `STS_BENCHMARK_REPORT_DIR` to use another directory.
+Relative report directory paths resolve from `sts-authserver/`.
 
 ## Benchmark deployed STS
 
@@ -27,7 +28,7 @@ Wait for both replicas to be ready.
 Select the Kubernetes context for the deployment before this command:
 
 ```shell
-mise run test:benchmark-remote \
+mise -C sts-authserver run test:benchmark-remote \
   --sts-url https://sts.dev.dev-nais.cloud.nais.io \
   --namespace nais-system \
   --deployment sts \
@@ -35,7 +36,7 @@ mise run test:benchmark-remote \
   --service-account workload1 \
   --target env1:basseng:workload2 \
   --benchtime 10s
-open benchmark-report/remote/index.html
+open sts-authserver/benchmark-report/remote/index.html
 ```
 
 Use an ingress URL for `--sts-url`.
@@ -59,7 +60,7 @@ Remote allocations describe the benchmark client, not the STS server.
 The default token lifetime request is one hour; keep the total run below the granted lifetime.
 The task does not refresh tokens or change the HPA.
 
-Remote output defaults to `benchmark-report/remote/`.
+Remote output defaults to `sts-authserver/benchmark-report/remote/`.
 Set `STS_BENCHMARK_REPORT_DIR` to use another directory.
 The local benchmark and report tasks retain their existing behavior.
 
@@ -78,10 +79,10 @@ The workflow builds, signs, and publishes a Linux amd64 image to the existing Ar
 It does not run benchmarks or deploy STS.
 Copy the benchmark command with the immutable image reference from the completed run summary.
 
-Alternatively, build and push the image locally:
+Alternatively, build and push the image locally from the repository root:
 
 ```shell
-docker build --platform linux/amd64 -f hack/benchmark.Dockerfile -t <registry>/sts-benchmark:<tag> .
+docker build --platform linux/amd64 -f hack/benchmark.Dockerfile -t <registry>/sts-benchmark:<tag> sts-authserver
 docker push <registry>/sts-benchmark:<tag>
 ```
 
@@ -89,7 +90,7 @@ The image architecture must match the cluster nodes that run the Job.
 Run the task with the pushed image:
 
 ```shell
-mise run test:benchmark-cluster --image <registry>/sts-benchmark:<tag>
+mise -C sts-authserver run test:benchmark-cluster --image <registry>/sts-benchmark:<tag>
 ```
 
 The default STS URL is `http://sts.nais-system.svc`.
@@ -100,7 +101,7 @@ The task shares remote server-metrics collection, which forwards each STS pod lo
 It runs one Job per grant and attempts to delete both Jobs on exit.
 If deletion fails, the task prints a manual cleanup command.
 Kubernetes also deletes finished Jobs after ten minutes.
-Job logs and the HTML report go to `benchmark-report/cluster/`.
+Job logs and the HTML report go to `sts-authserver/benchmark-report/cluster/`.
 Server metrics include concurrent traffic during Job startup as well as the benchmark requests.
 Timed requests exclude Job startup.
 The default Service URL bypasses ingress and the external client network.
@@ -109,7 +110,7 @@ To measure ingress from the same Job, override the URL:
 
 ```shell
 STS_BENCHMARK_REPORT_DIR=benchmark-report/cluster-ingress \
-  mise run test:benchmark-cluster --image <registry>/sts-benchmark:<tag> \
+  mise -C sts-authserver run test:benchmark-cluster --image <registry>/sts-benchmark:<tag> \
   --sts-url https://sts.dev.dev-nais.cloud.nais.io
 ```
 
@@ -160,10 +161,10 @@ Treat the metrics as process-level context, not timed-iteration measurements.
 
 ## Local observability and traffic
 
-With `mise run local` active, start [Grafana](http://localhost:3000/d/sts-local-performance) and [Prometheus](http://localhost:9090):
+With `mise -C sts-authserver run local` active, start [Grafana](http://localhost:3000/d/sts-local-performance) and [Prometheus](http://localhost:9090):
 
 ```shell
-mise run local:observability
+mise -C sts-authserver run local:observability
 ```
 
 Normal local startup does not start them.
@@ -171,15 +172,15 @@ Normal local startup does not start them.
 Generate fixture-based token requests until Ctrl-C:
 
 ```shell
-mise run local:traffic
+mise -C sts-authserver run local:traffic
 ```
 
 The default is 100 requests per second with eight workers.
 Adjust the rate, workers, duration, or flow:
 
 ```shell
-mise run local:traffic --rate 500 --workers 16 --duration 5m
-mise run local:traffic --rate 0 --workers 8 --flow token_exchange
+mise -C sts-authserver run local:traffic --rate 500 --workers 16 --duration 5m
+mise -C sts-authserver run local:traffic --rate 0 --workers 8 --flow token_exchange
 ```
 
 This tool generates local traffic.

@@ -1,0 +1,6 @@
+/sts
+*.tgz
+/.env
+/config.yaml
+/benchmark-report/
+/.idea/

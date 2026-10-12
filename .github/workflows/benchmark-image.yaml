@@ -22,6 +22,7 @@ jobs:
         with:
           name: sts-benchmark
           dockerfile: hack/benchmark.Dockerfile
+          context: sts-authserver
           build_args: |
             GO_VERSION=${{ steps.go_version.outputs.go_version }}
           google_service_account: gh-sts
@@ -31,4 +32,4 @@ jobs:
         env:
           IMAGE: ${{ steps.build-push-sign.outputs.image }}
         run: |
-          printf '### Run the cluster benchmark\n\n~~~shell\nmise run test:benchmark-cluster --image %s\n~~~\n' "$IMAGE" >> "$GITHUB_STEP_SUMMARY"
+          printf '### Run the cluster benchmark\n\n~~~shell\nmise -C sts-authserver run test:benchmark-cluster --image %s\n~~~\n' "$IMAGE" >> "$GITHUB_STEP_SUMMARY"
