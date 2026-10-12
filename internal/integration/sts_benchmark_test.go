@@ -94,6 +94,14 @@ func remoteBenchmarkConfigFromEnv(getenv func(string) string) (remoteBenchmarkCo
 	clientAssertion := getenv("STS_BENCHMARK_CLIENT_ASSERTION")
 	subjectToken := getenv("STS_BENCHMARK_SUBJECT_TOKEN")
 	target := getenv("STS_BENCHMARK_TARGET")
+	if tokenFile := getenv("STS_BENCHMARK_TOKEN_FILE"); tokenFile != "" {
+		token, err := os.ReadFile(tokenFile)
+		if err != nil {
+			return remoteBenchmarkConfig{}, true, fmt.Errorf("read STS_BENCHMARK_TOKEN_FILE %q: %w", tokenFile, err)
+		}
+		clientAssertion = strings.TrimSpace(string(token))
+		subjectToken = clientAssertion
+	}
 	if clientAssertion == "" || subjectToken == "" || target == "" {
 		return remoteBenchmarkConfig{}, true, fmt.Errorf("STS_BENCHMARK_CLIENT_ASSERTION, STS_BENCHMARK_SUBJECT_TOKEN, and STS_BENCHMARK_TARGET are required with STS_BENCHMARK_URL")
 	}

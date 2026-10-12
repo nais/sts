@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE description="Lifecycle test for the remote benchmark task with mocked kubectl, curl and go"
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -173,13 +174,12 @@ assert_cluster_jobs() {
        and .spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation == false
        and .spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem == true
        and .spec.template.spec.volumes[0].projected.sources[0].serviceAccountToken.audience == "nais"
-       and ([.spec.template.spec.containers[0].env[] | {key:.name,value:.value}] | from_entries) == {STS_BENCHMARK_URL:$url,STS_BENCHMARK_TARGET:$target}
-       and .spec.template.spec.containers[0].command[0:2] == ["/bin/sh","-c"]
+       and ([.spec.template.spec.containers[0].env[] | {key:.name,value:.value}] | from_entries) == {STS_BENCHMARK_URL:$url,STS_BENCHMARK_TARGET:$target,STS_BENCHMARK_TOKEN_FILE:"/var/run/assertion/token"}
+       and .spec.template.spec.containers[0].command[0] == "/usr/local/bin/sts-benchmark"
+       and .spec.template.spec.containers[0].command[1:4] == ["-test.run","^$","-test.bench"]
+       and .spec.template.spec.containers[0].command[5:8] == ["-test.benchtime","1x","-test.benchmem"]
        and .spec.activeDeadlineSeconds == 60
-       and (.spec.template.spec.containers[0].command[2] | contains("-test.run \"$3\" -test.bench \"$1\" -test.benchtime \"$2\""))
-       and .spec.template.spec.containers[0].command[3] == "sts-benchmark"
-       and .spec.template.spec.containers[0].command[5] == "1x"
-       and .spec.template.spec.containers[0].command[6] == "^$"
+       and .spec.ttlSecondsAfterFinished == 600
        and all(.spec.template.spec.containers[0].env[]; .name != "STS_BENCHMARK_CLIENT_ASSERTION" and .name != "STS_BENCHMARK_SUBJECT_TOKEN")' \
       "$json" >/dev/null
     selector=$(jq -r '.spec.template.spec.containers[0].command[4]' "$json")
@@ -262,11 +262,16 @@ run_case cluster STS_BENCHMARK_JOB_IMAGE=benchmark-image STS_BENCHMARK_JOB_TIMEO
 assert_cluster_jobs cluster
 
 mkdir -p "$tmp/cluster-fail"
-if run_case cluster-fail STS_BENCHMARK_JOB_IMAGE=benchmark-image STS_BENCHMARK_JOB_TIMEOUT_SECONDS=60 \
-  MOCK_JOB_STATE=Failed MOCK_DELETE_FAIL=1 > "$tmp/cluster-fail/output" 2>&1; then
-  printf 'cluster-fail case unexpectedly succeeded\n' >&2
+cluster_fail_status=0
+run_case cluster-fail STS_BENCHMARK_JOB_IMAGE=benchmark-image STS_BENCHMARK_JOB_TIMEOUT_SECONDS=60 \
+  MOCK_JOB_STATE=Failed MOCK_DELETE_FAIL=1 > "$tmp/cluster-fail/output" 2>&1 || cluster_fail_status=$?
+if [[ "$cluster_fail_status" -ne 1 ]]; then
+  printf 'cluster-fail case exit status = %s, want 1\n' "$cluster_fail_status" >&2
   exit 1
 fi
+assert_contains "$tmp/cluster-fail/output" 'did not complete (Failed)'
+assert_contains "$tmp/cluster-fail/output" 'Failed to delete benchmark Job'
+assert_contains "$tmp/cluster-fail/output" 'kubectl delete job'
 assert_cluster_jobs cluster-fail failed
 
 printf 'benchmark-remote lifecycle tests passed\n'
