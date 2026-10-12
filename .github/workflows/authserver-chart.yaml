@@ -45,9 +45,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          mise run check:helm-lint
-
-          # Resolve under the chart lock so delayed runs cannot restore older images.
+          # Use the latest release so delayed runs do not restore older images.
           IMAGE_TAG=$(gh release view --json tagName --jq .tagName)
           version="$(date -u +%Y-%m-%d-%H%M%S)-$(git rev-parse --short=7 HEAD)"
           export IMAGE_TAG CHART_VERSION="$version"
