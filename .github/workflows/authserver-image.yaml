@@ -70,12 +70,3 @@ jobs:
           IMAGE_VERSION: ${{ needs.build.outputs.version }}
           IMAGE: ${{ needs.build.outputs.image }}
         run: mise run --skip-tools ci:release "$IMAGE_VERSION" "$IMAGE"
-
-  chart:
-    needs: release
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/authserver-chart.yaml
-    secrets:
-      NAIS_IO_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}

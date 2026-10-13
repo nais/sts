@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sts-authserver-chart
+  cancel-in-progress: false
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -59,12 +63,33 @@ jobs:
       NAIS_IO_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
 
   chart:
-    needs: [changes, checks]
-    # Skip when code also changed; the image workflow deploys the chart after its release.
-    if: needs.changes.outputs.chart == 'true' && needs.changes.outputs.code != 'true'
+    needs: [changes, checks, image]
+    if: >-
+      !cancelled() &&
+      needs.checks.result == 'success' &&
+      (
+        (needs.changes.outputs.code == 'true' && needs.image.result == 'success') ||
+        (needs.changes.outputs.chart == 'true' && needs.changes.outputs.code != 'true')
+      )
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/authserver-chart.yaml
     secrets:
       NAIS_IO_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
+
+  deploy:
+    needs: chart
+    if: github.ref == 'refs/heads/main'
+    runs-on: fasit-deploy
+    permissions:
+      id-token: write
+    steps:
+      - uses: nais/fasit-deploy@53e433b1bdd08fc622e03a78584c0832c9083bd3 # ratchet:nais/fasit-deploy@v4.1.1
+        with:
+          chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/sts
+          version: ${{ needs.chart.outputs.version }}
+          targets: |
+            [
+              { "target": { "kind": "tenant", "tenant": "dev-nais" } }
+            ]

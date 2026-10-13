@@ -2,16 +2,16 @@ name: authserver-chart
 
 on:
   workflow_call:
+    outputs:
+      version:
+        description: Published chart version
+        value: ${{ jobs.publish.outputs.version }}
     secrets:
       NAIS_IO_WORKLOAD_IDENTITY_PROVIDER:
         required: true
 
 permissions:
   contents: read
-
-concurrency:
-  group: sts-authserver-chart
-  cancel-in-progress: false
 
 env:
   NAME: sts
@@ -61,19 +61,3 @@ jobs:
         run: |
           helm push "$NAME-$CHART_VERSION.tgz" "$FEATURE_REPOSITORY"
           echo "version=$CHART_VERSION" >> "$GITHUB_OUTPUT"
-
-  deploy:
-    needs: publish
-    if: github.ref == 'refs/heads/main'
-    runs-on: fasit-deploy
-    permissions:
-      id-token: write
-    steps:
-      - uses: nais/fasit-deploy@53e433b1bdd08fc622e03a78584c0832c9083bd3 # ratchet:nais/fasit-deploy@v4.1.1
-        with:
-          chart: ${{ env.FEATURE_REPOSITORY }}/${{ env.NAME }}
-          version: ${{ needs.publish.outputs.version }}
-          targets: |
-            [
-              { "target": { "kind": "tenant", "tenant": "dev-nais" } }
-            ]
