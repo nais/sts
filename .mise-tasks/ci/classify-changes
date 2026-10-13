@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+#MISE description="Classify CI changes for image and chart deployment"
+
+set -euo pipefail
+
+code_paths=()
+chart_paths=()
+while (( $# )); do
+  if (( $# < 2 )); then
+    echo "Missing pathspec for $1" >&2
+    exit 1
+  fi
+  case "$1" in
+    --code) code_paths+=("$2") ;;
+    --chart) chart_paths+=("$2") ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+  shift 2
+done
+if (( ${#code_paths[@]} == 0 || ${#chart_paths[@]} == 0 )); then
+  echo "Supply at least one --code and one --chart pathspec" >&2
+  exit 1
+fi
+
+# A missing base, e.g. after a force push, compares against an empty tree.
+if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+  BEFORE=$(git hash-object -t tree /dev/null)
+fi
+changed() { ! git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "$@"; }
+
+if changed "${code_paths[@]}"; then
+  echo code=true >> "$GITHUB_OUTPUT"
+fi
+if changed "${chart_paths[@]}"; then
+  echo chart=true >> "$GITHUB_OUTPUT"
+fi

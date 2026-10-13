@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#MISE description="Create an image release without replacing a newer latest release"
+
+set -euo pipefail
+
+version="${1:?Supply the image version}"
+image="${2:?Supply the image reference}"
+
+# Workflow locks serialize runs, but do not guarantee commit order.
+latest=$(gh release view --json tagName --jq .tagName)
+status=$(gh api "repos/$GH_REPO/compare/$latest...$GITHUB_SHA" --jq .status)
+case "$status" in
+  ahead|identical) make_latest=true ;;
+  behind) make_latest=false ;;
+  *) echo "Cannot order release commits: $status" >&2; exit 1 ;;
+esac
+
+gh release create "$version" --target "$GITHUB_SHA" \
+  --title "$version" --notes "$image" --latest="$make_latest"

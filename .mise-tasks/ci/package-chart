@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#MISE description="Package a chart for CI"
+
+set -euo pipefail
+
+chart="${1:?Supply the chart directory}"
+
+# Use the latest release so delayed runs do not restore older images.
+IMAGE_TAG=$(gh release view --json tagName --jq .tagName)
+version="$(date -u +%Y-%m-%d-%H%M%S)-$(git rev-parse --short=7 HEAD)"
+export IMAGE_TAG CHART_VERSION="$version"
+
+yq -i '.image.tag = strenv(IMAGE_TAG)' "$chart/values.yaml"
+yq -i '.version = strenv(CHART_VERSION) | .appVersion = strenv(IMAGE_TAG)' "$chart/Chart.yaml"
+
+# Timestamp versions package successfully but fail strict SemVer lint.
+helm lint "$chart"
+helm package "$chart"
+
+echo "version=$version" >> "$GITHUB_OUTPUT"
