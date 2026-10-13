@@ -25,6 +25,8 @@ jobs:
           name: sts-benchmark
           dockerfile: hack/benchmark.Dockerfile
           context: sts-authserver
+          cache_from: type=gha,scope=sts-authserver-benchmark
+          cache_to: type=gha,mode=max,scope=sts-authserver-benchmark
           build_args: |
             GO_VERSION=${{ steps.go_version.outputs.go_version }}
           google_service_account: gh-sts

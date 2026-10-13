@@ -13,7 +13,16 @@ jobs:
       tasks: |
         [
           "check:ratchet",
-          "check:helm-lint",
+          "check:helm-lint"
+        ]
+
+  authserver:
+    name: checks # Preserve required status-check names.
+    uses: ./.github/workflows/mise.yaml
+    with:
+      go-cache: true
+      tasks: |
+        [
           "sts-authserver:check",
           "sts-authserver:test"
         ]

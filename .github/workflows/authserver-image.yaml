@@ -20,6 +20,7 @@ jobs:
   checks:
     uses: ./.github/workflows/mise.yaml
     with:
+      go-cache: true
       tasks: |
         [
           "sts-authserver:check",
@@ -46,6 +47,8 @@ jobs:
           name: ${{ env.NAME }}
           dockerfile: sts-authserver/Dockerfile
           context: sts-authserver
+          cache_from: type=gha,scope=sts-authserver
+          cache_to: type=gha,mode=max,scope=sts-authserver
           google_service_account: gh-${{ env.NAME }}
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
           push_ghcr: true
@@ -64,6 +67,7 @@ jobs:
       - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # ratchet:jdx/mise-action@v5
         with:
           install: false
+          cache: false
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

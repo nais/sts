@@ -5,3 +5,5 @@
 config.yaml
 charts
 README.md
+.mise-tasks
+mise.toml

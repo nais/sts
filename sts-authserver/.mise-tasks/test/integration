@@ -3,4 +3,4 @@
 
 set -e
 
-go test -race -cover -tags=integration_test ./internal/integration
+go test -race -cover -count=1 -tags=integration_test ./internal/integration
