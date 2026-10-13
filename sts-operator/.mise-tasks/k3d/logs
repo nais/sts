@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Follow operator logs in the development cluster"
+set -euo pipefail
+
+exec bash "$(dirname "${BASH_SOURCE[0]}")/.k3d.sh" logs

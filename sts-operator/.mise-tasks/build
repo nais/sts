@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Build the sts-operator binary"
+set -euo pipefail
+
+exec go build -o bin/sts-operator ./cmd/sts-operator/main.go

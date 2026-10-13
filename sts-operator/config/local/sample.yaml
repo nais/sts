@@ -1,0 +1,11 @@
+apiVersion: nais.io/v1
+kind: STSClient
+metadata:
+  name: smoke-client
+  namespace: sts-demo
+spec:
+  acl:
+    - team: sts-demo
+      workloads:
+        - name: consumer
+          roles: [reader]

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Recreate the local sample and verify reconciliation + ConfigMap creation"
+set -euo pipefail
+
+exec bash "$(dirname "${BASH_SOURCE[0]}")/.k3d.sh" smoke

@@ -1,0 +1,20 @@
+apiVersion: nais.io/v1
+kind: STSClient
+metadata:
+  name: workload-a
+  namespace: team-a
+---
+apiVersion: nais.io/v1
+kind: STSClient
+metadata:
+  name: workload-b
+  namespace: team-b
+spec:
+  acl:
+    - team: team-a
+      workloads:
+        - name: workload-a
+          roles: [x, y]
+        - name: workload-b
+          roles: [x]
+        - name: workload-c

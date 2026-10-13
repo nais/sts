@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-sts
+  namespace: sts-operator-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-sts
+  template:
+    metadata:
+      labels:
+        app: mock-sts
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mock
+          image: sts-operator-mock:dev
+          imagePullPolicy: Never
+          env:
+            - name: MOCK_STS_ISSUER
+              value: http://mock-sts.sts-operator-dev.svc.cluster.local:8080
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-sts
+  namespace: sts-operator-dev
+spec:
+  selector:
+    app: mock-sts
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

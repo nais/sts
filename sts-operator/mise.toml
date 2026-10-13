@@ -1,0 +1,7 @@
+[task_config]
+includes = [".mise-tasks"]
+
+[tools]
+kube-controller-tools = "0.19.0"
+k3d = "5.8.3"
+kubectl = "1.35.2"

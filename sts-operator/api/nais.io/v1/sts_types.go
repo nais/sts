@@ -1,0 +1,78 @@
+package nais_io_v1
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+)
+
+func init() {
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &STSClient{}, &STSClientList{})
+		return nil
+	})
+}
+
+// +genclient
+// +kubebuilder:printcolumn:name="Created",type="date",JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:printcolumn:name="Synced",type="date",JSONPath=".status.synchronizationTimestamp"
+// +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.synchronizationState"
+// +kubebuilder:printcolumn:name="Client ID",type="string",JSONPath=".status.clientID",priority=1
+// +kubebuilder:printcolumn:name="Secret",type="string",JSONPath=".status.synchronizationSecretName",priority=1
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+
+// STSClient is the Schema for the sts-operator API
+type STSClient struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   STSClientSpec   `json:"spec,omitempty"`
+	Status STSClientStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// STSClientList contains a list of STSClient
+type STSClientList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []STSClient `json:"items"`
+}
+
+type STSClientSpec struct {
+	AccessControlList []AccessControlList `json:"acl,omitempty"`
+}
+
+type AccessControlList struct {
+	Team      string     `json:"team"`
+	Workloads []Workload `json:"workloads"`
+}
+
+type Workload struct {
+	Name  string   `json:"name"`
+	Roles []string `json:"roles"`
+}
+
+// STSClientStatus defines the observed state of STSClient
+type STSClientStatus struct {
+	// ClientID is the OAuth2 Client ID associated with this workload
+	ClientID string `json:"clientID,omitempty"`
+	// ObservedGeneration is the most recent generation observed by the controller.
+	// If this is equal to metadata.generation, then that means that the current reported status reflects the most recent desired state of the resource.
+	ObservedGeneration       int64       `json:"observedGeneration,omitempty"`
+	SynchronizationTimestamp metav1.Time `json:"synchronizationTimestamp,omitempty"`
+	CorrelationID            string      `json:"correlationID,omitempty"`
+	// conditions represent the current state of the controlled resource.
+	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
+	//
+	// Standard condition types include:
+	// - "Available": the resource is fully functional
+	// - "Progressing": the resource is being created or updated
+	// - "Degraded": the resource failed to reach or maintain its desired state
+	//
+	// The status of each condition is one of True, False, or Unknown.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}

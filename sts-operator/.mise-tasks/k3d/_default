@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Create a local k3d cluster, deploy operator + mock STS, and smoke-test reconciliation"
+set -euo pipefail
+
+exec bash "$(dirname "${BASH_SOURCE[0]}")/.k3d.sh" start

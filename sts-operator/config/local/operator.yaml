@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sts-operator
+  namespace: sts-operator-dev
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: sts-operator
+  template:
+    metadata:
+      labels:
+        app: sts-operator
+    spec:
+      serviceAccountName: sts-operator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-mock-sts
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - >-
+              until wget -q -T 2 -O /dev/null
+              http://mock-sts.sts-operator-dev.svc.cluster.local:8080/.well-known/oauth-authorization-server;
+              do sleep 1; done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
+      containers:
+        - name: operator
+          image: sts-operator:dev
+          imagePullPolicy: Never
+          args: [--leader-election]
+          env:
+            - name: CLUSTER_NAME
+              value: sts-operator-dev
+            - name: STS_OPERATOR_CLIENT_ID
+              value: sts-operator-dev
+            - name: STS_URL
+              value: http://mock-sts.sts-operator-dev.svc.cluster.local:8080
+            - name: LOG_LEVEL
+              value: debug
+            - name: STS_OPERATOR_PRIVATE_JWK
+              valueFrom:
+                secretKeyRef:
+                  name: sts-operator-credentials
+                  key: STS_OPERATOR_PRIVATE_JWK
+          ports:
+            - name: probes
+              containerPort: 8180
+            - name: metrics
+              containerPort: 8181
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: probes
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probes
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probes
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
