@@ -4,6 +4,8 @@ package integration
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -11,6 +13,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -128,10 +132,19 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}))
+	keyPath := filepath.Join(t.TempDir(), "encryption-key")
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, []byte(base64.StdEncoding.EncodeToString(key)), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	cfg := config.Config{
 		BindAddress:         addr,
 		DatabaseURL:         dsn,
+		EncryptionKeyFile:   keyPath,
 		InternalBindAddress: internalAddr,
 		LogLevel:            slog.LevelDebug,
 		LogFormat:           "text",

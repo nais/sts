@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"io"
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"go.opentelemetry.io/otel"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 func TestNewPoolMigratesPostgres(t *testing.T) {
@@ -190,8 +192,12 @@ func testPostgresKeyStore(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 
 	ctx := t.Context()
-	st, err := keystore.New(ctx, pool, time.Minute)
+	key := make([]byte, chacha20poly1305.KeySize)
+	_, err := rand.Read(key)
 	require.NoError(t, err)
+	st, err := keystore.New(ctx, pool, time.Minute, key)
+	require.NoError(t, err)
+	assertEncryptedSigningKeys(t, pool)
 
 	_, err = st.Signer()
 	require.NoError(t, err)
@@ -207,7 +213,7 @@ func testPostgresKeyStore(t *testing.T, pool *pgxpool.Pool) {
 	}
 
 	// A second replica must load the existing keys instead of creating another set.
-	second, err := keystore.New(ctx, pool, time.Minute)
+	second, err := keystore.New(ctx, pool, time.Minute, key)
 	require.NoError(t, err)
 	secondKeys, err := second.PublicKeys()
 	require.NoError(t, err)
@@ -215,6 +221,26 @@ func testPostgresKeyStore(t *testing.T, pool *pgxpool.Pool) {
 		[]string{keys.Keys[0].KeyID, keys.Keys[1].KeyID, keys.Keys[2].KeyID},
 		[]string{secondKeys.Keys[0].KeyID, secondKeys.Keys[1].KeyID, secondKeys.Keys[2].KeyID},
 	)
+	var beforeWrongKey struct {
+		previous, current, next []byte
+		expiresAt               time.Time
+	}
+	require.NoError(t, pool.QueryRow(ctx, "SELECT previous_key, current_key, next_key, expires_at FROM rotatable_signing_keys").Scan(
+		&beforeWrongKey.previous, &beforeWrongKey.current, &beforeWrongKey.next, &beforeWrongKey.expiresAt,
+	))
+	wrongKey := make([]byte, chacha20poly1305.KeySize)
+	wrongKey[0] = 1
+	_, err = keystore.New(ctx, pool, time.Minute, wrongKey)
+	require.Error(t, err)
+	var afterWrongKey struct {
+		previous, current, next []byte
+		expiresAt               time.Time
+	}
+	require.NoError(t, pool.QueryRow(ctx, "SELECT previous_key, current_key, next_key, expires_at FROM rotatable_signing_keys").Scan(
+		&afterWrongKey.previous, &afterWrongKey.current, &afterWrongKey.next, &afterWrongKey.expiresAt,
+	))
+	require.Equal(t, beforeWrongKey, afterWrongKey)
+	assertEncryptedSigningKeys(t, pool)
 
 	// Force expiry and rotate concurrently. The advisory lock must allow exactly
 	// one rotation while both replicas refresh to the same three-key snapshot.
@@ -248,10 +274,21 @@ func testPostgresKeyStore(t *testing.T, pool *pgxpool.Pool) {
 	)
 	require.Equal(t, keys.Keys[1].KeyID, rotatedKeys.Keys[0].KeyID)
 	require.Equal(t, keys.Keys[2].KeyID, rotatedKeys.Keys[1].KeyID)
+	assertEncryptedSigningKeys(t, pool)
 
 	var rows int
 	require.NoError(t, pool.QueryRow(ctx, "SELECT COUNT(*) FROM rotatable_signing_keys").Scan(&rows))
 	require.Equal(t, 1, rows)
+}
+
+func assertEncryptedSigningKeys(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	var previous, current, next []byte
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT previous_key, current_key, next_key FROM rotatable_signing_keys`).Scan(&previous, &current, &next))
+	for _, value := range [][]byte{previous, current, next} {
+		require.False(t, json.Valid(value))
+		require.Greater(t, len(value), chacha20poly1305.NonceSizeX+chacha20poly1305.Overhead)
+	}
 }
 
 func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {

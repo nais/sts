@@ -1,6 +1,7 @@
 package keystore
 
 import (
+	"crypto/cipher"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,7 +32,7 @@ func generateSigningKeys() (*signingKeys, error) {
 	return &signingKeys{previous: previous, current: current, next: next}, nil
 }
 
-func signingKeysFromRow(row sqlgen.RotatableSigningKey) (*signingKeys, error) {
+func signingKeysFromRow(row sqlgen.RotatableSigningKey, aead cipher.AEAD) (*signingKeys, error) {
 	var keys signingKeys
 	for _, field := range []struct {
 		name string
@@ -42,7 +43,14 @@ func signingKeysFromRow(row sqlgen.RotatableSigningKey) (*signingKeys, error) {
 		{name: "previous", raw: row.PreviousKey, key: &keys.previous},
 		{name: "next", raw: row.NextKey, key: &keys.next},
 	} {
-		if err := json.Unmarshal(field.raw, field.key); err != nil {
+		if len(field.raw) < aead.NonceSize()+aead.Overhead() {
+			return nil, fmt.Errorf("decrypt %s key: ciphertext is too short", field.name)
+		}
+		plaintext, err := aead.Open(nil, field.raw[:aead.NonceSize()], field.raw[aead.NonceSize():], nil)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt %s key: %w", field.name, err)
+		}
+		if err := json.Unmarshal(plaintext, field.key); err != nil {
 			return nil, fmt.Errorf("unmarshal %s key: %w", field.name, err)
 		}
 		if field.key.Key == nil {

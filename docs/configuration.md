@@ -12,6 +12,7 @@ It sets `tokenExpiry` to `1h` instead of the `15m` default.
 | `bindAddress`                                     | `:8080`   |          | Nonempty.                                                     | Public HTTP listener.                                                                               |
 | `internalBindAddress`                             | `:8081`   |          | Nonempty.                                                     | Internal health and metrics listener.                                                               |
 | `databaseUrl`                                     |           | Yes      | Nonempty.                                                     | PostgreSQL connection URL.                                                                          |
+| `encryptionKeyFile`                               |           | Yes      | Readable file containing a base64-encoded 32-byte key.        | Path to the key used to encrypt signing keys in PostgreSQL.                                         |
 | `logLevel`                                        | `info`    |          |                                                               | Log level.                                                                                          |
 | `logFormat`                                       | `text`    |          | `text` or `json`.                                             | Log format.                                                                                         |
 | `authorizationServer.issuer`                      |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | STS issuer URL.                                                                                     |
@@ -47,3 +48,23 @@ An exchanged token from this issuer contains:
 ```
 
 Keep the alias stable so workloads can distinguish subject-token issuers without depending on their exact URLs.
+
+## Signing-key encryption
+
+The key file contains a base64-encoded 32-byte key, which STS reads once at startup.
+All replicas that share a database must use the same encryption key.
+Local setup creates the file only when absent.
+
+The Helm chart mounts an existing Secret named by `encryptionKeySecretName`, which defaults to `sts-encryption-key`.
+Its `encryption.key` entry contains the base64 text, not the raw key bytes.
+The default mount path is `/etc/sts-encryption/encryption.key`.
+Provision this Secret before deployment; Helm does not generate a key.
+
+A wrong encryption key causes startup to fail without replacing stored signing keys.
+Rotation errors stop the affected process.
+Request-triggered reload errors fail that request without an immediate process exit.
+
+STS rejects existing plaintext signing keys; it does not migrate them.
+For a development reset, stop all replicas before deleting the signing-key row or replacing the encryption key.
+The reset invalidates existing tokens.
+Keep the encryption key with database backups; key loss prevents recovery of stored signing keys.

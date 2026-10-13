@@ -208,12 +208,15 @@ A PostgreSQL advisory lock ensures that only one replica rotates the shared set 
 Keys rotate when the current key expires.
 A key rotation failure stops the affected replica.
 
+STS encrypts each private signing key with XChaCha20-Poly1305 before storage.
+See [Configuration](configuration.md#signing-key-encryption) for the shared encryption key and reset requirements.
+
 ## Startup and listeners
 
 STS loads [YAML configuration](configuration.md), connects to PostgreSQL, and applies migrations at startup.
 A database lock serializes migrations across replicas.
 STS loads its snapshots and discovers configured issuers before serving requests.
-The Helm chart mounts configuration from a Secret and runs multiple replicas against the shared database.
+The Helm chart mounts configuration and the shared encryption key from Secrets and runs multiple replicas against the shared database.
 
 ### Public listener
 

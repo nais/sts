@@ -2,6 +2,8 @@ package keystore
 
 import (
 	"context"
+	"crypto/cipher"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/nais/sts/internal/cache"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/jwk"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 const (
@@ -30,6 +33,7 @@ type Store struct {
 	queries          *sqlgen.Queries
 	rotationInterval time.Duration
 	snapshot         *cache.Snapshot[*keySnapshot]
+	aead             cipher.AEAD
 }
 
 type keySnapshot struct {
@@ -38,14 +42,19 @@ type keySnapshot struct {
 	expiresAt time.Time
 }
 
-func New(ctx context.Context, pool *pgxpool.Pool, tokenTTL time.Duration) (*Store, error) {
+func New(ctx context.Context, pool *pgxpool.Pool, tokenTTL time.Duration, encryptionKey []byte) (*Store, error) {
 	if tokenTTL <= 0 {
 		return nil, fmt.Errorf("token TTL must be positive")
+	}
+	aead, err := chacha20poly1305.NewX(encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("create signing key encryptor: %w", err)
 	}
 
 	keystore := &Store{
 		pool:    pool,
 		queries: sqlgen.New(pool),
+		aead:    aead,
 		// A key remains public for one full rotation after it stops signing.
 		// This must exceed the token lifetime so every live token remains verifiable.
 		rotationInterval: tokenTTL + signingKeyRetentionLeeway,
@@ -165,7 +174,7 @@ func (s *Store) rotateSigningKeysInDatabase(ctx context.Context) error {
 			return nil
 		}
 
-		keys, err := signingKeysFromRow(row)
+		keys, err := signingKeysFromRow(row, s.aead)
 		if err != nil {
 			return err
 		}
@@ -183,17 +192,17 @@ func (s *Store) rotateSigningKeysInDatabase(ctx context.Context) error {
 }
 
 func (s *Store) saveSigningKeys(ctx context.Context, queries *sqlgen.Queries, id uuid.UUID, keys *signingKeys) error {
-	previous, err := keys.previous.MarshalJSON()
+	previous, err := s.encryptKey(keys.previous)
 	if err != nil {
-		return fmt.Errorf("marshal previous key: %w", err)
+		return fmt.Errorf("encrypt previous key: %w", err)
 	}
-	current, err := keys.current.MarshalJSON()
+	current, err := s.encryptKey(keys.current)
 	if err != nil {
-		return fmt.Errorf("marshal current key: %w", err)
+		return fmt.Errorf("encrypt current key: %w", err)
 	}
-	next, err := keys.next.MarshalJSON()
+	next, err := s.encryptKey(keys.next)
 	if err != nil {
-		return fmt.Errorf("marshal next key: %w", err)
+		return fmt.Errorf("encrypt next key: %w", err)
 	}
 	return queries.SaveSigningKeySet(ctx, sqlgen.SaveSigningKeySetParams{
 		ID:          id,
@@ -202,6 +211,18 @@ func (s *Store) saveSigningKeys(ctx context.Context, queries *sqlgen.Queries, id
 		NextKey:     next,
 		ExpiresAt:   time.Now().Add(s.rotationInterval),
 	})
+}
+
+func (s *Store) encryptKey(key jwk.Key) ([]byte, error) {
+	plaintext, err := key.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, s.aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("generate signing key nonce: %w", err)
+	}
+	return s.aead.Seal(nonce, nonce, plaintext, nil), nil
 }
 
 func (s *Store) withSigningKeyLock(ctx context.Context, fn func(context.Context, *sqlgen.Queries) error) error {
@@ -232,7 +253,7 @@ func (s *Store) load(ctx context.Context) (*keySnapshot, error) {
 		return nil, fmt.Errorf("read active rotatable signing key: %w", err)
 	}
 
-	keys, err := signingKeysFromRow(row)
+	keys, err := signingKeysFromRow(row, s.aead)
 	if err != nil {
 		return nil, err
 	}
