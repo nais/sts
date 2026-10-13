@@ -20,7 +20,11 @@ jobs:
   checks:
     uses: ./.github/workflows/mise.yaml
     with:
-      tasks: '["sts-authserver:check", "sts-authserver:test"]'
+      tasks: |
+        [
+          "sts-authserver:check",
+          "sts-authserver:test"
+        ]
 
   build:
     if: github.ref == 'refs/heads/main'

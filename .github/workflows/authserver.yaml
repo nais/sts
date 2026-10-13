@@ -41,7 +41,11 @@ jobs:
   checks:
     uses: ./.github/workflows/mise.yaml
     with:
-      tasks: '["check:ratchet", "check:helm-lint"]'
+      tasks: |
+        [
+          "check:ratchet",
+          "check:helm-lint"
+        ]
 
   image:
     needs: [changes, checks]

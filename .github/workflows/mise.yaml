@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   run:
+    name: ${{ matrix.task }}
     strategy:
       fail-fast: false
       matrix:

@@ -8,33 +8,12 @@ permissions:
 
 jobs:
   checks:
-    name: ${{ matrix.name }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - task: check:ratchet
-            name: actions / lint
-          - task: check:helm-lint
-            name: chart / lint
-          - task: sts-authserver:check
-            name: authserver / check
-          - task: sts-authserver:test
-            name: authserver / test
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # ratchet:actions/cache@v5
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-${{ runner.arch }}-go-${{ hashFiles('mise.toml', '**/mise.toml') }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-go-${{ hashFiles('mise.toml', '**/mise.toml') }}-
-      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # ratchet:jdx/mise-action@v5
-        with:
-          install_args: --monorepo
-      - run: mise run ${{ matrix.task }}
+    uses: ./.github/workflows/mise.yaml
+    with:
+      tasks: |
+        [
+          "check:ratchet",
+          "check:helm-lint",
+          "sts-authserver:check",
+          "sts-authserver:test"
+        ]
