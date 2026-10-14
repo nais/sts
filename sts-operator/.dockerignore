@@ -1,5 +1,7 @@
-.git
-bin/
-sts-operator
-.env
 *.kubeconfig
+.env
+.idea
+.mise-tasks
+README.md
+bin/
+mise.toml

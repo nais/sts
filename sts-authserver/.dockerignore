@@ -1,9 +1,7 @@
-.git
-.github
-.idea
 .env
-config.yaml
-charts
-README.md
+.idea
 .mise-tasks
+README.md
+benchmark-report/
+config.yaml
 mise.toml

@@ -1,7 +1,8 @@
-/sts
+*.kubeconfig
 *.tgz
-/.env
-/config.yaml
-/benchmark-report/
-/.idea/
-/sts-operator/bin/
+.env
+.idea/
+benchmark-report/
+bin/
+
+/sts-authserver/config.yaml
