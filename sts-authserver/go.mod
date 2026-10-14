@@ -13,6 +13,7 @@ require (
 	github.com/prometheus/common v0.72.1
 	github.com/riandyrn/otelchi v0.12.3
 	github.com/stretchr/testify v1.12.1
+	github.com/nais/sts/api v0.0.0
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
 	github.com/zitadel/oidc/v3 v3.51.14
@@ -91,3 +92,5 @@ require (
 	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
+
+replace github.com/nais/sts/api => ./api

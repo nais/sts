@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,12 +16,12 @@ import (
 func TestDecodeClientRegistration(t *testing.T) {
 	tests := map[string]struct {
 		body    string
-		want    *ClientRegistration
+		want    *api.ClientRegistration
 		wantErr bool
 	}{
 		"valid": {
 			body: `{"software_statement":"statement"}`,
-			want: &ClientRegistration{SoftwareStatement: "statement"},
+			want: &api.ClientRegistration{SoftwareStatement: "statement"},
 		},
 		"unknown field": {
 			body:    `{"software_statement":"statement","unknown":true}`,
@@ -81,7 +82,7 @@ func TestDecodeClientRegistration(t *testing.T) {
 }
 
 func TestDecodeClientRegistrationRejectsOversizedBody(t *testing.T) {
-	body, err := json.Marshal(ClientRegistration{
+	body, err := json.Marshal(api.ClientRegistration{
 		SoftwareStatement: strings.Repeat("a", http.MaxRequestBodySize),
 	})
 	require.NoError(t, err)

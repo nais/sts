@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	nethttp "net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/http"
 	"github.com/nais/sts/internal/oauth"
@@ -56,9 +58,9 @@ func (a *Api) PostEndpoint() nethttp.HandlerFunc {
 			return err
 		}
 
-		http.WriteJSON(w, r, &ClientRegistrationResponse{
+		http.WriteJSON(w, r, &api.ClientRegistrationResponse{
 			ClientRegistration: *registration,
-			ClientID:           ss.ClientId,
+			ClientID:           ss.ClientID,
 		})
 		return nil
 	})
@@ -96,13 +98,13 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 	policies := make([]oauth.AuthorizationPolicy, len(s.AuthorizationPolicies))
 	for i, policy := range s.AuthorizationPolicies {
 		policies[i] = oauth.AuthorizationPolicy{
-			Owner:    oauth.ClientID(s.ClientId),
+			Owner:    oauth.ClientID(s.ClientID),
 			Consumer: oauth.ClientID(policy.Consumer),
 			Roles:    policy.Roles,
 		}
 	}
 	err := a.store.Save(ctx, &oauth.Client{
-		ID:            s.ClientId,
+		ID:            s.ClientID,
 		Environment:   s.Workload.Environment,
 		Namespace:     s.Workload.Namespace,
 		Workload:      s.Workload.Name,
@@ -123,8 +125,8 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 	}
 }
 
-func decodeClientRegistration(w nethttp.ResponseWriter, r *nethttp.Request) (*ClientRegistration, error) {
-	obj, err := http.ReadJSON[ClientRegistration](w, r)
+func decodeClientRegistration(w nethttp.ResponseWriter, r *nethttp.Request) (*api.ClientRegistration, error) {
+	obj, err := http.ReadJSON[api.ClientRegistration](w, r)
 	if err != nil {
 		if _, ok := errors.AsType[*nethttp.MaxBytesError](err); ok {
 			return nil, errs.InvalidRequest(err, "invalid request body")
@@ -132,8 +134,11 @@ func decodeClientRegistration(w nethttp.ResponseWriter, r *nethttp.Request) (*Cl
 		return nil, errs.InvalidClientMetadata(err, "invalid request body")
 	}
 
-	if err := obj.validate(); err != nil {
-		return nil, errs.InvalidClientMetadata(err, "invalid request body")
+	if strings.TrimSpace(obj.SoftwareStatement) == "" {
+		return nil, errs.InvalidClientMetadata(err, "software_statement is required")
+	}
+	if len(obj.SoftwareStatement) > maxSoftwareStatementLength {
+		return nil, errs.InvalidClientMetadata(nil, "software_statement is too long")
 	}
 	return &obj, nil
 }
