@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Run govulncheck on the operator and API modules"
+set -euo pipefail
+
+govulncheck ./...
+(cd api && govulncheck ./...)

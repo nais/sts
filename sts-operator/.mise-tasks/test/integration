@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="Run envtest controller tests against a pinned Kubernetes API server"
+#MISE env={ENVTEST_K8S_VERSION = "1.35.0"}
+set -euo pipefail
+
+# Absolute path keeps KUBEBUILDER_ASSETS valid for the go test working directory.
+bin_dir="$PWD/bin"
+KUBEBUILDER_ASSETS=$(setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$bin_dir" -p path)
+export KUBEBUILDER_ASSETS
+
+go test -race -cover -count=1 ./controllers/...

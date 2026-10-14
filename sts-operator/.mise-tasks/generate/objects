@@ -2,4 +2,5 @@
 #MISE description="Generate DeepCopy, DeepCopyInto, and DeepCopyObject method implementations"
 set -euo pipefail
 
+cd api
 controller-gen +object paths="./..."

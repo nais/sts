@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Run all static checks"
+# TODO: Enable check:gosec when gosec supports Go 1.27.2.
+#MISE depends=["check:golangci-lint", "check:govulncheck", "check:deadcode"]

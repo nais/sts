@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Run deadcode on the operator binary and its tests"
+set -euo pipefail
+
+# The API module is a library without a main package; deadcode reports nothing useful there.
+deadcode -test ./...

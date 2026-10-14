@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Run gosec on the operator and API modules"
+set -euo pipefail
+
+gosec --exclude-generated -terse ./...
+(cd api && gosec --exclude-generated -terse ./...)

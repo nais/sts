@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Run golangci-lint on the operator and API modules"
+set -euo pipefail
+
+golangci-lint run --allow-serial-runners ./...
+(cd api && golangci-lint run --allow-serial-runners ./...)

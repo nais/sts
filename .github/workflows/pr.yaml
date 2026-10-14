@@ -26,3 +26,13 @@ jobs:
           "sts-authserver:check",
           "sts-authserver:test"
         ]
+
+  operator:
+    uses: ./.github/workflows/mise.yaml
+    with:
+      go-cache: true
+      tasks: |
+        [
+          "sts-operator:check",
+          "sts-operator:test"
+        ]
