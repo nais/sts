@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	libernetes "github.com/nais/liberator/pkg/kubernetes"
 	stsv1 "github.com/nais/sts-operator/api/nais.io/v1"
 	"github.com/nais/sts-operator/internal/config"
 	"github.com/nais/sts-operator/internal/configmap"
-	"github.com/nais/sts-operator/internal/jwk"
 	stsmetrics "github.com/nais/sts-operator/internal/metric"
 	"github.com/nais/sts-operator/internal/sts"
 	corev1 "k8s.io/api/core/v1"
@@ -32,13 +30,6 @@ type STSClientReconciler struct {
 	Reader   client.Reader
 	Recorder kevents.EventRecorder
 	Config   *config.Config
-}
-
-type transaction struct {
-	ctx         context.Context
-	req         ctrl.Request
-	jwks        jwk.KeySet
-	secretLists libernetes.SecretLists
 }
 
 func (r *STSClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -67,7 +58,7 @@ func (r *STSClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// object is marked for deletion
-	if !stsClient.ObjectMeta.DeletionTimestamp.IsZero() {
+	if !stsClient.DeletionTimestamp.IsZero() {
 		if err := r.finalize(ctx, r.clientID(req), &stsClient); err != nil {
 			stsmetrics.STSClientsProcessingFailedCount.Inc()
 			return ctrl.Result{}, fmt.Errorf("finalize: %w", err)
@@ -126,7 +117,7 @@ func (r *STSClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 // TODO: determine if need to resync config map etc
-func (r *STSClientReconciler) prepare(ctx context.Context, req ctrl.Request, stsClient stsv1.STSClient) error {
+func (r *STSClientReconciler) prepare(ctx context.Context, _ ctrl.Request, _ stsv1.STSClient) error {
 	_ = ctrl.LoggerFrom(ctx).WithValues("subsystem", "prepare")
 	return nil
 }
@@ -191,7 +182,7 @@ func (r *STSClientReconciler) finalize(ctx context.Context, clientId sts.ClientI
 	}
 
 	controllerutil.RemoveFinalizer(stsClient, finalizer)
-	if err := r.Client.Update(ctx, stsClient); err != nil {
+	if err := r.Update(ctx, stsClient); err != nil {
 		return fmt.Errorf("removing finalizer: %w", err)
 	}
 

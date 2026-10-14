@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,9 +14,9 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
-	v1 "github.com/nais/liberator/pkg/apis/nais.io/v1"
 	"github.com/nais/liberator/pkg/oauth"
 	stsv1 "github.com/nais/sts-operator/api/nais.io/v1"
+	"github.com/nais/sts-operator/internal/ioconvenience"
 )
 
 type ClientID struct {
@@ -106,7 +107,7 @@ func (t *Instance) RegisterClient(registration *ClientRegistration) error {
 		return err
 	}
 
-	defer resp.Body.Close()
+	defer ioconvenience.CloseWithLog(resp.Body, slog.Default())
 	if resp.StatusCode != http.StatusCreated {
 		response, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unable to register application with STS: %s: %s", resp.Status, response)
@@ -135,7 +136,7 @@ func (t *Instance) DeleteClient(ctx context.Context, appClientId ClientID) error
 		return err
 	}
 
-	defer resp.Body.Close()
+	defer ioconvenience.CloseWithLog(resp.Body, slog.Default())
 	if resp.StatusCode == http.StatusNoContent {
 		return nil
 	}
@@ -179,13 +180,4 @@ func createSoftwareStatement(stsClient stsv1.STSClient, appId ClientID) (*Softwa
 	return &SoftwareStatement{
 		AppId: appId.String(),
 	}, nil
-}
-
-func ensureValidRule(rule *v1.AccessPolicyRule, appId ClientID) {
-	if len(rule.Namespace) == 0 {
-		rule.Namespace = appId.Namespace
-	}
-	if len(rule.Cluster) == 0 {
-		rule.Cluster = appId.Cluster
-	}
 }

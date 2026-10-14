@@ -1,8 +1,6 @@
 package metric
 
 import (
-	"context"
-
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -29,6 +27,4 @@ var (
 			Help: "Number of STS clients that failed to process",
 		},
 	)
-
-	ctx = context.Background()
 )
