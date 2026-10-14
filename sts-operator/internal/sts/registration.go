@@ -9,8 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
-	"strings"
 
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
@@ -47,40 +45,23 @@ type SoftwareStatement struct {
 	AccessPolicyOutbound []string `json:"accessPolicyOutbound"`
 }
 
-type Instance struct {
+type Registrator struct {
 	BaseURL       string
-	ClientID      string
 	ClientJwk     *jose.JSONWebKey
 	Metadata      *oauth.MetadataOAuth
 	AuthTokenPath string // optional: path to service account token file
 }
 
-func NewInstance(baseURL, clientID string, clientJwk *jose.JSONWebKey, metadata *oauth.MetadataOAuth, authTokenPath string) Instance {
-	return Instance{
-		BaseURL:       baseURL,
-		ClientID:      clientID,
+func NewRegistrator(authTokenPath string, clientJwk *jose.JSONWebKey, metadata *oauth.MetadataOAuth) Registrator {
+	return Registrator{
+		BaseURL:       metadata.Issuer,
 		ClientJwk:     clientJwk,
 		Metadata:      metadata,
 		AuthTokenPath: authTokenPath,
 	}
 }
 
-func (t *Instance) getAccessToken(endpoint string) (string, error) {
-	if t.AuthTokenPath != "" {
-		token, err := os.ReadFile(t.AuthTokenPath)
-		if err != nil {
-			return "", fmt.Errorf("unable to read token from %s: %w", t.AuthTokenPath, err)
-		}
-		accessToken := strings.TrimSpace(string(token))
-		if accessToken == "" {
-			return "", fmt.Errorf("token file %s is empty", t.AuthTokenPath)
-		}
-		return accessToken, nil
-	}
-	return ClientAssertion(t.ClientJwk, t.ClientID, endpoint)
-}
-
-func (t *Instance) RegisterClient(registration *ClientRegistration) error {
+func (t *Registrator) RegisterClient(registration *ClientRegistration) error {
 	endpoint := fmt.Sprintf("%s/registration/client", t.BaseURL)
 
 	data, err := json.Marshal(registration)
@@ -94,7 +75,7 @@ func (t *Instance) RegisterClient(registration *ClientRegistration) error {
 	}
 	request.Header.Add("Content-Type", "application/json")
 
-	accessToken, err := t.getAccessToken(endpoint)
+	accessToken, err := getClientAuthToken(t.AuthTokenPath)
 	if err != nil {
 		return fmt.Errorf("unable to get token for invoking STS: %w", err)
 	}
@@ -116,7 +97,7 @@ func (t *Instance) RegisterClient(registration *ClientRegistration) error {
 	return nil
 }
 
-func (t *Instance) DeleteClient(ctx context.Context, appClientId ClientID) error {
+func (t *Registrator) DeleteClient(ctx context.Context, appClientId ClientID) error {
 	endpoint := fmt.Sprintf("%s/registration/client", t.BaseURL)
 
 	request, err := http.NewRequestWithContext(ctx, "DELETE", fmt.Sprintf("%s/%s", endpoint, url.QueryEscape(appClientId.String())), nil)
@@ -124,7 +105,7 @@ func (t *Instance) DeleteClient(ctx context.Context, appClientId ClientID) error
 		return err
 	}
 
-	accessToken, err := t.getAccessToken(endpoint)
+	accessToken, err := getClientAuthToken(t.AuthTokenPath)
 	if err != nil {
 		return fmt.Errorf("unable to get token for invoking STS: %w", err)
 	}

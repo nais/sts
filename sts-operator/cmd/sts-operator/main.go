@@ -11,6 +11,7 @@ import (
 	"github.com/nais/sts-operator/controllers"
 	"github.com/nais/sts-operator/internal/config"
 	stsmetrics "github.com/nais/sts-operator/internal/metric"
+	"github.com/nais/sts-operator/internal/sts"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -51,10 +52,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	log.Info(fmt.Sprintf("resolved %d STS instances:", len(cfg.STSInstances)))
-	for i, instance := range cfg.STSInstances {
-		log.Info(fmt.Sprintf("instance %d: baseURL=%q, clientID=%q", i+1, instance.BaseURL, instance.ClientID))
-	}
 	if cfg.AuthTokenPath != "" {
 		log.Info(fmt.Sprintf("using service account token for STS authentication from %q", cfg.AuthTokenPath))
 	}
@@ -69,7 +66,7 @@ func main() {
 		LivenessEndpointName:   "/healthz",
 		ReadinessEndpointName:  "/readyz",
 		LeaderElection:         cfg.LeaderElection,
-		LeaderElectionID:       "722f3604.nais.io",
+		LeaderElectionID:       "sts.nais.io",
 	})
 	if err != nil {
 		log.Error("unable to create manager", "error", err)
@@ -86,12 +83,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	registrator := sts.NewRegistrator(cfg.AuthTokenPath, cfg.ClientJwk, cfg.STSMetadata)
+
 	if err = (&controllers.STSClientReconciler{
-		Client:   mgr.GetClient(),
-		Config:   cfg,
-		Reader:   mgr.GetAPIReader(),
-		Recorder: mgr.GetEventRecorder("sts-operator"),
-		Scheme:   mgr.GetScheme(),
+		Client:      mgr.GetClient(),
+		Config:      cfg,
+		Reader:      mgr.GetAPIReader(),
+		Recorder:    mgr.GetEventRecorder("sts-operator"),
+		Scheme:      mgr.GetScheme(),
+		Registrator: registrator,
 	}).SetupWithManager(mgr); err != nil {
 		log.Error("unable to create controller", "controller", "stsclient", "error", err)
 		os.Exit(1)

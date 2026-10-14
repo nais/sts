@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rsa"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -54,6 +56,11 @@ func TestSTSClientReconciler(t *testing.T) {
 		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
 	}
+
+	if getFirstFoundEnvTestBinaryDir() != "" {
+		testEnv.BinaryAssetsDirectory = getFirstFoundEnvTestBinaryDir()
+	}
+
 	restCfg, err := testEnv.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -104,19 +111,23 @@ func TestSTSClientReconciler(t *testing.T) {
 		ClientJwk:               &operatorKey,
 		ClusterName:             "local",
 		MaxConcurrentReconciles: 1,
-		STSInstances: []sts.Instance{
-			sts.NewInstance(stsURL, "sts-operator", &operatorKey, &oauth.MetadataOAuth{
-				Issuer:        stsURL,
-				JwksURI:       stsURL + "/jwks",
-				TokenEndpoint: stsURL + "/token",
-			}, ""),
-		},
 	}
+	authTokenPath := os.TempDir() + "/auth-token"
+	err = os.WriteFile(authTokenPath, []byte("a very secure token"), 0o600)
+	require.NoError(t, err)
+
+	registrator := sts.NewRegistrator(authTokenPath, &operatorKey, &oauth.MetadataOAuth{
+		Issuer:        stsURL,
+		JwksURI:       stsURL + "/jwks",
+		TokenEndpoint: stsURL + "/token",
+	})
+
 	require.NoError(t, (&controllers.STSClientReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorder("sts-operator"),
-		Config:   cfg,
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Recorder:    mgr.GetEventRecorder("sts-operator"),
+		Config:      cfg,
+		Registrator: registrator,
 	}).SetupWithManager(mgr))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -241,4 +252,27 @@ func assertSoftwareStatement(t *testing.T, raw string, operatorKey *jose.JSONWeb
 	var statement sts.SoftwareStatement
 	require.NoError(t, json.Unmarshal(payload, &statement))
 	assert.Equal(t, expectedAppID, statement.AppId)
+}
+
+// getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.
+// ENVTEST-based tests depend on specific binaries, usually located in paths set by
+// controller-runtime. When running tests directly (e.g., via an IDE) without using
+// Makefile targets, the 'BinaryAssetsDirectory' must be explicitly configured.
+//
+// This function streamlines the process by finding the required binaries, similar to
+// setting the 'KUBEBUILDER_ASSETS' environment variable. To ensure the binaries are
+// properly set up, run 'make setup-envtest' beforehand.
+func getFirstFoundEnvTestBinaryDir() string {
+	basePath := filepath.Join("..", "bin", "k8s")
+	entries, err := os.ReadDir(basePath)
+	if err != nil {
+		slog.Error("failed to read envtest binary directory; have you run 'make setup-envtest'?", "path", basePath, "error", err)
+		return ""
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			return filepath.Join(basePath, entry.Name())
+		}
+	}
+	return ""
 }

@@ -30,6 +30,7 @@ type STSClientReconciler struct {
 	Reader   client.Reader
 	Recorder kevents.EventRecorder
 	Config   *config.Config
+	sts.Registrator
 }
 
 func (r *STSClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -131,17 +132,14 @@ func (r *STSClientReconciler) synchronize(ctx context.Context, req ctrl.Request,
 		return fmt.Errorf("create client registration payload: %s", err)
 	}
 
-	instances := r.Config.STSInstances
-	for _, instance := range instances {
-		if err := instance.RegisterClient(registration); err != nil {
-			return fmt.Errorf("registering client with STS %q: %w", instance.BaseURL, err)
-		}
-		log.Info(fmt.Sprintf("registered %q with STS at %q", clientID.String(), instance.BaseURL))
+	if err := r.RegisterClient(registration); err != nil {
+		return err
 	}
+	log.Info(fmt.Sprintf("registered %q with STS", clientID.String()))
 
 	// TODO: set name properly
 	cmName := "sts-" + req.Name
-	cmData := configmap.Data{ClientID: clientID, STS: instances[0]}
+	cmData := configmap.Data{ClientID: clientID, STS: r.Registrator}
 	configMap, err := configmap.CreateConfigMapSpec(cmName, cmData)
 	if err != nil {
 		return fmt.Errorf("creating config map spec: %w", err)
@@ -174,12 +172,10 @@ func (r *STSClientReconciler) finalize(ctx context.Context, clientId sts.ClientI
 
 	log := ctrl.LoggerFrom(ctx).WithValues("subsystem", "finalize")
 
-	for _, instance := range r.Config.STSInstances {
-		if err := instance.DeleteClient(ctx, clientId); err != nil {
-			return fmt.Errorf("deleting client from STS at %q: %w", instance.BaseURL, err)
-		}
-		log.Info(fmt.Sprintf("deleted %q from STS at %q", clientId.String(), instance.BaseURL))
+	if err := r.DeleteClient(ctx, clientId); err != nil {
+		return err
 	}
+	log.Info(fmt.Sprintf("deleted %q from STS", clientId.String()))
 
 	controllerutil.RemoveFinalizer(stsClient, finalizer)
 	if err := r.Update(ctx, stsClient); err != nil {

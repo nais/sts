@@ -19,7 +19,7 @@ const (
 
 type Data struct {
 	ClientID sts.ClientID
-	STS      sts.Instance
+	STS      sts.Registrator
 }
 
 func CreateConfigMapSpec(name string, data Data) (*corev1.ConfigMap, error) {

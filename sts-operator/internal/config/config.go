@@ -13,7 +13,6 @@ import (
 	"github.com/nais/liberator/pkg/oauth"
 
 	"github.com/nais/sts-operator/internal/jwk"
-	"github.com/nais/sts-operator/internal/sts"
 )
 
 type Config struct {
@@ -26,13 +25,12 @@ type Config struct {
 	LogLevel                string
 	MaxConcurrentReconciles int
 	MetricsAddr             string
-	STSInstances            []sts.Instance
+	STSMetadata             *oauth.MetadataOAuth
 }
 
 func New(ctx context.Context) (*Config, error) {
 	cfg := &Config{}
 	var clientJwkJson string
-	var instanceString string
 	var stsURL string
 
 	flag.StringVar(&cfg.AuthTokenPath, "auth-token-path", os.Getenv("AUTH_TOKEN_PATH"), "Path to service account token file for STS authentication. If empty, falls back to client assertion with private key.")
@@ -45,7 +43,6 @@ func New(ctx context.Context) (*Config, error) {
 	flag.StringVar(&cfg.MetricsAddr, "metrics-addr", ":8181", "The address the metric endpoint binds to.")
 	flag.StringVar(&cfg.ProbeAddr, "probe-addr", ":8180", "The address the health probe listener binds to.")
 	flag.StringVar(&stsURL, "sts-base-url", os.Getenv("STS_URL"), "The base URL to STS.")
-	flag.StringVar(&instanceString, "sts-instances", os.Getenv("STS_INSTANCES"), "Comma separated list of baseUrls to STS instances.")
 	flag.Parse()
 
 	if cfg.LogLevel == "" {
@@ -65,34 +62,24 @@ func New(ctx context.Context) (*Config, error) {
 		}
 	}
 
-	instances := make([]sts.Instance, 0)
-	raw := strings.TrimSpace(instanceString)
-	if raw == "" {
-		raw = stsURL
-	}
-	for u := range strings.SplitSeq(raw, ",") {
-		_, err := url.Parse(strings.TrimSpace(u))
-		if err != nil {
-			return nil, fmt.Errorf("invalid base url for STS instance: %w", err)
-		}
-
-		wellKnownURL, err := oauth.MakeWellKnownURL(u, oauth.WellKnownOAuthSuffix)
-		if err != nil {
-			return nil, fmt.Errorf("constructing well-known URL for STS instance %s: %w", u, err)
-		}
-
-		metadata, err := oauth.NewMetadataOAuth(ctx, wellKnownURL)
-		if err != nil {
-			return nil, fmt.Errorf("resolving metadata for STS instance %s: %w", u, err)
-		}
-
-		instances = append(instances, sts.NewInstance(u, cfg.ClientID, cfg.ClientJwk, metadata, cfg.AuthTokenPath))
+	stsURL = strings.TrimSpace(stsURL)
+	_, err = url.Parse(stsURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid base url for STS instance: %w", err)
 	}
 
-	if len(instances) == 0 {
-		return nil, fmt.Errorf("no STS instances configured")
+	// TODO: use the same logic and libs as in sts-authserver, consider creating a public client pkg in authserver for this,
+	// including api generated files.
+	wellKnownURL, err := oauth.MakeWellKnownURL(stsURL, oauth.WellKnownOAuthSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("constructing well-known URL for STS %s: %w", stsURL, err)
 	}
-	cfg.STSInstances = instances
 
+	metadata, err := oauth.NewMetadataOAuth(ctx, wellKnownURL)
+	if err != nil {
+		return nil, fmt.Errorf("resolving metadata for STS %s: %w", stsURL, err)
+	}
+
+	cfg.STSMetadata = metadata
 	return cfg, nil
 }
