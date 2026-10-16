@@ -17,9 +17,9 @@ func TestAuthorizationServerConfigRejectsInvalidClientAuthSigningAlgorithms(t *t
 			cfg := AuthorizationServerConfig{
 				Issuer:                      "https://sts.example",
 				ExpectedAudience:            "nais",
-				ClientAuthIssuers:           []Issuer{"https://client.example"},
+				ClientAuthIssuers:           []TokenIssuer{"https://client.example"},
 				ClientAuthSigningAlgorithms: algorithms,
-				SubjectTokenIssuers:         map[Issuer]string{Issuer("https://subject.example"): "issuerName"},
+				SubjectTokenIssuers:         map[TokenIssuer]string{"https://subject.example": "issuerName"},
 				MaxClientAuthTokenLifetime:  time.Hour,
 				TokenExpiry:                 time.Hour,
 			}
@@ -33,7 +33,7 @@ func TestAuthorizationServerConfigAllowsNoSubjectTokenIssuers(t *testing.T) {
 	cfg := AuthorizationServerConfig{
 		Issuer:                      "https://sts.example",
 		ExpectedAudience:            "nais",
-		ClientAuthIssuers:           []Issuer{"https://client.example"},
+		ClientAuthIssuers:           []TokenIssuer{"https://client.example"},
 		ClientAuthSigningAlgorithms: []string{"RS256"},
 		MaxClientAuthTokenLifetime:  time.Hour,
 		TokenExpiry:                 time.Hour,

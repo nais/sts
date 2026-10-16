@@ -3,10 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -22,7 +21,7 @@ type RegistrationClient struct {
 
 type (
 	RegistrationClientOption func(client *RegistrationClient)
-	TokenCallback            func() (string, error)
+	TokenCallback            func(ctx context.Context) (string, error)
 )
 
 func WithHTTPClient(client *http.Client) RegistrationClientOption {
@@ -31,10 +30,20 @@ func WithHTTPClient(client *http.Client) RegistrationClientOption {
 	}
 }
 
-func NewRegistrationClient(issuer string, tokenCallback TokenCallback, opts ...RegistrationClientOption) (*RegistrationClient, error) {
+func TokenCallbackFromFile(path string) TokenCallback {
+	return func(_ context.Context) (string, error) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read token file: %w", err)
+		}
+		return string(bytes.TrimSpace(data)), nil
+	}
+}
+
+func NewRegistrationClient(issuer STSIssuer, tokenCallback TokenCallback, opts ...RegistrationClientOption) (*RegistrationClient, error) {
 	// TODO: validate issuer before setting baseURL
 	c := &RegistrationClient{
-		registerEndpoint: issuer + "/registration/register", // TODO: parse as url and append path with url.Path
+		registerEndpoint: issuer.RegistrationEndpoint(),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
@@ -67,65 +76,23 @@ func (r *RegistrationClient) Register(ctx context.Context, statement SoftwareSta
 	if err != nil {
 		return nil, fmt.Errorf("sign software statement: %w", err)
 	}
-	cr := ClientRegistration{
-		ss,
-	}
-
-	data, err := json.Marshal(cr)
+	cr := ClientRegistration{ss}
+	resp, err := r.sendRequest[ClientRegistrationResponse](ctx, http.MethodPost, "", cr)
 	if err != nil {
-		return nil, fmt.Errorf("marshal client registration: %w", err)
+		return nil, err
 	}
+	// TODO: validate response code?
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.registerEndpoint, bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	token, err := r.tokenCallback()
-	if err != nil {
-		return nil, fmt.Errorf("get token: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := r.doRequest[ClientRegistrationResponse](req)
-	if err != nil {
-		return nil, fmt.Errorf("do request: %w", err)
-	}
-
-	return resp, nil
+	return &resp.Body, nil
 }
 
 func (r *RegistrationClient) Delete(ctx context.Context, clientID string) error {
-	// TODO
-	return nil
+	_, err := r.sendRequest[any](ctx, http.MethodDelete, clientID, nil)
+	return err
 }
 
 func (r *RegistrationClient) PublicKeySet() (jose.JSONWebKeySet, error) {
 	return jose.JSONWebKeySet{
 		Keys: []jose.JSONWebKey{r.publicKey},
 	}, nil
-}
-
-func (r *RegistrationClient) doRequest[T any](req *http.Request) (*T, error) {
-	resp, err := r.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("do request: %w", err)
-	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-
-	if resp.StatusCode >= 400 {
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("read response body: %w", err)
-		}
-		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-	response := new(T)
-	decoder := json.NewDecoder(resp.Body)
-	if err := decoder.Decode(response); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-	return response, nil
 }

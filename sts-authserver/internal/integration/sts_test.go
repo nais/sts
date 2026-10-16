@@ -36,19 +36,18 @@ func TestSts(t *testing.T) {
 	stsAddress := stsConfig.Address
 
 	t.Run("discovery", func(t *testing.T) {
-		resp := get[oidc.DiscoveryConfiguration](t, stsAddress.Endpoint(".well-known", "oauth-authorization-server"))
+		resp := get[api.DiscoveryMetadata](t, stsAddress.Endpoint(".well-known", "oauth-authorization-server"))
 		assert.Equal(t, stsAddress.Endpoint(), resp.Issuer)
 		assert.Equal(t, stsAddress.Endpoint("token"), resp.TokenEndpoint)
 		assert.Equal(t, stsAddress.Endpoint("jwks"), resp.JwksURI)
 
-		assert.Equal(t, []oidc.GrantType{
-			oidc.GrantTypeClientCredentials,
-			oidc.GrantTypeTokenExchange,
+		assert.Equal(t, []api.GrantType{
+			api.GrantTypeClientCredentials,
+			api.GrantTypeTokenExchange,
 		}, resp.GrantTypesSupported)
 
-		assert.Equal(t, []oidc.AuthMethod{oidc.AuthMethodPrivateKeyJWT}, resp.TokenEndpointAuthMethodsSupported)
+		assert.Equal(t, []api.AuthMethod{api.AuthMethodPrivateKeyJWT}, resp.TokenEndpointAuthMethodsSupported)
 		assert.Equal(t, []string{"RS256"}, resp.TokenEndpointAuthSigningAlgValuesSupported)
-		assert.Empty(t, resp.IDTokenSigningAlgValuesSupported)
 	})
 
 	t.Run("registration", func(t *testing.T) {
@@ -672,7 +671,7 @@ func assertTokenExchangeClaims(
 ) {
 	t.Helper()
 
-	idpName, ok := stsConfig.AuthServerConfig.SubjectTokenIssuers[oauth.Issuer(subjectClaims.Issuer)]
+	idpName, ok := stsConfig.AuthServerConfig.SubjectTokenIssuers[oauth.TokenIssuer(subjectClaims.Issuer)]
 	require.True(t, ok, "subject token issuer %q not found in STS configuration", subjectClaims.Issuer)
 
 	stsAddress := stsConfig.Address
@@ -720,7 +719,7 @@ func assertTokenClaims(
 	assert.LessOrEqual(t, response.ExpiresIn, wantExpiresIn)
 
 	tokenVerifier, err := oauth.NewTokenVerifier(
-		oauth.Issuer(sts.Endpoint()),
+		oauth.TokenIssuer(sts.Endpoint()),
 		rp.NewRemoteKeySet(http.DefaultClient, sts.Endpoint("jwks")),
 		string(oauth.InternalSigningAlgorithm),
 	)
@@ -846,7 +845,7 @@ func getSubjectTokenFromIssuer(t testing.TB, oauthServer testServer, issuer stri
 		"redirect_uri":  {redirectURI},
 	})
 
-	subjectTokenVerifier, err := oauth.ExternalTokenVerifier(t.Context(), http.DefaultClient, oauth.Issuer(oauthServer.Endpoint(issuer)))
+	subjectTokenVerifier, err := oauth.ExternalTokenVerifier(t.Context(), http.DefaultClient, oauth.TokenIssuer(oauthServer.Endpoint(issuer)))
 	require.NoError(t, err)
 
 	verifier, err := oauth.NewMultiIssuerTokenVerifier(subjectTokenVerifier)

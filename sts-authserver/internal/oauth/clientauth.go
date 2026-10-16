@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, issuers []Issuer, allowedAlgorithms []string) (MultiIssuerTokenVerifier, error) {
+func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, issuers []TokenIssuer, allowedAlgorithms []string) (MultiIssuerTokenVerifier, error) {
 	clientAuthVerifiers := make([]*TokenVerifier, 0, len(issuers))
 	for _, issuer := range issuers {
 		verifier, err := externalTokenVerifier(ctx, httpClient, issuer, allowedAlgorithms)

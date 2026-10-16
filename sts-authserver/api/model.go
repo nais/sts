@@ -26,3 +26,43 @@ type AuthorizationPolicy struct {
 	Consumer string   `json:"consumer"`
 	Roles    []string `json:"roles"`
 }
+
+type DiscoveryMetadata struct {
+	// Issuer is the identifier of the OP and is used in the tokens as `iss` claim.
+	Issuer string `json:"issuer,omitempty"`
+
+	// TokenEndpoint is the URL of the OAuth 2.0 Token Endpoint where all tokens are issued, except when using Implicit Flow
+	TokenEndpoint string `json:"token_endpoint,omitempty"`
+
+	// JwksURI is the URL of the JSON Web Key Set. This site contains the signing keys that RPs can use to validate the signature.
+	// It may also contain the OP's encryption keys that RPs can use to encrypt request to the OP.
+	JwksURI string `json:"jwks_uri,omitempty"`
+
+	// GrantTypesSupported contains a list of the OAuth 2.0 grant_type values that the OP supports. If omitted, the default value is ["authorization_code", "implicit"].
+	GrantTypesSupported []GrantType `json:"grant_types_supported,omitempty"`
+
+	// TokenEndpointAuthMethodsSupported contains a list of Client Authentication methods supported by the Token Endpoint. If omitted, the default is client_secret_basic.
+	TokenEndpointAuthMethodsSupported []AuthMethod `json:"token_endpoint_auth_methods_supported,omitempty"`
+
+	// TokenEndpointAuthSigningAlgValuesSupported contains a list of JWS signing algorithms (alg values) supported by the Token Endpoint
+	// for the signature of the JWT used to authenticate the Client by private_key_jwt and client_secret_jwt.
+	TokenEndpointAuthSigningAlgValuesSupported []string `json:"token_endpoint_auth_signing_alg_values_supported,omitempty"`
+
+	// RegistrationEndpoint is the URL for the Dynamic Client Registration.
+	RegistrationEndpoint string `json:"registration_endpoint,omitempty"`
+}
+
+const (
+	// GrantTypeClientCredentials defines the grant_type `client_credentials` used for the Token Request in the Client Credentials Token Flow
+	GrantTypeClientCredentials GrantType = "client_credentials"
+
+	// GrantTypeTokenExchange defines the grant_type `urn:ietf:params:oauth:grant-type:token-exchange` used for the OAuth Token Exchange Grant
+	GrantTypeTokenExchange GrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
+)
+
+type GrantType string
+type AuthMethod string
+
+const (
+	AuthMethodPrivateKeyJWT AuthMethod = "private_key_jwt"
+)

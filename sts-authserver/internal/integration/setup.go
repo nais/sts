@@ -15,13 +15,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/nais/sts/internal/api"
+	stsapi "github.com/nais/sts/api"
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/jwk"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/registration"
+	stsserver "github.com/nais/sts/internal/server"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -136,17 +137,17 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 		LogLevel:            slog.LevelDebug,
 		LogFormat:           "text",
 		AuthorizationServerConfig: oauth.AuthorizationServerConfig{
-			Issuer:                      oauth.Issuer(server.Endpoint()),
+			Issuer:                      stsapi.STSIssuer(server.Endpoint()),
 			ExpectedAudience:            "nais",
 			ClientAuthSigningAlgorithms: []string{"RS256"},
 			MaxClientAuthTokenLifetime:  time.Hour,
-			ClientAuthIssuers: []oauth.Issuer{
-				oauth.Issuer(oauthServer.Endpoint("env1")),
-				oauth.Issuer(oauthServer.Endpoint("env2")),
+			ClientAuthIssuers: []oauth.TokenIssuer{
+				oauth.TokenIssuer(oauthServer.Endpoint("env1")),
+				oauth.TokenIssuer(oauthServer.Endpoint("env2")),
 			},
-			SubjectTokenIssuers: map[oauth.Issuer]string{
-				oauth.Issuer(oauthServer.Endpoint("subject1")): "name1",
-				oauth.Issuer(oauthServer.Endpoint("subject2")): "name2",
+			SubjectTokenIssuers: map[oauth.TokenIssuer]string{
+				oauth.TokenIssuer(oauthServer.Endpoint("subject1")): "name1",
+				oauth.TokenIssuer(oauthServer.Endpoint("subject2")): "name2",
 			},
 			TokenExpiry: fixtures.TokenExpiry,
 		},
@@ -168,7 +169,7 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 
 	ctx := t.Context()
 	go func() {
-		_ = api.Run(ctx, cfg)
+		_ = stsserver.Run(ctx, cfg)
 	}()
 
 	deadline := time.Now().Add(10 * time.Second)

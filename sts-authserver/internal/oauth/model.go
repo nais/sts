@@ -10,10 +10,10 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-type (
-	Issuer string
-	Roles  []string
-)
+// TokenIssuer identifies an issuer for token verification, including STS itself.
+type TokenIssuer string
+
+type Roles []string
 
 type Name string
 

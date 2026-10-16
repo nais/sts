@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/nais/sts/internal/api"
 	"github.com/nais/sts/internal/config"
+	"github.com/nais/sts/internal/server"
 )
 
 func main() {
@@ -16,7 +16,7 @@ func main() {
 		slog.Error("loading STS config", "error", err)
 		os.Exit(1)
 	}
-	if err := api.Run(ctx, cfg); err != nil {
+	if err := server.Run(ctx, cfg); err != nil {
 		slog.Error("error running STS", "error", err)
 		os.Exit(1)
 	}

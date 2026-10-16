@@ -12,28 +12,25 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
-	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
 func TestDiscoveryOmitsTokenExchangeWhenDisabled(t *testing.T) {
-	endpoints := &op.Endpoints{
-		Token:   op.NewEndpoint("/token"),
-		JwksURI: op.NewEndpoint("/jwks"),
-	}
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(nethttp.MethodGet, "/.well-known/oauth-authorization-server", nil)
 
-	DiscoveryEndpoint(endpoints, AuthorizationServerConfig{Issuer: "https://sts.example"})(recorder, request)
+	server := &AuthorizationServer{AuthorizationServerConfig: AuthorizationServerConfig{Issuer: "https://sts.example"}}
+	server.DiscoveryEndpoint()(recorder, request)
 
 	require.Equal(t, nethttp.StatusOK, recorder.Code)
-	var discovery oidc.DiscoveryConfiguration
+	var discovery api.DiscoveryMetadata
 	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&discovery))
-	assert.Equal(t, []oidc.GrantType{oidc.GrantTypeClientCredentials}, discovery.GrantTypesSupported)
+	assert.Equal(t, []api.GrantType{api.GrantTypeClientCredentials}, discovery.GrantTypesSupported)
 }
 
 func TestTokenEndpointRejectsTokenExchangeWhenDisabled(t *testing.T) {

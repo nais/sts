@@ -1,4 +1,4 @@
-package api
+package server
 
 import (
 	"context"
@@ -7,22 +7,18 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/config"
 	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/registration"
 	"github.com/riandyrn/otelchi"
 	otelchimetric "github.com/riandyrn/otelchi/metric"
-	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
 const (
-	healthEndpoint         = "/healthz"
-	readinessEndpoint      = "/readyz"
-	oauthDiscoveryEndpoint = "/.well-known/oauth-authorization-server"
-	tokenEndpoint          = "/token"
-	jwksEndpoint           = "/jwks"
-	registrationEndpoint   = "/v1/registration/client"
+	healthEndpoint    = "/healthz"
+	readinessEndpoint = "/readyz"
 )
 
 func stsApi(
@@ -37,11 +33,6 @@ func stsApi(
 		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
 			return fmt.Errorf("redirect to %q is not allowed", req.URL)
 		},
-	}
-
-	e := &op.Endpoints{
-		Token:   op.NewEndpoint(tokenEndpoint),
-		JwksURI: op.NewEndpoint(jwksEndpoint),
 	}
 
 	router := chi.NewRouter()
@@ -70,10 +61,10 @@ func stsApi(
 		return nil, fmt.Errorf("initialize client registration handler: %w", err)
 	}
 
-	router.Get(oauthDiscoveryEndpoint, oauth.DiscoveryEndpoint(e, authServer.AuthorizationServerConfig))
-	router.Post(e.Token.Relative(), authServer.TokenEndpoint())
-	router.Get(e.JwksURI.Relative(), authServer.JwksEndpoint())
-	router.Post(registrationEndpoint, registrationApi.PostEndpoint())
-	router.Delete(fmt.Sprintf("%s/{id}", registrationEndpoint), registrationApi.DeleteEndpoint())
+	router.Get(api.OAuthDiscoveryPath, authServer.DiscoveryEndpoint())
+	router.Post(api.TokenPath, authServer.TokenEndpoint())
+	router.Get(api.JWKSPath, authServer.JwksEndpoint())
+	router.Post(api.RegistrationPath, registrationApi.PostEndpoint())
+	router.Delete(fmt.Sprintf("%s/{id}", api.RegistrationPath), registrationApi.DeleteEndpoint())
 	return router, nil
 }
