@@ -7,32 +7,38 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 )
 
-type Response[T any] struct {
-	StatusCode int
-	Body       T
-}
-
+// HTTPError reports an unexpected HTTP status and preserves the response body.
 type HTTPError struct {
 	StatusCode int
-	Body       string
+	// ExpectedStatusCode is the status required by the operation, or zero if unknown.
+	ExpectedStatusCode int
+	Body               string
 }
 
-// Error returns the HTTP status code and response body as an error message.
+// Error returns the actual and expected HTTP status codes and response body.
 func (e HTTPError) Error() string {
+	if e.ExpectedStatusCode != 0 && e.StatusCode != e.ExpectedStatusCode {
+		return fmt.Sprintf("HTTP request failed with unexpected status: got %d, want %d: %s", e.StatusCode, e.ExpectedStatusCode, e.Body)
+	}
 	return fmt.Sprintf("HTTP request failed with status %d: %s", e.StatusCode, e.Body)
 }
 
-func newHTTPError(statusCode int, body string) HTTPError {
+func newHTTPError(statusCode, expectedStatusCode int, body string) HTTPError {
 	return HTTPError{
-		StatusCode: statusCode,
-		Body:       body,
+		StatusCode:         statusCode,
+		ExpectedStatusCode: expectedStatusCode,
+		Body:               body,
 	}
 }
 
-func (r *RegistrationClient) sendRequest[R any](ctx context.Context, method string, path string, body any, expectedStatus int) (*Response[R], error) {
+type requester struct {
+	httpClient *http.Client
+}
+
+func (r *requester) Do[R any](ctx context.Context, url string, method string, body any, expectedStatus int, tokenCallback AuthTokenCallback) (*R, error) {
+	headers := map[string]string{}
 	var bodyReader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -40,26 +46,25 @@ func (r *RegistrationClient) sendRequest[R any](ctx context.Context, method stri
 			return nil, fmt.Errorf("marshal request body: %w", err)
 		}
 		bodyReader = bytes.NewReader(data)
+		headers["Content-Type"] = "application/json"
 	}
 
-	endpoint := r.registerEndpoint
-	if path != "" {
-		endpoint += "/" + url.PathEscape(path)
+	if tokenCallback != nil {
+		token, err := tokenCallback(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("get token: %w", err)
+		}
+		headers["Authorization"] = "Bearer " + token
 	}
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, bodyReader)
+
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
-
-	token, err := r.tokenCallback(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get token: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
@@ -69,13 +74,19 @@ func (r *RegistrationClient) sendRequest[R any](ctx context.Context, method stri
 		_ = Body.Close()
 	}(resp.Body)
 
+	return decodeResponse[R](resp, expectedStatus)
+}
+
+func decodeResponse[R any](resp *http.Response, expectedStatus int) (*R, error) {
 	if resp.StatusCode != expectedStatus {
-		b, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		httpErr := newHTTPError(resp.StatusCode, expectedStatus, string(body))
 		if err != nil {
-			return nil, newHTTPError(resp.StatusCode, fmt.Sprintf("failed to read response body: %v", err))
+			return nil, fmt.Errorf("read response body: %w; %w", err, httpErr)
 		}
-		return nil, newHTTPError(resp.StatusCode, string(b))
+		return nil, httpErr
 	}
+
 	var response R
 	if resp.StatusCode != http.StatusNoContent {
 		decoder := json.NewDecoder(resp.Body)
@@ -83,9 +94,5 @@ func (r *RegistrationClient) sendRequest[R any](ctx context.Context, method stri
 			return nil, fmt.Errorf("decode response: %w", err)
 		}
 	}
-
-	return &Response[R]{
-		StatusCode: resp.StatusCode,
-		Body:       response,
-	}, nil
+	return &response, nil
 }

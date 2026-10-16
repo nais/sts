@@ -1,6 +1,10 @@
 package api
 
-import "strings"
+import (
+	"fmt"
+	"net/url"
+	"strings"
+)
 
 const (
 	// RegistrationPath is the path for client registration requests.
@@ -19,6 +23,20 @@ type STSIssuer string
 // String returns the issuer identifier unchanged.
 func (i STSIssuer) String() string {
 	return string(i)
+}
+
+func (i STSIssuer) validate() error {
+	if i == "" {
+		return fmt.Errorf("issuer is empty")
+	}
+	u, err := url.Parse(i.String())
+	if err != nil {
+		return fmt.Errorf("issuer is not a valid URL: %w", err)
+	}
+	if u.Scheme == "" {
+		return fmt.Errorf("issuer URL does not contain a scheme")
+	}
+	return nil
 }
 
 // TokenEndpoint returns the STS token endpoint URL for the issuer.

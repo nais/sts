@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -12,33 +13,40 @@ import (
 )
 
 type RegistrationClient struct {
-	registerEndpoint string
-	httpClient       *http.Client
-	signer           jose.Signer
-	publicKey        jose.JSONWebKey
-	tokenCallback    TokenCallback
+	requester         requester
+	signer            jose.Signer
+	publicKey         jose.JSONWebKey
+	authTokenCallback AuthTokenCallback
+	issuer            STSIssuer
 }
 
 type (
 	// RegistrationClientOption configures a registration client.
 	RegistrationClientOption func(client *RegistrationClient)
-	// TokenCallback returns a bearer token for a registration request.
-	TokenCallback func(ctx context.Context) (string, error)
+	// AuthTokenCallback returns a bearer token for a registration request.
+	AuthTokenCallback func(ctx context.Context) (string, error)
 )
 
 // NewRegistrationClient creates a client for the STS issuer and generates a
-// signing key for software statements. tokenCallback must be non-nil and is
+// signing key for software statements. authTokenCallback must be non-nil and is
 // called for each request. The default HTTP client has a ten-second timeout.
-func NewRegistrationClient(issuer STSIssuer, tokenCallback TokenCallback, opts ...RegistrationClientOption) (*RegistrationClient, error) {
-	c := &RegistrationClient{
-		registerEndpoint: issuer.RegistrationEndpoint(),
+func NewRegistrationClient(issuer STSIssuer, authTokenCallback AuthTokenCallback, opts ...RegistrationClientOption) (*RegistrationClient, error) {
+	if err := issuer.validate(); err != nil {
+		return nil, fmt.Errorf("validate issuer: %w", err)
+	}
+	r := requester{
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
 				IdleConnTimeout: 90 * time.Second,
 			},
 		},
-		tokenCallback: tokenCallback,
+	}
+
+	c := &RegistrationClient{
+		issuer:            issuer,
+		requester:         r,
+		authTokenCallback: authTokenCallback,
 	}
 
 	for _, opt := range opts {
@@ -62,14 +70,14 @@ func NewRegistrationClient(issuer STSIssuer, tokenCallback TokenCallback, opts .
 // WithHTTPClient replaces the registration client's default HTTP client.
 func WithHTTPClient(client *http.Client) RegistrationClientOption {
 	return func(c *RegistrationClient) {
-		c.httpClient = client
+		c.requester = requester{httpClient: client}
 	}
 }
 
 // TokenFromFile returns a callback that reads a bearer token from path.
 // It rereads the file on each request to support token rotation and trims
 // surrounding whitespace. The callback does not use the context.
-func TokenFromFile(path string) TokenCallback {
+func TokenFromFile(path string) AuthTokenCallback {
 	return func(_ context.Context) (string, error) {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -93,17 +101,14 @@ func (r *RegistrationClient) Register(ctx context.Context, statement SoftwareSta
 		return nil, fmt.Errorf("sign software statement: %w", err)
 	}
 	cr := ClientRegistration{ss}
-	resp, err := r.sendRequest[ClientRegistrationResponse](ctx, http.MethodPost, "", cr, http.StatusOK)
-	if err != nil {
-		return nil, err
-	}
-	return &resp.Body, nil
+	return r.requester.Do[ClientRegistrationResponse](ctx, r.issuer.RegistrationEndpoint(), http.MethodPost, cr, http.StatusOK, r.authTokenCallback)
 }
 
 // Delete removes the registration identified by clientID.
 // It requires HTTP 204 No Content, including when the registration is missing.
 func (r *RegistrationClient) Delete(ctx context.Context, clientID string) error {
-	_, err := r.sendRequest[any](ctx, http.MethodDelete, clientID, nil, http.StatusNoContent)
+	param := url.PathEscape(clientID)
+	_, err := r.requester.Do[any](ctx, r.issuer.RegistrationEndpoint()+"/"+param, http.MethodDelete, nil, http.StatusNoContent, r.authTokenCallback)
 	return err
 }
 
@@ -113,4 +118,15 @@ func (r *RegistrationClient) PublicKeySet() (jose.JSONWebKeySet, error) {
 	return jose.JSONWebKeySet{
 		Keys: []jose.JSONWebKey{r.publicKey},
 	}, nil
+}
+
+// FetchSTSMetadata fetches the discovery metadata from the issuer's well-known endpoint.
+// It requires HTTP 200 OK and returns the decoded metadata.
+func (r *RegistrationClient) FetchSTSMetadata(ctx context.Context) (*DiscoveryMetadata, error) {
+	metadata, err := r.requester.Do[DiscoveryMetadata](ctx, r.issuer.OAuthDiscoveryEndpoint(), http.MethodGet, nil, http.StatusOK, nil)
+	if err != nil {
+		return nil, fmt.Errorf("fetch discovery metadata: %w", err)
+	}
+
+	return metadata, nil
 }
