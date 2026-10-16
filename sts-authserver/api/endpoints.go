@@ -16,22 +16,27 @@ const (
 // STSIssuer identifies this STS authorization server and its endpoints.
 type STSIssuer string
 
+// String returns the issuer identifier unchanged.
 func (i STSIssuer) String() string {
 	return string(i)
 }
 
+// TokenEndpoint returns the STS token endpoint URL for the issuer.
 func (i STSIssuer) TokenEndpoint() string {
 	return strings.TrimSuffix(string(i), "/") + TokenPath
 }
 
+// JWKSEndpoint returns the STS public JSON Web Key Set URL for the issuer.
 func (i STSIssuer) JWKSEndpoint() string {
 	return strings.TrimSuffix(string(i), "/") + JWKSPath
 }
 
+// RegistrationEndpoint returns the STS client registration endpoint URL for the issuer.
 func (i STSIssuer) RegistrationEndpoint() string {
 	return strings.TrimSuffix(string(i), "/") + RegistrationPath
 }
 
+// OAuthDiscoveryEndpoint returns the OAuth authorization server metadata URL for the issuer.
 func (i STSIssuer) OAuthDiscoveryEndpoint() string {
 	return strings.TrimSuffix(string(i), "/") + OAuthDiscoveryPath
 }

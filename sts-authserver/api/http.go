@@ -20,6 +20,7 @@ type HTTPError struct {
 	Body       string
 }
 
+// Error returns the HTTP status code and response body as an error message.
 func (e HTTPError) Error() string {
 	return fmt.Sprintf("HTTP request failed with status %d: %s", e.StatusCode, e.Body)
 }
