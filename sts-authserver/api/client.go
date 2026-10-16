@@ -1,11 +1,11 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -66,40 +66,44 @@ func WithHTTPClient(client *http.Client) RegistrationClientOption {
 	}
 }
 
-// TokenCallbackFromFile returns a callback that reads a bearer token from path.
+// TokenFromFile returns a callback that reads a bearer token from path.
 // It rereads the file on each request to support token rotation and trims
 // surrounding whitespace. The callback does not use the context.
-func TokenCallbackFromFile(path string) TokenCallback {
+func TokenFromFile(path string) TokenCallback {
 	return func(_ context.Context) (string, error) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return "", fmt.Errorf("read token file: %w", err)
 		}
-		return string(bytes.TrimSpace(data)), nil
+
+		accessToken := strings.TrimSpace(string(data))
+		if accessToken == "" {
+			return "", fmt.Errorf("token file %s is empty", path)
+		}
+		return accessToken, nil
 	}
 }
 
 // Register signs statement with the client's key and submits it to STS to
-// create or replace a registration. It returns the decoded registration response.
+// create or replace a registration. It requires HTTP 200 OK and returns the
+// decoded registration response.
 func (r *RegistrationClient) Register(ctx context.Context, statement SoftwareStatement) (*ClientRegistrationResponse, error) {
 	ss, err := sign(statement, r.signer)
 	if err != nil {
 		return nil, fmt.Errorf("sign software statement: %w", err)
 	}
 	cr := ClientRegistration{ss}
-	resp, err := r.sendRequest[ClientRegistrationResponse](ctx, http.MethodPost, "", cr)
+	resp, err := r.sendRequest[ClientRegistrationResponse](ctx, http.MethodPost, "", cr, http.StatusOK)
 	if err != nil {
 		return nil, err
 	}
-	// TODO: validate response code?
-
 	return &resp.Body, nil
 }
 
 // Delete removes the registration identified by clientID.
-// A successful response with no content is accepted.
+// It requires HTTP 204 No Content, including when the registration is missing.
 func (r *RegistrationClient) Delete(ctx context.Context, clientID string) error {
-	_, err := r.sendRequest[any](ctx, http.MethodDelete, clientID, nil)
+	_, err := r.sendRequest[any](ctx, http.MethodDelete, clientID, nil, http.StatusNoContent)
 	return err
 }
 

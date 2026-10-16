@@ -32,7 +32,7 @@ func newHTTPError(statusCode int, body string) HTTPError {
 	}
 }
 
-func (r *RegistrationClient) sendRequest[R any](ctx context.Context, method string, path string, body any) (*Response[R], error) {
+func (r *RegistrationClient) sendRequest[R any](ctx context.Context, method string, path string, body any, expectedStatus int) (*Response[R], error) {
 	var bodyReader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -69,7 +69,7 @@ func (r *RegistrationClient) sendRequest[R any](ctx context.Context, method stri
 		_ = Body.Close()
 	}(resp.Body)
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode != expectedStatus {
 		b, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, newHTTPError(resp.StatusCode, fmt.Sprintf("failed to read response body: %v", err))

@@ -22,6 +22,11 @@ type Workload struct {
 	Name        string `json:"workload"`
 }
 
+// ClientID returns the environment, namespace and workload name joined by colons.
+func (w Workload) ClientID() string {
+	return w.Environment + ":" + w.Namespace + ":" + w.Name
+}
+
 type AuthorizationPolicy struct {
 	Consumer string   `json:"consumer"`
 	Roles    []string `json:"roles"`
