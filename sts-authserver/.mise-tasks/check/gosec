@@ -4,3 +4,4 @@
 set -e
 
 gosec --exclude-generated -terse -tags integration_test ./...
+(cd api && gosec --exclude-generated -terse -tags integration_test ./...)

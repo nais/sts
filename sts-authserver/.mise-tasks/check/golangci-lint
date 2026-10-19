@@ -4,3 +4,4 @@
 set -e
 
 golangci-lint run --build-tags integration_test --allow-serial-runners
+(cd api && golangci-lint run --build-tags integration_test --allow-serial-runners)
