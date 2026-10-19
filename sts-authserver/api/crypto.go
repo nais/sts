@@ -12,7 +12,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 )
 
-const Algorithm = jose.ES256
+const SoftwareStatementSigningAlgorithm = jose.ES256
 
 func sign(object any, signer jose.Signer) (string, error) {
 	payload, err := json.Marshal(object)
@@ -37,14 +37,14 @@ func generateKey() (*jose.JSONWebKey, error) {
 	return &jose.JSONWebKey{
 		Key:       key,
 		KeyID:     uuid.New().String(),
-		Algorithm: string(Algorithm),
+		Algorithm: string(SoftwareStatementSigningAlgorithm),
 		Use:       "sig",
 	}, nil
 }
 
 func createSigner(key *jose.JSONWebKey) (jose.Signer, error) {
 	signer, err := jose.NewSigner(jose.SigningKey{
-		Algorithm: Algorithm,
+		Algorithm: SoftwareStatementSigningAlgorithm,
 		Key:       key,
 	}, nil)
 	if err != nil {
