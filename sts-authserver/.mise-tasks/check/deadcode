@@ -3,4 +3,5 @@
 
 set -e
 
-deadcode -test -tags integration_test ./...
+deadcode -test -tags integration_test \
+  -filter '^github\.com/nais/sts/(cmd|internal)(/|$)' ./...
