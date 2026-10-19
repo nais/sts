@@ -4,6 +4,7 @@ FROM golang:${GO_VERSION} AS builder
 
 WORKDIR /workspace
 COPY go.mod go.sum ./
+COPY api/go.mod api/go.sum ./api/
 RUN go mod download
 COPY . /workspace
 RUN CGO_ENABLED=0 go test -c -tags=integration_test -o /sts-benchmark ./internal/integration
