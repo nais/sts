@@ -22,7 +22,7 @@ func TestTokenFromFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "token")
 	callback := TokenFromFile(path)
 
-	if _, err := callback(context.Background()); !errors.Is(err, os.ErrNotExist) {
+	if _, err := callback(t.Context()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected missing-file error, got %v", err)
 	}
 	for _, test := range []struct {
@@ -37,7 +37,7 @@ func TestTokenFromFile(t *testing.T) {
 		if err := os.WriteFile(path, []byte(test.content), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		got, err := callback(context.Background())
+		got, err := callback(t.Context())
 		if test.want == "" {
 			if err == nil || !strings.Contains(err.Error(), "is empty") {
 				t.Fatalf("expected empty-token error, got %v", err)
@@ -83,7 +83,7 @@ func TestRegistrationClientRegister(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := client.Register(context.Background(), SoftwareStatement{ClientID: clientID})
+			response, err := client.Register(t.Context(), SoftwareStatement{ClientID: clientID})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -127,12 +127,12 @@ func TestRegistrationClientUnexpectedStatus(t *testing.T) {
 			}
 			if test.method == http.MethodPost {
 				var response *ClientRegistrationResponse
-				response, err = client.Register(context.Background(), SoftwareStatement{ClientID: "dev:team:app"})
+				response, err = client.Register(t.Context(), SoftwareStatement{ClientID: "dev:team:app"})
 				if response != nil {
 					t.Fatalf("expected no registration response, got %+v", response)
 				}
 			} else {
-				err = client.Delete(context.Background(), "dev:team:app")
+				err = client.Delete(t.Context(), "dev:team:app")
 			}
 			var httpErr HTTPError
 			if !errors.As(err, &httpErr) {
@@ -167,7 +167,7 @@ func TestRegistrationClientDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.Delete(context.Background(), "dev:team:app"); err != nil {
+	if err := client.Delete(t.Context(), "dev:team:app"); err != nil {
 		t.Fatal(err)
 	}
 }
