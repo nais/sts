@@ -52,6 +52,9 @@ func loadFile(path string) (Config, error) {
 		}
 		return Config{}, fmt.Errorf("decode config file: %w", err)
 	}
+	if databaseURL := os.Getenv("DATABASE_URL"); databaseURL != "" {
+		cfg.DatabaseURL = databaseURL
+	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
 	}

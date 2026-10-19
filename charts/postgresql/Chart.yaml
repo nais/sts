@@ -1,0 +1,8 @@
+apiVersion: v2
+name: postgresql
+description: A PostgreSQL cluster managed by an existing CloudNativePG operator
+type: application
+version: 0.1.0
+appVersion: "18"
+sources:
+  - https://github.com/nais/sts/tree/main/charts/postgresql

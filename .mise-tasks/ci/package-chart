@@ -13,6 +13,8 @@ export IMAGE_TAG CHART_VERSION="$version"
 yq -i '.image.tag = strenv(IMAGE_TAG)' "$chart/values.yaml"
 yq -i '.version = strenv(CHART_VERSION) | .appVersion = strenv(IMAGE_TAG)' "$chart/Chart.yaml"
 
+helm dependency build "$chart"
+
 # Timestamp versions package successfully but fail strict SemVer lint.
 helm lint "$chart"
 helm package "$chart"

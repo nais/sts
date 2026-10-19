@@ -40,6 +40,13 @@ spec:
           env:
             - name: CONFIG_FILE
               value: /etc/sts/config.yaml
+            {{- if .Values.postgresqlEnabled }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-app" (required "postgresql.fullnameOverride is required when postgresqlEnabled is true" .Values.postgresql.fullnameOverride) | quote }}
+                  key: uri
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080

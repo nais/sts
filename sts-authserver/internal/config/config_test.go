@@ -37,6 +37,32 @@ authorizationServer:
 	assert.Equal(t, 15*time.Minute, cfg.AuthorizationServerConfig.TokenExpiry)
 }
 
+func TestLoadFileDatabaseURL(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		fileURL string
+		envURL  string
+		want    string
+		wantErr bool
+	}{
+		{name: "file only", fileURL: "postgres://file/app", want: "postgres://file/app"},
+		{name: "environment overrides file", fileURL: "postgres://file/app", envURL: "postgres://secret/app", want: "postgres://secret/app"},
+		{name: "environment only", envURL: "postgres://secret/app", want: "postgres://secret/app"},
+		{name: "missing URL", wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", tt.envURL)
+			cfg, err := loadFile(writeConfig(t, "databaseUrl: "+tt.fileURL+"\nauthorizationServer:\n  issuer: https://sts.example\n  clientAuthIssuers: [https://client.example]\n"))
+			if tt.wantErr {
+				require.ErrorContains(t, err, "database URL must not be empty")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, cfg.DatabaseURL)
+		})
+	}
+}
+
 func TestLoadFileRejectsUnknownFields(t *testing.T) {
 	_, err := loadFile(writeConfig(t, "unknown: value\n"))
 	require.ErrorContains(t, err, "field unknown not found")

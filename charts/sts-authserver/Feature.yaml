@@ -22,13 +22,15 @@ values:
     displayName: Subject Token Issuers
     computed:
       template: '{ {{ .Env.apiserver_oidc_issuer }}: gke }'
-  config.databaseUrl:
-    displayName: Database URL
-    required: true
-    config:
-      type: string
-      secret: true
   image.tag:
     displayName: Image version
     config:
       type: string
+  postgresql.networkPolicy.apiServerCidrs:
+    displayName: API server CIDRs
+    computed:
+      template: '["{{ .Env.apiserver_endpoint }}/32"]'
+  postgresql.networkPolicy.dnsCidrs:
+    displayName: DNS CIDRs
+    computed:
+      template: '["{{ .Env.svc_ip_cidr_range }}"]'

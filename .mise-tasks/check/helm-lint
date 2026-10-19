@@ -3,4 +3,5 @@
 
 set -e
 
-helm lint --strict ./charts/sts-authserver
+helm dependency build ./charts/sts-authserver
+helm lint --strict ./charts/sts-authserver ./charts/postgresql

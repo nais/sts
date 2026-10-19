@@ -69,3 +69,21 @@ ingress:
 
 nodeSelector: {}
 tolerations: []
+
+postgresqlEnabled: true
+postgresql:
+  # Shared Cluster/Secret naming contract. Keep stable after the first install.
+  # Use a distinct name for each release in the same namespace (max 50 characters).
+  fullnameOverride: sts-db
+  networkPolicy:
+    enabled: true
+    apiServerCidrs: []
+    dnsCidrs: []
+  keep: false
+  instances: 2
+  database:
+    name: sts
+    owner: sts
+  storage:
+    size: 1Gi
+    storageClass: ""
