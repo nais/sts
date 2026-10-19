@@ -1,7 +1,9 @@
 version: 2
 updates:
   - package-ecosystem: gomod
-    directory: /sts-authserver
+    directories:
+      - /sts-authserver
+      - /sts-authserver/api
     schedule:
       interval: weekly
       day: monday
