@@ -12,12 +12,12 @@ import (
 )
 
 type TokenVerifier struct {
-	issuer       Issuer
+	issuer       TokenIssuer
 	keyset       oidc.KeySet
 	requiredAlgs []string
 }
 
-func NewTokenVerifier(issuer Issuer, keyset oidc.KeySet, requiredAlgs ...string) (*TokenVerifier, error) {
+func NewTokenVerifier(issuer TokenIssuer, keyset oidc.KeySet, requiredAlgs ...string) (*TokenVerifier, error) {
 	if issuer == "" {
 		return nil, fmt.Errorf("issuer must not be empty")
 	}
@@ -61,7 +61,7 @@ func (i *TokenVerifier) Verify(ctx context.Context, rawToken string, payload []b
 	return claims, nil
 }
 
-type MultiIssuerTokenVerifier map[Issuer]*TokenVerifier
+type MultiIssuerTokenVerifier map[TokenIssuer]*TokenVerifier
 
 func NewMultiIssuerTokenVerifier(verifiers ...*TokenVerifier) (MultiIssuerTokenVerifier, error) {
 	if len(verifiers) == 0 {
@@ -94,7 +94,7 @@ func (v MultiIssuerTokenVerifier) Verify(ctx context.Context, rawToken string, f
 		return nil, err
 	}
 
-	verifier, ok := v[Issuer(claims.Issuer)]
+	verifier, ok := v[TokenIssuer(claims.Issuer)]
 	if !ok {
 		return nil, fmt.Errorf("issuer %q is not trusted", claims.Issuer)
 	}
@@ -128,13 +128,13 @@ func NewTokenExchangeTokenVerifier(ctx context.Context, httpClient *http.Client,
 }
 
 func InternalTokenVerifier(cfg AuthorizationServerConfig, keyStore KeyStore) (*TokenVerifier, error) {
-	return NewTokenVerifier(cfg.Issuer,
+	return NewTokenVerifier(TokenIssuer(cfg.Issuer),
 		keyStore,
 		string(InternalSigningAlgorithm),
 	)
 }
 
-func ExternalTokenVerifiers(ctx context.Context, httpClient *http.Client, issuers ...Issuer) ([]*TokenVerifier, error) {
+func ExternalTokenVerifiers(ctx context.Context, httpClient *http.Client, issuers ...TokenIssuer) ([]*TokenVerifier, error) {
 	result := make([]*TokenVerifier, 0, len(issuers))
 	for _, issuer := range issuers {
 		ti, err := ExternalTokenVerifier(ctx, httpClient, issuer)
@@ -146,11 +146,11 @@ func ExternalTokenVerifiers(ctx context.Context, httpClient *http.Client, issuer
 	return result, nil
 }
 
-func ExternalTokenVerifier(ctx context.Context, httpClient *http.Client, issuer Issuer) (*TokenVerifier, error) {
+func ExternalTokenVerifier(ctx context.Context, httpClient *http.Client, issuer TokenIssuer) (*TokenVerifier, error) {
 	return externalTokenVerifier(ctx, httpClient, issuer, nil)
 }
 
-func externalTokenVerifier(ctx context.Context, httpClient *http.Client, issuer Issuer, allowedAlgorithms []string) (*TokenVerifier, error) {
+func externalTokenVerifier(ctx context.Context, httpClient *http.Client, issuer TokenIssuer, allowedAlgorithms []string) (*TokenVerifier, error) {
 	metadata, err := oauthclient.Discover(ctx, string(issuer), httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("discover metadata from issuer %q: %w", issuer, err)

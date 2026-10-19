@@ -5,27 +5,27 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/http"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
-	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
-func DiscoveryEndpoint(endpoints *op.Endpoints, cfg AuthorizationServerConfig) nethttp.HandlerFunc {
+func (a *AuthorizationServer) DiscoveryEndpoint() nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		grantTypes := []oidc.GrantType{oidc.GrantTypeClientCredentials}
+		cfg := a.AuthorizationServerConfig
+		grantTypes := []api.GrantType{api.GrantTypeClientCredentials}
 		if len(cfg.SubjectTokenIssuers) > 0 {
-			grantTypes = append(grantTypes, oidc.GrantTypeTokenExchange)
+			grantTypes = append(grantTypes, api.GrantTypeTokenExchange)
 		}
 
-		i := string(cfg.Issuer)
-		http.WriteJSON(w, r, &oidc.DiscoveryConfiguration{
-			Issuer:              i,
-			TokenEndpoint:       endpoints.Token.Absolute(i),
-			JwksURI:             endpoints.JwksURI.Absolute(i),
+		http.WriteJSON(w, r, &api.DiscoveryMetadata{
+			Issuer:              cfg.Issuer.String(),
+			TokenEndpoint:       cfg.Issuer.TokenEndpoint(),
+			JwksURI:             cfg.Issuer.JWKSEndpoint(),
 			GrantTypesSupported: grantTypes,
-			TokenEndpointAuthMethodsSupported: []oidc.AuthMethod{
-				oidc.AuthMethodPrivateKeyJWT,
+			TokenEndpointAuthMethodsSupported: []api.AuthMethod{
+				api.AuthMethodPrivateKeyJWT,
 			},
 			TokenEndpointAuthSigningAlgValuesSupported: cfg.ClientAuthSigningAlgorithms,
 		})

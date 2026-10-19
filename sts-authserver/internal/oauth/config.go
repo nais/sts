@@ -6,22 +6,24 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/nais/sts/api"
 )
 
 type AuthorizationServerConfig struct {
-	Issuer                      Issuer              `yaml:"issuer"`
+	Issuer                      api.STSIssuer       `yaml:"issuer"`
 	ExpectedAudience            string              `yaml:"expectedAudience"`
-	ClientAuthIssuers           []Issuer            `yaml:"clientAuthIssuers"`
+	ClientAuthIssuers           []TokenIssuer       `yaml:"clientAuthIssuers"`
 	ClientAuthSigningAlgorithms []string            `yaml:"clientAuthSigningAlgorithms"`
 	SubjectTokenIssuers         SubjectTokenIssuers `yaml:"subjectTokenIssuers"`
 	MaxClientAuthTokenLifetime  time.Duration       `yaml:"maxClientAuthTokenLifetime"`
 	TokenExpiry                 time.Duration       `yaml:"tokenExpiry"`
 }
 
-type SubjectTokenIssuers map[Issuer]string
+type SubjectTokenIssuers map[TokenIssuer]string
 
-func (s SubjectTokenIssuers) Issuers() []Issuer {
-	issuers := make([]Issuer, 0, len(s))
+func (s SubjectTokenIssuers) Issuers() []TokenIssuer {
+	issuers := make([]TokenIssuer, 0, len(s))
 	for issuer := range s {
 		issuers = append(issuers, issuer)
 	}

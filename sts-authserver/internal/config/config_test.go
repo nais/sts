@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nais/sts/api"
+	"github.com/nais/sts/internal/oauth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,6 +24,9 @@ authorizationServer:
 `))
 	require.NoError(t, err)
 
+	assert.Equal(t, api.STSIssuer("https://sts.example"), cfg.AuthorizationServerConfig.Issuer)
+	assert.Equal(t, []oauth.TokenIssuer{"https://client.example"}, cfg.AuthorizationServerConfig.ClientAuthIssuers)
+	assert.Equal(t, oauth.SubjectTokenIssuers{"https://subject.example": "issuerName"}, cfg.AuthorizationServerConfig.SubjectTokenIssuers)
 	assert.Equal(t, ":8080", cfg.BindAddress)
 	assert.Equal(t, ":8081", cfg.InternalBindAddress)
 	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)

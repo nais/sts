@@ -1,11 +1,10 @@
 package registration
 
 import (
-	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/go-jose/go-jose/v4"
+	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/oauth"
 )
 
@@ -14,48 +13,15 @@ const (
 	maxRoleLength              = 255
 )
 
-type ClientRegistration struct {
-	SoftwareStatement string `json:"software_statement"`
-}
-
-func (r ClientRegistration) validate() error {
-	if strings.TrimSpace(r.SoftwareStatement) == "" {
-		return errors.New("software_statement is required")
-	}
-	if len(r.SoftwareStatement) > maxSoftwareStatementLength {
-		return errors.New("software_statement is too long")
-	}
-	return nil
-}
-
-type ClientRegistrationResponse struct {
-	ClientRegistration
-	ClientID string `json:"client_id"`
-}
-
 type SoftwareStatement struct {
-	ClientId              string                `json:"client_id"`
-	Workload              Workload              `json:"workload"`
-	AuthorizationPolicies []AuthorizationPolicy `json:"authorization_policies"`
-}
-
-type Workload struct {
-	Environment string `json:"environment"`
-	Issuer      string `json:"issuer"`
-	Namespace   string `json:"namespace"`
-	Name        string `json:"workload"`
-}
-
-type AuthorizationPolicy struct {
-	Consumer string   `json:"consumer"`
-	Roles    []string `json:"roles"`
+	api.SoftwareStatement
 }
 
 // SetSignatureAlgorithm no-op, required to satisfy the oidc.ClaimsSignature interface when using oidc.CheckSignature
 func (s SoftwareStatement) SetSignatureAlgorithm(_ jose.SignatureAlgorithm) {}
 
 func (s SoftwareStatement) validate() error {
-	clientID := oauth.ClientID(s.ClientId)
+	clientID := oauth.ClientID(s.ClientID)
 	if err := clientID.Validate(); err != nil {
 		return fmt.Errorf("client_id: %w", err)
 	}

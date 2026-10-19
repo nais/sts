@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/jwk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,6 +63,48 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 	assertActorClaim(t, got["act"], "client", "previous-actor")
 	assert.JSONEq(t, `{"number":9007199254740993}`, string(got["custom"]))
 	assert.NotContains(t, got, "urn:nais:roles")
+}
+
+func TestCreateAccessTokenIssuerRoles(t *testing.T) {
+	const stsIssuer api.STSIssuer = "https://sts.example"
+	const externalIssuer TokenIssuer = "https://idp.example"
+
+	for _, test := range []struct {
+		name          string
+		subjectIssuer TokenIssuer
+		wantActor     bool
+		wantIDP       string
+		wantIDPName   string
+	}{
+		{name: "STS", subjectIssuer: TokenIssuer(stsIssuer), wantActor: true},
+		{name: "external", subjectIssuer: externalIssuer, wantIDP: string(externalIssuer), wantIDPName: "idp"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			claims, err := CreateAccessToken(stsIssuer, map[TokenIssuer]string{externalIssuer: "idp"}, time.Hour, &AuthorizationResult{
+				Target:    TargetAudience("audience"),
+				GrantType: oidc.GrantTypeTokenExchange,
+				Client:    &Client{ID: "client"},
+				SubjectTokenClaims: &AccessTokenClaims{
+					Issuer:  string(test.subjectIssuer),
+					Subject: "subject",
+					Claims: map[string]json.RawMessage{
+						"act": json.RawMessage(`{"client_id":"previous-actor"}`),
+					},
+				},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, string(stsIssuer), claims.Issuer)
+			assert.Equal(t, test.wantIDP, claims.IDP)
+			assert.Equal(t, test.wantIDPName, claims.IDPName)
+			require.NotNil(t, claims.Actor)
+			assert.Equal(t, "client", claims.Actor.ClientID)
+			if test.wantActor {
+				assert.JSONEq(t, `{"client_id":"previous-actor"}`, string(claims.Actor.Actor))
+			} else {
+				assert.Empty(t, claims.Actor.Actor)
+			}
+		})
+	}
 }
 
 func TestAccessTokenClaimsKubernetes(t *testing.T) {

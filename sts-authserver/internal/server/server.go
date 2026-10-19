@@ -1,4 +1,4 @@
-package api
+package server
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -112,11 +111,12 @@ func startServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 		"public_port", publicListener.Addr().(*net.TCPAddr).Port,
 		"internal_port", internalListener.Addr().(*net.TCPAddr).Port,
 	)
-	issuer := strings.TrimRight(string(cfg.AuthorizationServerConfig.Issuer), "/")
+	issuer := cfg.AuthorizationServerConfig.Issuer
 	slog.Info("server endpoints",
-		"discovery_url", issuer+oauthDiscoveryEndpoint,
-		"token_url", issuer+tokenEndpoint,
-		"jwks_url", issuer+jwksEndpoint,
+		"discovery_url", issuer.OAuthDiscoveryEndpoint(),
+		"token_url", issuer.TokenEndpoint(),
+		"jwks_url", issuer.JWKSEndpoint(),
+		"registration_endpoint", issuer.RegistrationEndpoint(),
 	)
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

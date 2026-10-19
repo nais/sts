@@ -4,20 +4,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nais/sts/api"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSoftwareStatementValidate(t *testing.T) {
 	valid := func() SoftwareStatement {
 		return SoftwareStatement{
-			ClientId: "client-1",
-			Workload: Workload{
+			ClientID: "client-1",
+			Workload: api.Workload{
 				Environment: "prod",
 				Issuer:      "https://issuer.example",
 				Namespace:   "team-a",
 				Name:        "workload-1",
 			},
-			AuthorizationPolicies: []AuthorizationPolicy{{
+			AuthorizationPolicies: []api.AuthorizationPolicy{{
 				Consumer: "client-2",
 				Roles:    []string{"reader", "writer"},
 			}},
@@ -30,7 +31,7 @@ func TestSoftwareStatementValidate(t *testing.T) {
 	}{
 		"valid": {},
 		"uppercase client ID": {
-			mutate:  func(s *SoftwareStatement) { s.ClientId = "Client-1" },
+			mutate:  func(s *SoftwareStatement) { s.ClientID = "Client-1" },
 			wantErr: "client_id",
 		},
 		"invalid environment": {
