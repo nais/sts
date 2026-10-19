@@ -4,7 +4,7 @@ metadata:
   name: sts-db
   namespace: nais-system
 spec:
-  instances: 1
+  instances: 2
   bootstrap:
     initdb:
       database: sts
