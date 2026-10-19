@@ -155,16 +155,15 @@ plaintext connection URL into committed values files or Helm release values.
 
 `networkPolicy.enabled: true` creates a database-pod policy using
 `cnpg.io/cluster: <cluster-name>`, including matching initdb/job pods. It permits
-same-cluster ingress and egress on all ports, following the repository's hack
-policy. Standard rules are built in; configure them through compact values in the
-parent chart:
+same-cluster ingress and egress on all ports. Standard rules are built in;
+configure them through values in the parent chart:
 
 ```yaml
 postgresql:
   networkPolicy:
     enabled: true
-    apiServerCidrs: [172.16.1.2/32]
-    dnsCidrs: [192.168.8.10/32]
+    apiServerCidrs: [192.0.2.1/32] # Example only; replace with your API endpoint.
+    dnsCidrs: [192.0.2.53/32] # Example only; replace with your DNS address.
     operator:
       name: cloudnative-pg
       namespace: nais-system
@@ -174,14 +173,15 @@ postgresql:
   and permits TCP 5432 from same-release pods in the database namespace. Parent
   and subchart share the release name; no application name setting is needed.
 - `operator.name` matches `app.kubernetes.io/name`, not a Kubernetes resource name.
-  Defaults are `cloudnative-pg` in `nais-system`, taken from the hack policy.
+  Defaults are `cloudnative-pg` in `nais-system`.
   Operator access permits TCP 8000; verify these selectors/ports in your cluster.
 - `apiServerCidrs` allows TCP 443 to the listed API endpoint CIDRs. Set the actual
   endpoint address required by your CNI; it may differ from the Kubernetes Service IP.
 - DNS egress allows kube-dns and node-local-dns pods in `kube-system` on UDP/TCP 53.
   `dnsCidrs` adds IP-based destinations for DNS Service or node-local addresses.
   Bare pod selectors would only match DNS pods in the database namespace.
-- Both CIDR lists default to empty; the example addresses above are cluster-specific.
+- Both CIDR lists default to empty. The example addresses above use the reserved
+  documentation range `192.0.2.0/24`; replace them with your cluster's addresses.
   These rules select database pods **and initdb jobs** through the cluster label.
 
 Additional `networkPolicy.ingress` and `networkPolicy.egress` lists accept standard
@@ -192,9 +192,8 @@ these extra lists do not replace them.
 Authserver enables the policy and supplies its API/DNS CIDRs, relying on the
 operator defaults. Existing namespace policies remain additive.
 
-The old hack policy alone did **not** allow API egress; it depended on other
-platform policies. NetworkPolicies are additive, so existing broad policies may
-still allow more traffic than this chart lists. This chart does not configure
+NetworkPolicies are additive, so existing broad policies may still allow more
+traffic than this chart lists. This chart does not configure
 application egress: if the application is egress-isolated, its policies must also
 allow the database, DNS, and any external issuers it uses.
 
