@@ -1,7 +1,7 @@
 FROM golang:1.27.2@sha256:007a316059246276cb214df93950be77837545dc78007a73e0291a4963d5d3bf AS builder
 
 WORKDIR /workspace
-COPY go.mod go.sum ./
+COPY go.mod go.sum api/go.mod api/go.sum ./
 RUN go mod download
 
 COPY . /workspace
