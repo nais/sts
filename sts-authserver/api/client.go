@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -107,8 +106,7 @@ func (r *RegistrationClient) Register(ctx context.Context, statement SoftwareSta
 // Delete removes the registration identified by clientID.
 // It requires HTTP 204 No Content, including when the registration is missing.
 func (r *RegistrationClient) Delete(ctx context.Context, clientID string) error {
-	param := url.PathEscape(clientID)
-	_, err := r.requester.Do[any](ctx, r.issuer.RegistrationEndpoint()+"/"+param, http.MethodDelete, nil, http.StatusNoContent, r.authTokenCallback)
+	_, err := r.requester.Do[any](ctx, r.issuer.DeleteEndpoint(clientID), http.MethodDelete, nil, http.StatusNoContent, r.authTokenCallback)
 	return err
 }
 

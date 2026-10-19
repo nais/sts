@@ -54,6 +54,11 @@ func (i STSIssuer) RegistrationEndpoint() string {
 	return strings.TrimSuffix(string(i), "/") + RegistrationPath
 }
 
+// DeleteEndpoint returns the STS client deletion endpoint URL for the issuer and given client ID.
+func (i STSIssuer) DeleteEndpoint(clientID string) string {
+	return strings.TrimSuffix(string(i), "/") + RegistrationPath + "/" + url.PathEscape(clientID)
+}
+
 // OAuthDiscoveryEndpoint returns the OAuth authorization server metadata URL for the issuer.
 func (i STSIssuer) OAuthDiscoveryEndpoint() string {
 	return strings.TrimSuffix(string(i), "/") + OAuthDiscoveryPath
