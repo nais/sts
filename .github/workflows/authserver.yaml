@@ -93,5 +93,6 @@ jobs:
           version: ${{ needs.chart.outputs.version }}
           targets: |
             [
-              { "target": { "kind": "tenant", "tenant": "dev-nais" }, "wait": true }
+              { "target": { "kind": "tenant", "tenant": "ci-nais" }, "wait": true },
+              { "target": { "kind": "tenant", "tenant": "dev-nais" } }
             ]
