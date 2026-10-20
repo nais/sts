@@ -55,8 +55,8 @@ render --set networkPolicy.enabled=true --set fullnameOverride=custom-db \
   --set-json 'networkPolicy.ingress=[{"from":[{"podSelector":{"matchLabels":{"app":"example"}}}],"ports":[{"protocol":"TCP","port":5432}]}]' \
   --set-json 'networkPolicy.egress=[{"to":[{"ipBlock":{"cidr":"192.0.2.1/32"}}],"ports":[{"protocol":"TCP","port":443}]}]' \
   | jq -e '
-    length == 2 and
-    ([.[] | select(.kind == "NetworkPolicy")] | .[0] |
+    length == 3 and
+    ([.[] | select(.kind == "NetworkPolicy" and .metadata.name == "custom-db")] | .[0] |
       .metadata.name == "custom-db" and
       .metadata.namespace == "application" and
       .spec.podSelector.matchLabels == {"cnpg.io/cluster":"custom-db"} and
@@ -72,6 +72,14 @@ render --set networkPolicy.enabled=true --set fullnameOverride=custom-db \
       .spec.ingress[-1].ports[0].port == 5432 and
       .spec.egress[-1].to[0].ipBlock.cidr == "192.0.2.1/32" and
       .spec.egress[-1].ports[0].port == 443
+    ) and
+    ([.[] | select(.kind == "NetworkPolicy" and .metadata.name == "test-postgres")] | .[0].spec |
+      .podSelector.matchLabels == {"app.kubernetes.io/instance":"test"} and
+      .policyTypes == ["Egress"] and
+      .egress == [{
+        "to":[{"podSelector":{"matchLabels":{"cnpg.io/cluster":"custom-db"}}}],
+        "ports":[{"port":5432,"protocol":"TCP"}]
+      }]
     )
   ' >/dev/null
 
@@ -79,7 +87,7 @@ render --set networkPolicy.enabled=true \
   --set networkPolicy.operator.name=custom-operator \
   --set networkPolicy.operator.namespace=operators \
   | jq -e '
-    ([.[] | select(.kind == "NetworkPolicy")] | .[0].spec |
+    ([.[] | select(.kind == "NetworkPolicy" and .metadata.name == "test-postgresql")] | .[0].spec |
       (.ingress | length) == 3 and
       .ingress[1].from[0].podSelector.matchLabels == {"app.kubernetes.io/instance":"test"} and
       (.ingress[1].from[0] | has("namespaceSelector") | not) and
@@ -101,7 +109,7 @@ render --set networkPolicy.enabled=true \
   --set-json 'networkPolicy.apiServerCidrs=["172.16.1.2/32","192.0.2.2/32"]' \
   --set-json 'networkPolicy.dnsCidrs=["192.168.8.10/32","192.0.2.53/32"]' \
   | jq -e '
-    [.[] | select(.kind == "NetworkPolicy")][0].spec.egress |
+    [.[] | select(.kind == "NetworkPolicy" and .metadata.name == "test-postgresql")][0].spec.egress |
     length == 3 and
     .[1].to == [{"ipBlock":{"cidr":"172.16.1.2/32"}},{"ipBlock":{"cidr":"192.0.2.2/32"}}] and
     .[1].ports == [{"protocol":"TCP","port":443}] and
@@ -151,8 +159,8 @@ helm template example "$parent" --namespace application \
 helm template example "$parent" --namespace application \
   --set postgresqlEnabled=true --set postgresql.networkPolicy.enabled=true \
   | yq -o=json | jq -s -e '
-    length == 2 and
-    ([.[] | select(.kind == "NetworkPolicy")] | .[0] |
+    length == 3 and
+    ([.[] | select(.kind == "NetworkPolicy" and .metadata.name == "example-postgresql")] | .[0] |
       .metadata.name == "example-postgresql" and
       .spec.podSelector.matchLabels["cnpg.io/cluster"] == "example-postgresql" and
       .spec.ingress[1].from[0].podSelector.matchLabels == {"app.kubernetes.io/instance":"example"} and
