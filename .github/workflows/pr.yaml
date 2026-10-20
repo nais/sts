@@ -14,7 +14,7 @@ jobs:
         [
           "check:ratchet",
           "check:helm-lint",
-          "check:postgresql"
+          "check:helm-render"
         ]
 
   authserver:

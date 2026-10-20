@@ -8,8 +8,8 @@ sources:
   - https://github.com/nais/sts/tree/main/charts/sts-authserver
 
 dependencies:
-  - name: postgresql
+  - name: nais-postgresql
     alias: postgresql
     version: "0.1.0"
-    repository: "file://../postgresql"
+    repository: "oci://europe-north1-docker.pkg.dev/nais-io/nais/chart"
     condition: postgresqlEnabled

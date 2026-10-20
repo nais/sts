@@ -41,7 +41,6 @@ jobs:
             --code .github/workflows/pr.yaml \
             --code .github/workflows/mise.yaml \
             --chart charts/sts-authserver \
-            --chart charts/postgresql \
             --chart .github/workflows/authserver-chart.yaml
 
   checks:
@@ -51,7 +50,7 @@ jobs:
         [
           "check:ratchet",
           "check:helm-lint",
-          "check:postgresql"
+          "check:helm-render"
         ]
 
   image:

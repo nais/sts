@@ -31,6 +31,11 @@ It sets `tokenExpiry` to `1h` instead of the `15m` default.
 
 ## Helm database credentials
 
+The authserver chart depends on [`nais-postgresql`](https://github.com/nais/helm-charts/tree/main/charts/nais-postgresql), published from `nais/helm-charts`.
+Its dependency alias remains `postgresql`, so configure it under that values key.
+After changing the dependency version, run `helm dependency update charts/sts-authserver` and commit `Chart.lock`.
+The selected version must be published before STS can build its dependencies.
+
 With `postgresqlEnabled: true`, the authserver chart sets `DATABASE_URL` from the
 CNPG-generated application's Secret (`<cluster-name>-app`, key `uri`). The Secret
 name is built directly from `postgresql.fullnameOverride`, which defaults to

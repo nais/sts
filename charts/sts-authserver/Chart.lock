@@ -1,6 +1,6 @@
 dependencies:
-- name: postgresql
-  repository: file://../postgresql
+- name: nais-postgresql
+  repository: oci://europe-north1-docker.pkg.dev/nais-io/nais/chart
   version: 0.1.0
-digest: sha256:876478afc454ad83246c6770bb3748adde4775fd2b0856f23d507481ac3ce5fb
-generated: "2026-10-19T17:39:41.396073+02:00"
+digest: sha256:eefa9fe9da98bf1498d9d7fdc6b143abdb2382c79956fa8616e6c9df51d1f1e5
+generated: "2026-10-20T09:26:55Z"
