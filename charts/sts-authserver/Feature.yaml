@@ -1,6 +1,3 @@
-environmentKinds:
-  - management
-
 values:
   tenantName:
     displayName: Tenant name
