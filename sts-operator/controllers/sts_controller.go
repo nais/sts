@@ -27,10 +27,27 @@ const (
 type STSClientReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Reader   client.Reader
 	Recorder kevents.EventRecorder
 	Config   *config.Config
-	sts.Registrator
+	*sts.Registrator
+}
+
+func NewSTSClientReconciler(ctx context.Context, mgr ctrl.Manager, cfg *config.Config) error {
+	registrator, err := sts.NewRegistrator(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("create STS registrator: %w", err)
+	}
+	r := &STSClientReconciler{
+		Client:      mgr.GetClient(),
+		Config:      cfg,
+		Recorder:    mgr.GetEventRecorder("sts-operator"),
+		Scheme:      mgr.GetScheme(),
+		Registrator: registrator,
+	}
+	if err := r.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("create controller: %w", err)
+	}
+	return nil
 }
 
 func (r *STSClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -111,7 +128,7 @@ func (r *STSClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	stsClient.Status.ObservedGeneration = stsClient.GetGeneration()
-	stsClient.Status.ClientID = r.clientID(req).String()
+	stsClient.Status.ClientID = r.clientID(req)
 
 	log.Info("successfully reconciled")
 	return ctrl.Result{}, nil
@@ -124,23 +141,20 @@ func (r *STSClientReconciler) prepare(ctx context.Context, _ ctrl.Request, _ sts
 }
 
 func (r *STSClientReconciler) synchronize(ctx context.Context, req ctrl.Request, stsClient stsv1.STSClient) error {
-	clientID := r.clientID(req)
 	log := ctrl.LoggerFrom(ctx).WithValues("subsystem", "synchronize")
 
-	registration, err := sts.MakeClientRegistration(r.Config.ClientJwk, clientID, stsClient)
+	statement := r.Registrator.MakeSoftwareStatement(stsClient)
+	_, err := r.Register(ctx, statement)
 	if err != nil {
-		return fmt.Errorf("create client registration payload: %s", err)
+		return fmt.Errorf("registering client with STS: %w", err)
 	}
 
-	if err := r.RegisterClient(registration); err != nil {
-		return err
-	}
-	log.Info(fmt.Sprintf("registered %q with STS", clientID.String()))
+	log.Info(fmt.Sprintf("registered %q with STS", statement.Workload.ClientID()))
 
-	// TODO: set name properly
+	// TODO: set name properly, get from CRD
 	cmName := "sts-" + req.Name
-	cmData := configmap.Data{ClientID: clientID, STS: r.Registrator}
-	configMap, err := configmap.CreateConfigMapSpec(cmName, cmData)
+	// TODO: go over params here
+	configMap, err := configmap.CreateConfigMapSpec(cmName, req.Namespace, r.Registrator.WellKnownURL, r.Registrator.Metadata, statement.Workload)
 	if err != nil {
 		return fmt.Errorf("creating config map spec: %w", err)
 	}
@@ -165,17 +179,17 @@ func (r *STSClientReconciler) synchronize(ctx context.Context, req ctrl.Request,
 }
 
 // finalize purges relevant resources from external systems (i.e. the STS instances)
-func (r *STSClientReconciler) finalize(ctx context.Context, clientId sts.ClientID, stsClient *stsv1.STSClient) error {
+func (r *STSClientReconciler) finalize(ctx context.Context, clientId string, stsClient *stsv1.STSClient) error {
 	if !controllerutil.ContainsFinalizer(stsClient, finalizer) {
 		return nil
 	}
 
 	log := ctrl.LoggerFrom(ctx).WithValues("subsystem", "finalize")
 
-	if err := r.DeleteClient(ctx, clientId); err != nil {
+	if err := r.RegistrationClient.Delete(ctx, clientId); err != nil {
 		return err
 	}
-	log.Info(fmt.Sprintf("deleted %q from STS", clientId.String()))
+	log.Info(fmt.Sprintf("deleted %q from STS", clientId))
 
 	controllerutil.RemoveFinalizer(stsClient, finalizer)
 	if err := r.Update(ctx, stsClient); err != nil {
@@ -196,10 +210,7 @@ func (r *STSClientReconciler) updateSTSClient(ctx context.Context, stsClient sts
 	return updateFunc(existing)
 }
 
-func (r *STSClientReconciler) clientID(req ctrl.Request) sts.ClientID {
-	return sts.ClientID{
-		Name:      req.Name,
-		Namespace: req.Namespace,
-		Cluster:   r.Config.ClusterName,
-	}
+// TODO: move this and consolidate client id generation/usage
+func (r *STSClientReconciler) clientID(req ctrl.Request) string {
+	return fmt.Sprintf("%s:%s:%s", r.Registrator.ClusterName, req.Namespace, req.Name)
 }

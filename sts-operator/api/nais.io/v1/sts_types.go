@@ -21,6 +21,7 @@ func init() {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
+// TODO: rename to OAuthClient or similar, since STSClient is a bit misleading. The resource represents an OAuth2 client that is registered with STS, not the STS service itself.
 // STSClient is the Schema for the sts-operator API
 type STSClient struct {
 	metav1.TypeMeta   `json:",inline"`

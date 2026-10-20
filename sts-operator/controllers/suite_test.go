@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
-	"github.com/nais/liberator/pkg/oauth"
 	stsv1 "github.com/nais/sts-operator/api/nais.io/v1"
 	"github.com/nais/sts-operator/controllers"
 	"github.com/nais/sts-operator/internal/config"
@@ -107,20 +106,15 @@ func TestSTSClientReconciler(t *testing.T) {
 
 	stsURL := stsServer.URL
 	cfg := &config.Config{
-		ClientID:                "sts-operator",
-		ClientJwk:               &operatorKey,
 		ClusterName:             "local",
 		MaxConcurrentReconciles: 1,
+		STSBaseURL:              stsURL,
 	}
 	authTokenPath := os.TempDir() + "/auth-token"
 	err = os.WriteFile(authTokenPath, []byte("a very secure token"), 0o600)
 	require.NoError(t, err)
 
-	registrator := sts.NewRegistrator(authTokenPath, &operatorKey, &oauth.MetadataOAuth{
-		Issuer:        stsURL,
-		JwksURI:       stsURL + "/jwks",
-		TokenEndpoint: stsURL + "/token",
-	})
+	registrator := sts.NewRegistrator(stsURL, authTokenPath)
 
 	require.NoError(t, (&controllers.STSClientReconciler{
 		Client:      mgr.GetClient(),
