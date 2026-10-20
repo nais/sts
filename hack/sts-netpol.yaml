@@ -1,30 +1,6 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: sts-allow-db
-  namespace: nais-system
-spec:
-  egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: nais-system
-          podSelector:
-            matchLabels:
-              cnpg.io/cluster: sts-db
-      ports:
-        - port: 5432
-          protocol: TCP
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/instance: sts
-      app.kubernetes.io/name: sts
-  policyTypes:
-    - Egress
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
   name: sts-allow-benchmark
   namespace: nais-system
 spec:
@@ -91,38 +67,3 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: cnpg-sts-db
-  namespace: nais-system
-spec:
-  egress:
-    - to:
-        - podSelector:
-            matchLabels:
-              cnpg.io/cluster: sts-db
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              cnpg.io/cluster: sts-db
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: nais-system
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: cloudnative-pg
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: nais-system
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: sts
-  podSelector:
-    matchLabels:
-      cnpg.io/cluster: sts-db
-  policyTypes:
-    - Egress
-    - Ingress
