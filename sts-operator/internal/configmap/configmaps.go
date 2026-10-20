@@ -11,7 +11,7 @@ const (
 	STSClientIDKey      = "STS_CLIENT_ID"
 	STSIssuerKey        = "STS_ISSUER"
 	STSJwksURIKey       = "STS_JWKS_URI"
-	STSTokenEndpointKey = "STS_TOKEN_ENDPOINT"
+	STSTokenEndpointKey = "STS_TOKEN_ENDPOINT" // #nosec G101 -- Environment variable name, not a credential.
 	STSWellKnownURLKey  = "STS_WELL_KNOWN_URL"
 
 	StakaterReloaderAnnotationKey = "reloader.stakater.com/match"

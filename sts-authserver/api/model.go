@@ -62,7 +62,7 @@ const (
 	GrantTypeClientCredentials GrantType = "client_credentials"
 
 	// GrantTypeTokenExchange defines the grant_type `urn:ietf:params:oauth:grant-type:token-exchange` used for the OAuth Token Exchange Grant
-	GrantTypeTokenExchange GrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
+	GrantTypeTokenExchange GrantType = "urn:ietf:params:oauth:grant-type:token-exchange" // #nosec G101 -- Public OAuth grant type identifier, not a credential.
 )
 
 type GrantType string

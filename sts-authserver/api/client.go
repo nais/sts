@@ -78,6 +78,7 @@ func WithHTTPClient(client *http.Client) RegistrationClientOption {
 // surrounding whitespace. The callback does not use the context.
 func TokenFromFile(path string) AuthTokenCallback {
 	return func(_ context.Context) (string, error) {
+		// #nosec G304 -- The application supplies the token file path, not request input.
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return "", fmt.Errorf("read token file: %w", err)
