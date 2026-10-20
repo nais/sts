@@ -82,7 +82,10 @@ jobs:
 
   deploy:
     needs: chart
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      !cancelled() &&
+      needs.chart.result == 'success' &&
+      github.ref == 'refs/heads/main'
     runs-on: fasit-deploy
     permissions:
       id-token: write
