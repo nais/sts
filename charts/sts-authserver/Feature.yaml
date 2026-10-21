@@ -11,6 +11,7 @@ values:
     displayName: STS issuer
     computed:
       template: 'https://{{ subdomain . "sts" }}'
+  # TODO: make configurable
   config.authorizationServer.subjectTokenIssuers:
     displayName: Subject Token Issuers
     computed:
@@ -27,3 +28,15 @@ values:
     displayName: DNS CIDRs
     computed:
       template: '["{{ .Env.svc_ip_cidr_range }}"]'
+  registrators:
+    displayName: Registrators
+    computed:
+      template: |
+        {{ range $obj := .Envs  }}
+        {{if hasPrefix $.Env.name $obj.name }}
+        - env: {{ $obj.name }}
+          subject: system:serviceaccount:nais-system:sts-operator
+          clientAuthIssuer: {{ $obj.apiserver_oidc_issuer }}
+          registratorJwksUri: https://sts-operator.{{ $obj.name }}.{{ $.Tenant.Name}}.cloud.nais.io/jwks
+        {{ end }}
+        {{ end }}

@@ -12,7 +12,13 @@ config:
     expectedAudience: nais
     subjectTokenIssuers: {}
     tokenExpiry: "1h"
-    environments: []
+    maxClientAuthTokenLifetime: "10m"
+
+registrators:
+  - env: dev
+    subject: system:serviceaccount:nais-system:sts-operator
+    clientAuthIssuer: https://sts.environment.tenant.cloud.nais.io
+    registratorJwksUri: https://sts.environment.tenant.cloud.nais.io/jwks
 
 image:
   repository: europe-north1-docker.pkg.dev/nais-io/nais/images/sts
