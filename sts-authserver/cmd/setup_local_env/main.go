@@ -37,12 +37,12 @@ func run(ctx context.Context) error {
 	defer pool.Close()
 
 	queries := sqlgen.New(pool)
-	clients := []sqlgen.UpsertKubernetesClientParams{
+	clients := []sqlgen.UpsertClientParams{
 		{
 			ID:            "env1:namespace1:workload1",
 			Environment:   "env1",
 			Namespace:     "namespace1",
-			Workload:      "workload1",
+			Name:          "workload1",
 			Issuer:        "http://localhost:3004/env1",
 			AllowedScopes: []string{"env1:namespace1:workload2"},
 		},
@@ -50,14 +50,14 @@ func run(ctx context.Context) error {
 			ID:            "env1:namespace1:workload2",
 			Environment:   "env1",
 			Namespace:     "namespace1",
-			Workload:      "workload2",
+			Name:          "workload2",
 			Issuer:        "http://localhost:3004/env1",
 			AllowedScopes: []string{},
 		},
 	}
 
 	for _, client := range clients {
-		_, err := queries.UpsertKubernetesClient(ctx, client)
+		_, err := queries.UpsertClient(ctx, client)
 		if err != nil {
 			return err
 		}

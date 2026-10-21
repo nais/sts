@@ -21,14 +21,13 @@ this [STS configuration](configuration.md):
 authorizationServer:
   expectedAudience: nais
   maxClientAuthTokenLifetime: 1h
-  clientAuthIssuers:
-    - https://issuer.example.com/env1
-
-registrators:
-  - issuer: https://issuer.example.com/env1
-    subject: client-registrator
-    clientJwksUri: https://registrator.example.com/jwks
-    requiredAlgs: [RS256]
+  environments:
+    - name: env1
+      clientAuthIssuer: https://issuer.example.com/env1
+      registrator:
+        subject: client-registrator
+        registratorJwksUri: https://registrator.example.com/jwks
+        signingAlg: RS256
 ```
 
 The bearer token's decoded claims look like this:
@@ -45,8 +44,8 @@ The bearer token's decoded claims look like this:
 
 STS checks the bearer token against the configuration:
 
-- `iss` matches `registrators[0].issuer` and appears in `clientAuthIssuers`.
-- `sub` matches `registrators[0].subject`.
+- `iss` matches `environments[0].clientAuthIssuer`.
+- `sub` matches `environments[0].registrator.subject`.
 - `aud` contains only `expectedAudience`: `nais`.
 - `iat` and `exp` are valid timestamps. STS allows one minute of clock skew
   when it checks both claims.
@@ -57,7 +56,7 @@ STS checks the bearer token against the configuration:
 ## Software statement
 
 The registrator must create and sign a [software statement](https://www.rfc-editor.org/rfc/rfc7591.html#section-2.3).
-A registrator cannot manage another issuer's clients.
+A registrator registers clients only in its own environment.
 
 ### Claims
 
@@ -65,34 +64,36 @@ The signed JWT contains these claims:
 
 ```json
 {
-  "client_id": "env1:namespace1:my-workload",
-  "workload": {
-    "environment": "env1",
-    "issuer": "https://issuer.example.com/env1",
+  "client": {
     "namespace": "namespace1",
-    "workload": "my-workload"
+    "name": "my-workload"
   },
   "authorization_policies": [
     {
-      "consumer": "env1:namespace1:consumer",
+      "consumer": {
+        "namespace": "namespace2",
+        "name": "consumer"
+      },
       "roles": ["reader"]
     }
   ]
 }
 ```
 
-| Claim                               | Description                                                                        | Example value                                                       |
-|-------------------------------------|------------------------------------------------------------------------------------|---------------------------------------------------------------------|
-| `client_id`                         | Identifier chosen for the client.                                                  | `env1:namespace1:my-workload`                                       |
-| `workload.environment`              | Environment where the workload runs.                                               | `env1`                                                              |
-| `workload.issuer`                   | Issuer of the workload's identity token. It must match the registrator's `issuer`. | `https://issuer.example.com/env1`                                   |
-| `workload.namespace`                | Kubernetes namespace of the workload.                                              | `namespace1`                                                        |
-| `workload.workload`                 | Kubernetes service account name of the workload.                                   | `my-workload`                                                       |
-| `authorization_policies`            | Rules for which consumers can request tokens targeting this client.                | `[{ "consumer": "env1:namespace1:consumer", "roles": ["reader"] }]` |
-| `authorization_policies[].consumer` | Consumer client ID. Registration does not require that consumer to exist.          | `env1:namespace1:consumer`                                          |
-| `authorization_policies[].roles`    | Roles STS adds to tokens issued to this consumer for this client.                  | `["reader"]`                                                        |
+| Claim                               | Description                                                         | Example value                                     |
+|-------------------------------------|---------------------------------------------------------------------|---------------------------------------------------|
+| `client.namespace`                  | Kubernetes namespace of the workload.                               | `namespace1`                                      |
+| `client.name`                       | Kubernetes service account name of the workload.                    | `my-workload`                                     |
+| `authorization_policies`            | Rules for which consumers can request tokens targeting this client. | See above.                                        |
+| `authorization_policies[].consumer` | Namespace and service account name of the consumer.                 | `{"namespace": "namespace2", "name": "consumer"}` |
+| `authorization_policies[].roles`    | Roles STS adds to tokens issued to this consumer for this client.   | `["reader"]`                                      |
 
-In this example, `env1:namespace1:consumer` is granted permission to request a token targeting `my-workload`.
+STS derives the client from the authenticated registrator's environment.
+Here, it registers `env1:namespace1:my-workload` with the issuer `https://issuer.example.com/env1`.
+
+A consumer has no environment.
+STS stores one policy for the consumer in every configured environment, whether or not that consumer is registered.
+With environments `env1` and `env2`, both `env1:namespace2:consumer` and `env2:namespace2:consumer` can request a token targeting `my-workload`.
 STS adds all roles from the policy, including `reader`, to the issued token.
 
 Roles are optional.
@@ -100,7 +101,7 @@ Omit `roles` or supply `"roles": []` to grant access without a `urn:nais:roles` 
 
 ### Public key
 
-The configured `clientJwksUri` must point to an endpoint that serves a [JWKS](https://www.rfc-editor.org/rfc/rfc7517.html#section-5)
+The configured `registratorJwksUri` must point to an endpoint that serves a [JWKS](https://www.rfc-editor.org/rfc/rfc7517.html#section-5)
 containing the corresponding public key used to sign the statement.
 
 For the configuration above:
@@ -127,7 +128,7 @@ Content-Type: application/json
 ```
 
 The JWT header's `kid` must match a published key.
-Its `alg` must match one of the registrator's `requiredAlgs`. In this example, it must be `RS256`.
+Its `alg` must match the registrator's `signingAlg`. In this example, it must be `RS256`.
 
 ## Create or replace a client
 
@@ -146,14 +147,9 @@ Content-Type: application/json
 On a repeated `POST` for the same client:
 
 - STS replaces its authorization policies.
-- The following fields are immutable:
-  - `client_id`
-  - `workload.environment`
-  - `workload.namespace`
-  - `workload.workload`
-  - `workload.issuer`
-- A change to an immutable field returns `400 Bad Request` with `invalid_client_metadata`.
-- A workload that another client already uses returns the same error.
+- An omitted or empty `authorization_policies` removes all policies.
+- If the environment configuration changed after registration, the stored issuer or client ID may conflict with the new one.
+  STS returns `400 Bad Request` with `invalid_client_metadata` or `unauthorized_client`.
 
 STS saves the client and its complete policy set in one transaction.
 If a write fails, STS preserves the previous client and policies.
@@ -172,7 +168,7 @@ Content-Type: application/json
 }
 ```
 
-STS returns the supplied JWT and takes `client_id` from its verified claims.
+STS returns the supplied JWT and the client ID it derived.
 
 ## Delete a client
 
@@ -210,10 +206,9 @@ STS logs the full cause.
 | Status | `error`                         | Defined in                                                              | Cause                                                                                           |
 |--------|---------------------------------|-------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
 | 400    | `invalid_request`               | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2)     | The client ID in the path is invalid.                                                           |
-| 400    | `invalid_client_metadata`       | [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html#section-3.2.2)   | The body is invalid, the request changes immutable fields, or another client uses the workload. |
+| 400    | `invalid_client_metadata`       | [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html#section-3.2.2)   | The body is invalid, or the registration conflicts with an existing client.                     |
 | 400    | `invalid_software_statement`    | [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html#section-3.2.2)   | The software statement has an invalid signature or invalid content.                             |
-| 400    | `unapproved_software_statement` | [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html#section-3.2.2)   | The workload issuer does not match the registrator issuer.                                      |
-| 400    | `unauthorized_client`           | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2)     | The client belongs to another registrator issuer.                                               |
+| 400    | `unauthorized_client`           | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2)     | The client belongs to another environment's issuer.                                             |
 | 401    | `invalid_token`                 | [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html#section-3.1)     | Registrator authentication failed.                                                              |
 | 400    | `invalid_request`               | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2)     | The body is too large.                                                                          |
 | 415    | `invalid_request`               | [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.2)     | The content type is not `application/json`.                                                     |

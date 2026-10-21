@@ -11,7 +11,6 @@ import (
 	"github.com/nais/sts-operator/controllers"
 	"github.com/nais/sts-operator/internal/config"
 	stsmetrics "github.com/nais/sts-operator/internal/metric"
-	"github.com/nais/sts-operator/internal/sts"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,17 +42,13 @@ func main() {
 
 	cfg, err := config.New(ctx)
 	if err != nil {
-		log.Error("initializing config", "error", err)
+		log.Error("unable to load configuration", "error", err)
 		os.Exit(1)
 	}
 
 	if err := setupLogger(cfg.LogLevel); err != nil {
 		log.Error("unable to set up logger", "error", err)
 		os.Exit(1)
-	}
-
-	if cfg.AuthTokenPath != "" {
-		log.Info(fmt.Sprintf("using service account token for STS authentication from %q", cfg.AuthTokenPath))
 	}
 
 	log.Info("starting sts-operator")
@@ -83,16 +78,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	registrator := sts.NewRegistrator(cfg.AuthTokenPath, cfg.ClientJwk, cfg.STSMetadata)
-
-	if err = (&controllers.STSClientReconciler{
-		Client:      mgr.GetClient(),
-		Config:      cfg,
-		Reader:      mgr.GetAPIReader(),
-		Recorder:    mgr.GetEventRecorder("sts-operator"),
-		Scheme:      mgr.GetScheme(),
-		Registrator: registrator,
-	}).SetupWithManager(mgr); err != nil {
+	if err = controllers.NewSTSClientReconciler(ctx, mgr, cfg); err != nil {
 		log.Error("unable to create controller", "controller", "stsclient", "error", err)
 		os.Exit(1)
 	}

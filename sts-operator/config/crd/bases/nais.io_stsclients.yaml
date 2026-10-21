@@ -57,29 +57,41 @@ spec:
           spec:
             properties:
               acl:
+                description: AccessControlList grants consumers access to this client,
+                  grouped by team.
                 items:
                   properties:
                     team:
+                      description: Team is the consumers' namespace.
                       type: string
                     workloads:
                       items:
                         properties:
                           name:
+                            description: Name is the consumer's service account name.
                             type: string
                           roles:
+                            description: Roles are added to tokens issued to the consumer
+                              for this client.
                             items:
                               type: string
                             type: array
+                            x-kubernetes-list-type: set
                         required:
                         - name
-                        - roles
                         type: object
                       type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
                   required:
                   - team
                   - workloads
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - team
+                x-kubernetes-list-type: map
             type: object
           status:
             description: STSClientStatus defines the observed state of STSClient

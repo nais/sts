@@ -37,7 +37,7 @@ Both imports run in one transaction.
 PGPASSWORD="$(kubectl get secret -n nais-system sts-db-app -o jsonpath='{.data.password}' | base64 --decode)" \
   psql "postgresql://sts@localhost:5555/sts?sslmode=disable" \
   -X --set=ON_ERROR_STOP=1 --single-transaction \
-  -c "\copy kubernetes_clients (id, environment, namespace, workload, issuer, allowed_scopes) FROM 'hack/kubernetes_clients.csv' WITH (FORMAT CSV, HEADER)" \
+  -c "\copy clients (id, environment, namespace, name, issuer, allowed_scopes) FROM 'hack/clients.csv' WITH (FORMAT CSV, HEADER)" \
   -c "\copy authorization_policies (owner_client_id, consumer_client_id, roles) FROM 'hack/authorization_policies.csv' WITH (FORMAT CSV, HEADER)"
 ```
 

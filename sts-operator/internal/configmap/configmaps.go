@@ -1,9 +1,7 @@
 package configmap
 
 import (
-	"fmt"
-
-	"github.com/nais/sts-operator/internal/sts"
+	stsapi "github.com/nais/sts/api"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -17,32 +15,22 @@ const (
 	StakaterReloaderAnnotationKey = "reloader.stakater.com/match"
 )
 
-type Data struct {
-	ClientID sts.ClientID
-	STS      sts.Registrator
-}
-
-func CreateConfigMapSpec(name string, data Data) (*corev1.ConfigMap, error) {
-	wellKnownURL, err := data.STS.Metadata.WellKnownURL()
-	if err != nil {
-		return nil, fmt.Errorf("constructing well-known URL: %w", err)
-	}
-
+func CreateConfigMapSpec(name, namespace string, wellKnownURL string, metadata *stsapi.DiscoveryMetadata, appName, clientID string) (*corev1.ConfigMap, error) {
 	return &corev1.ConfigMap{
 		Kind:       "ConfigMap",
 		APIVersion: "v1",
 		Name:       name,
-		Namespace:  data.ClientID.Namespace,
-		Labels:     Labels(data.ClientID.Name),
+		Namespace:  namespace,
+		Labels:     Labels(appName),
 		Annotations: map[string]string{
 			StakaterReloaderAnnotationKey: "true",
 		},
 		Data: map[string]string{
-			STSClientIDKey:      data.ClientID.String(),
+			STSClientIDKey:      clientID,
 			STSWellKnownURLKey:  wellKnownURL,
-			STSIssuerKey:        data.STS.Metadata.Issuer,
-			STSJwksURIKey:       data.STS.Metadata.JwksURI,
-			STSTokenEndpointKey: data.STS.Metadata.TokenEndpoint,
+			STSIssuerKey:        metadata.Issuer,
+			STSJwksURIKey:       metadata.JwksURI,
+			STSTokenEndpointKey: metadata.TokenEndpoint,
 		},
 	}, nil
 }

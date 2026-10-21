@@ -18,16 +18,16 @@ func (s *Store) Save(ctx context.Context, client *oauth.Client, policies []oauth
 		return errRegistrationUnauthorized(client.ID, client.Issuer, authoritativeIssuer)
 	}
 	return database.WithTx(ctx, s.pool, func(ctx context.Context, queries *sqlgen.Queries) error {
-		_, err := queries.UpsertKubernetesClient(ctx, sqlgen.UpsertKubernetesClientParams{
+		_, err := queries.UpsertClient(ctx, sqlgen.UpsertClientParams{
 			ID:            client.ID,
 			Environment:   client.Environment,
 			Namespace:     client.Namespace,
-			Workload:      client.Workload,
+			Name:          client.Name,
 			Issuer:        client.Issuer,
 			AllowedScopes: client.AllowedScopes,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
-			existing, getErr := queries.GetKubernetesClientByIDForUpdate(ctx, client.ID)
+			existing, getErr := queries.GetClientByIDForUpdate(ctx, client.ID)
 			if getErr != nil {
 				return fmt.Errorf("get existing client: %w", getErr)
 			}
@@ -37,7 +37,7 @@ func (s *Store) Save(ctx context.Context, client *oauth.Client, policies []oauth
 			return fmt.Errorf("%w: client %q", oauth.ErrImmutableFieldsChanged, client.ID)
 		}
 		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgerrcode.UniqueViolation {
-			return fmt.Errorf("%w: %s: %v", oauth.ErrRegistrationConflict, clientKeyFromRow(client.KubernetesClient), err)
+			return fmt.Errorf("%w: %s: %v", oauth.ErrRegistrationConflict, clientKeyFromRow(client.Client), err)
 		}
 		if err != nil {
 			return fmt.Errorf("upsert client: %w", err)
@@ -61,7 +61,7 @@ func (s *Store) Save(ctx context.Context, client *oauth.Client, policies []oauth
 
 func (s *Store) Delete(ctx context.Context, clientID oauth.ClientID, authoritativeIssuer string) error {
 	return database.WithTx(ctx, s.pool, func(ctx context.Context, queries *sqlgen.Queries) error {
-		client, err := queries.GetKubernetesClientByIDForUpdate(ctx, string(clientID))
+		client, err := queries.GetClientByIDForUpdate(ctx, string(clientID))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -71,7 +71,7 @@ func (s *Store) Delete(ctx context.Context, clientID oauth.ClientID, authoritati
 		if client.Issuer != authoritativeIssuer {
 			return errRegistrationUnauthorized(string(clientID), client.Issuer, authoritativeIssuer)
 		}
-		if err := queries.DeleteKubernetesClient(ctx, string(clientID)); err != nil {
+		if err := queries.DeleteClient(ctx, string(clientID)); err != nil {
 			return fmt.Errorf("delete client: %w", err)
 		}
 		return nil

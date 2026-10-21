@@ -10,26 +10,18 @@ type ClientRegistrationResponse struct {
 }
 
 type SoftwareStatement struct {
-	ClientID              string                `json:"client_id"`
-	Workload              Workload              `json:"workload"`
-	AuthorizationPolicies []AuthorizationPolicy `json:"authorization_policies"`
+	Client                Client                `json:"client"`
+	AuthorizationPolicies []AuthorizationPolicy `json:"authorization_policies,omitempty"`
 }
 
-type Workload struct {
-	Environment string `json:"environment"`
-	Issuer      string `json:"issuer"`
-	Namespace   string `json:"namespace"`
-	Name        string `json:"workload"`
-}
-
-// ClientID returns the environment, namespace and workload name joined by colons.
-func (w Workload) ClientID() string {
-	return w.Environment + ":" + w.Namespace + ":" + w.Name
+type Client struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
 }
 
 type AuthorizationPolicy struct {
-	Consumer string   `json:"consumer"`
-	Roles    []string `json:"roles"`
+	Consumer Client   `json:"consumer"`
+	Roles    []string `json:"roles,omitempty"`
 }
 
 type DiscoveryMetadata struct {

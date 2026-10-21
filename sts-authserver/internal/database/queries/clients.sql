@@ -1,24 +1,24 @@
--- name: GetKubernetesClient :one
+-- name: GetClient :one
 SELECT
 	*
 FROM
-	kubernetes_clients
+	clients
 WHERE
 	issuer = @issuer
 	AND namespace = @namespace
-	AND workload = @workload;
+	AND name = @name;
 
--- name: GetKubernetesClientByIDForUpdate :one
+-- name: GetClientByIDForUpdate :one
 SELECT
 	*
 FROM
-	kubernetes_clients
+	clients
 WHERE
 	id = @id
 FOR UPDATE;
 
--- name: DeleteKubernetesClient :exec
-DELETE FROM kubernetes_clients
+-- name: DeleteClient :exec
+DELETE FROM clients
 WHERE id = @id;
 
 -- name: GetAuthorizationPolicy :one
@@ -30,11 +30,11 @@ WHERE
 	owner_client_id = @owner_client_id
 	AND consumer_client_id = @consumer_client_id;
 
--- name: ListKubernetesClients :many
+-- name: ListClients :many
 SELECT
 	*
 FROM
-	kubernetes_clients
+	clients
 ORDER BY
 	id;
 
@@ -47,19 +47,19 @@ ORDER BY
 	owner_client_id,
 	consumer_client_id;
 
--- name: UpsertKubernetesClient :one
-INSERT INTO kubernetes_clients(
+-- name: UpsertClient :one
+INSERT INTO clients(
 	id,
 	environment,
 	namespace,
-	workload,
+	name,
 	issuer,
 	allowed_scopes)
 VALUES (
 	@id,
 	@environment,
 	@namespace,
-	@workload,
+	@name,
 	@issuer,
 	@allowed_scopes::TEXT[])
 ON CONFLICT (
@@ -68,10 +68,10 @@ ON CONFLICT (
 		allowed_scopes = EXCLUDED.allowed_scopes,
 		updated_at = NOW()
 	WHERE
-		kubernetes_clients.environment = EXCLUDED.environment
-		AND kubernetes_clients.namespace = EXCLUDED.namespace
-		AND kubernetes_clients.workload = EXCLUDED.workload
-		AND kubernetes_clients.issuer = EXCLUDED.issuer
+		clients.environment = EXCLUDED.environment
+		AND clients.namespace = EXCLUDED.namespace
+		AND clients.name = EXCLUDED.name
+		AND clients.issuer = EXCLUDED.issuer
 	RETURNING
 		*;
 
