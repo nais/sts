@@ -83,7 +83,7 @@ func TestRegistrationClientRegister(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := client.Register(t.Context(), SoftwareStatement{ClientID: clientID})
+			response, err := client.Register(t.Context(), SoftwareStatement{Client: Client{Namespace: "team", Name: "app"}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -127,7 +127,7 @@ func TestRegistrationClientUnexpectedStatus(t *testing.T) {
 			}
 			if test.method == http.MethodPost {
 				var response *ClientRegistrationResponse
-				response, err = client.Register(t.Context(), SoftwareStatement{ClientID: "dev:team:app"})
+				response, err = client.Register(t.Context(), SoftwareStatement{Client: Client{Namespace: "team", Name: "app"}})
 				if response != nil {
 					t.Fatalf("expected no registration response, got %+v", response)
 				}

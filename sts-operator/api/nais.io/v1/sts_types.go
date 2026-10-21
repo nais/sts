@@ -41,17 +41,28 @@ type STSClientList struct {
 }
 
 type STSClientSpec struct {
+	// AccessControlList grants consumers access to this client, grouped by team.
+	// +listType=map
+	// +listMapKey=team
+	// +optional
 	AccessControlList []AccessControlList `json:"acl,omitempty"`
 }
 
 type AccessControlList struct {
-	Team      string     `json:"team"`
+	// Team is the consumers' namespace.
+	Team string `json:"team"`
+	// +listType=map
+	// +listMapKey=name
 	Workloads []Workload `json:"workloads"`
 }
 
 type Workload struct {
-	Name  string   `json:"name"`
-	Roles []string `json:"roles"`
+	// Name is the consumer's service account name.
+	Name string `json:"name"`
+	// Roles are added to tokens issued to the consumer for this client.
+	// +listType=set
+	// +optional
+	Roles []string `json:"roles,omitempty"`
 }
 
 // STSClientStatus defines the observed state of STSClient

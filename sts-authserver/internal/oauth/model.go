@@ -26,10 +26,19 @@ func (n Name) Validate() error {
 	return nil
 }
 
+// ClientID identifies a client as environment:namespace:name.
 type ClientID string
 
+func NewClientID(environment, namespace, name Name) ClientID {
+	return ClientID(string(environment) + ":" + string(namespace) + ":" + string(name))
+}
+
 func (c ClientID) Validate() error {
-	for part := range strings.SplitSeq(string(c), ":") {
+	parts := strings.Split(string(c), ":")
+	if len(parts) != 3 {
+		return fmt.Errorf("invalid client ID: got %d parts, want environment:namespace:name", len(parts))
+	}
+	for _, part := range parts {
 		if err := Name(part).Validate(); err != nil {
 			return fmt.Errorf("invalid client ID: part %q: %w", part, err)
 		}
@@ -38,7 +47,7 @@ func (c ClientID) Validate() error {
 }
 
 type Client struct {
-	sqlgen.KubernetesClient
+	sqlgen.Client
 	// AllowedScopes is "static access", i.e. doesn't require the existence of a target client ID
 }
 

@@ -18,14 +18,20 @@ func TestLoadFileUsesDefaults(t *testing.T) {
 databaseUrl: postgres://localhost/sts
 authorizationServer:
   issuer: https://sts.example
-  clientAuthIssuers: [https://client.example]
+  environments:
+    - name: dev
+      clientAuthIssuer: https://client.example
+      registrator:
+        subject: registrator
+        registratorJwksUri: https://registrator.example/jwks
+        signingAlg: RS256
   subjectTokenIssuers: 
    https://subject.example: issuerName
 `))
 	require.NoError(t, err)
 
 	assert.Equal(t, api.STSIssuer("https://sts.example"), cfg.AuthorizationServerConfig.Issuer)
-	assert.Equal(t, []oauth.TokenIssuer{"https://client.example"}, cfg.AuthorizationServerConfig.ClientAuthIssuers)
+	assert.Equal(t, []oauth.TokenIssuer{"https://client.example"}, cfg.AuthorizationServerConfig.Environments.ClientAuthIssuers())
 	assert.Equal(t, oauth.SubjectTokenIssuers{"https://subject.example": "issuerName"}, cfg.AuthorizationServerConfig.SubjectTokenIssuers)
 	assert.Equal(t, ":8080", cfg.BindAddress)
 	assert.Equal(t, ":8081", cfg.InternalBindAddress)
@@ -52,7 +58,7 @@ func TestLoadFileDatabaseURL(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("DATABASE_URL", tt.envURL)
-			cfg, err := loadFile(writeConfig(t, "databaseUrl: "+tt.fileURL+"\nauthorizationServer:\n  issuer: https://sts.example\n  clientAuthIssuers: [https://client.example]\n"))
+			cfg, err := loadFile(writeConfig(t, "databaseUrl: "+tt.fileURL+"\nauthorizationServer:\n  issuer: https://sts.example\n  environments:\n    - name: dev\n      clientAuthIssuer: https://client.example\n      registrator:\n        subject: registrator\n        registratorJwksUri: https://registrator.example/jwks\n        signingAlg: RS256\n"))
 			if tt.wantErr {
 				require.ErrorContains(t, err, "database URL must not be empty")
 				return

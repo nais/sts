@@ -15,18 +15,18 @@ const (
 	StakaterReloaderAnnotationKey = "reloader.stakater.com/match"
 )
 
-func CreateConfigMapSpec(name, namespace string, wellKnownURL string, metadata *stsapi.DiscoveryMetadata, workload stsapi.Client) (*corev1.ConfigMap, error) {
+func CreateConfigMapSpec(name, namespace string, wellKnownURL string, metadata *stsapi.DiscoveryMetadata, appName, clientID string) (*corev1.ConfigMap, error) {
 	return &corev1.ConfigMap{
 		Kind:       "ConfigMap",
 		APIVersion: "v1",
 		Name:       name,
 		Namespace:  namespace,
-		Labels:     Labels(workload.Name),
+		Labels:     Labels(appName),
 		Annotations: map[string]string{
 			StakaterReloaderAnnotationKey: "true",
 		},
 		Data: map[string]string{
-			STSClientIDKey:      workload.ClientID(),
+			STSClientIDKey:      clientID,
 			STSWellKnownURLKey:  wellKnownURL,
 			STSIssuerKey:        metadata.Issuer,
 			STSJwksURIKey:       metadata.JwksURI,

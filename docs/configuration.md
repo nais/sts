@@ -9,25 +9,25 @@ before validation. Otherwise, `databaseUrl` must be supplied in the file.
 See [`config.example.yaml`](../sts-authserver/config.example.yaml) for a local example.
 It sets `tokenExpiry` to `1h` instead of the `15m` default.
 
-| Field                                             | Default   | Required | Constraints                                                   | Description                                                                                         |
-|---------------------------------------------------|-----------|----------|---------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
-| `bindAddress`                                     | `:8080`   |          | Nonempty.                                                     | Public HTTP listener.                                                                               |
-| `internalBindAddress`                             | `:8081`   |          | Nonempty.                                                     | Internal health and metrics listener.                                                               |
-| `databaseUrl`                                     |           | Yes      | Nonempty unless supplied through `DATABASE_URL`.               | PostgreSQL connection URL; overridden by nonempty `DATABASE_URL`.                                    |
-| `logLevel`                                        | `info`    |          |                                                               | Log level.                                                                                          |
-| `logFormat`                                       | `text`    |          | `text` or `json`.                                             | Log format.                                                                                         |
-| `authorizationServer.issuer`                      |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | STS issuer URL.                                                                                     |
-| `authorizationServer.expectedAudience`            | `nais`    |          | Nonempty.                                                     | Sole audience for client assertions and registration bearer tokens.                                 |
-| `authorizationServer.clientAuthIssuers`           |           | Yes      | At least one issuer.                                          | Accepted issuers for client assertions and registration bearer tokens.                              |
-| `authorizationServer.clientAuthSigningAlgorithms` | `[RS256]` |          | Unique RS256/384/512, PS256/384/512, or ES256/384/512 values. | Allowed algorithms for client assertions and registration bearer tokens.                            |
-| `authorizationServer.subjectTokenIssuers`         | `{}`      |          |                                                               | Accepted subject-token issuer URLs mapped to aliases. An empty map disables token exchange.         |
-| `authorizationServer.maxClientAuthTokenLifetime`  | `1h`      |          | Positive duration.                                            | Maximum client assertion and registration bearer-token lifetime, plus one minute of tolerance.      |
-| `authorizationServer.tokenExpiry`                 | `15m`     |          | Positive duration.                                            | Lifetime of access tokens issued by STS.                                                            |
-| `registrators`                                    | `[]`      |          |                                                               | Authorities for client registration.                                                                |
-| `registrators[].issuer`                           |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | Workload issuer this registrator controls.                                                          |
-| `registrators[].subject`                          |           | Yes      | Nonempty.                                                     | Subject of the registrator's bearer token.                                                          |
-| `registrators[].clientJwksUri`                    |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | URL of the public keys used to verify software statements.                                          |
-| `registrators[].requiredAlgs`                     |           | Yes      | Unique RS256/384/512, PS256/384/512, or ES256/384/512 values. | Allowed software-statement signing algorithms.                                                      |
+| Field                                             | Default   | Required | Constraints                                                   | Description                                                                                    |
+|---------------------------------------------------|-----------|----------|---------------------------------------------------------------|------------------------------------------------------------------------------------------------|
+| `bindAddress`                                     | `:8080`   |          | Nonempty.                                                     | Public HTTP listener.                                                                          |
+| `internalBindAddress`                             | `:8081`   |          | Nonempty.                                                     | Internal health and metrics listener.                                                          |
+| `databaseUrl`                                     |           | Yes      | Nonempty unless supplied through `DATABASE_URL`.              | PostgreSQL connection URL; overridden by nonempty `DATABASE_URL`.                              |
+| `logLevel`                                        | `info`    |          |                                                               | Log level.                                                                                     |
+| `logFormat`                                       | `text`    |          | `text` or `json`.                                             | Log format.                                                                                    |
+| `authorizationServer.issuer`                      |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | STS issuer URL.                                                                                |
+| `authorizationServer.expectedAudience`            | `nais`    |          | Nonempty.                                                     | Sole audience for client assertions and registration bearer tokens.                            |
+| `authorizationServer.clientAuthSigningAlgorithms` | `[RS256]` |          | Unique RS256/384/512, PS256/384/512, or ES256/384/512 values. | Allowed algorithms for client assertions and registration bearer tokens.                       |
+| `authorizationServer.subjectTokenIssuers`         | `{}`      |          |                                                               | Accepted subject-token issuer URLs mapped to aliases. An empty map disables token exchange.    |
+| `authorizationServer.maxClientAuthTokenLifetime`  | `1h`      |          | Positive duration.                                            | Maximum client assertion and registration bearer-token lifetime, plus one minute of tolerance. |
+| `authorizationServer.tokenExpiry`                 | `15m`     |          | Positive duration.                                            | Lifetime of access tokens issued by STS.                                                       |
+| `authorizationServer.environments`                |           | Yes      | At least one entry.                                           | Kubernetes clusters whose workloads can register and authenticate.                             |
+| `environments[].name`                             |           | Yes      | Unique lowercase name.                                        | Human-readable alias for the cluster issuer; the first part of every client ID in the cluster. |
+| `environments[].clientAuthIssuer`                 |           | Yes      | Unique; HTTPS, or HTTP on localhost/loopback.                 | Issuer of the cluster's client assertions and registration bearer tokens.                      |
+| `environments[].registrator.subject`              |           | Yes      | Nonempty.                                                     | Subject of the registrator's bearer token.                                                     |
+| `environments[].registrator.registratorJwksUri`   |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | URL of the public keys used to verify software statements.                                     |
+| `environments[].registrator.signingAlg`           |           | Yes      | RS256/384/512, PS256/384/512, or ES256/384/512.               | Required software-statement signing algorithm.                                                 |
 
 ## Helm database credentials
 
@@ -57,9 +57,16 @@ This requires an application image with `DATABASE_URL` support. The generated UR
 does not by itself guarantee server certificate verification; configure TLS trust
 and connection settings according to your deployment requirements.
 
-## Registration
+## Environments
 
-For `registrators[]`, Required applies only when an entry is configured.
+Client IDs have the form `environment:namespace:name`.
+Renaming an environment, or moving its name to another issuer, changes or conflicts with existing client IDs.
+Treat both as stable once clients are registered.
+
+Registration expands every authorization policy into one row per configured environment.
+After adding or removing an environment, re-register every client to regenerate its policies.
+
+## Subject token issuers
 
 For example, this entry assigns the alias `identity` to an issuer:
 

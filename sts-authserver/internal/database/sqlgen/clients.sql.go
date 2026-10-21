@@ -17,13 +17,13 @@ func (q *Queries) DeleteAuthorizationPolicies(ctx context.Context, ownerClientID
 	return err
 }
 
-const deleteKubernetesClient = `-- name: DeleteKubernetesClient :exec
-DELETE FROM kubernetes_clients
+const deleteClient = `-- name: DeleteClient :exec
+DELETE FROM clients
 WHERE id = $1
 `
 
-func (q *Queries) DeleteKubernetesClient(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, deleteKubernetesClient, id)
+func (q *Queries) DeleteClient(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, deleteClient, id)
 	return err
 }
 
@@ -49,32 +49,32 @@ func (q *Queries) GetAuthorizationPolicy(ctx context.Context, arg GetAuthorizati
 	return i, err
 }
 
-const getKubernetesClient = `-- name: GetKubernetesClient :one
+const getClient = `-- name: GetClient :one
 SELECT
-	id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
+	id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at
 FROM
-	kubernetes_clients
+	clients
 WHERE
 	issuer = $1
 	AND namespace = $2
-	AND workload = $3
+	AND name = $3
 `
 
-type GetKubernetesClientParams struct {
+type GetClientParams struct {
 	Issuer    string
 	Namespace string
-	Workload  string
+	Name      string
 }
 
-func (q *Queries) GetKubernetesClient(ctx context.Context, arg GetKubernetesClientParams) (KubernetesClient, error) {
-	row := q.db.QueryRow(ctx, getKubernetesClient, arg.Issuer, arg.Namespace, arg.Workload)
-	var i KubernetesClient
+func (q *Queries) GetClient(ctx context.Context, arg GetClientParams) (Client, error) {
+	row := q.db.QueryRow(ctx, getClient, arg.Issuer, arg.Namespace, arg.Name)
+	var i Client
 	err := row.Scan(
 		&i.ID,
+		&i.Issuer,
 		&i.Environment,
 		&i.Namespace,
-		&i.Workload,
-		&i.Issuer,
+		&i.Name,
 		&i.AllowedScopes,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -82,25 +82,25 @@ func (q *Queries) GetKubernetesClient(ctx context.Context, arg GetKubernetesClie
 	return i, err
 }
 
-const getKubernetesClientByIDForUpdate = `-- name: GetKubernetesClientByIDForUpdate :one
+const getClientByIDForUpdate = `-- name: GetClientByIDForUpdate :one
 SELECT
-	id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
+	id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at
 FROM
-	kubernetes_clients
+	clients
 WHERE
 	id = $1
 FOR UPDATE
 `
 
-func (q *Queries) GetKubernetesClientByIDForUpdate(ctx context.Context, id string) (KubernetesClient, error) {
-	row := q.db.QueryRow(ctx, getKubernetesClientByIDForUpdate, id)
-	var i KubernetesClient
+func (q *Queries) GetClientByIDForUpdate(ctx context.Context, id string) (Client, error) {
+	row := q.db.QueryRow(ctx, getClientByIDForUpdate, id)
+	var i Client
 	err := row.Scan(
 		&i.ID,
+		&i.Issuer,
 		&i.Environment,
 		&i.Namespace,
-		&i.Workload,
-		&i.Issuer,
+		&i.Name,
 		&i.AllowedScopes,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -138,30 +138,30 @@ func (q *Queries) ListAuthorizationPolicies(ctx context.Context) ([]Authorizatio
 	return items, nil
 }
 
-const listKubernetesClients = `-- name: ListKubernetesClients :many
+const listClients = `-- name: ListClients :many
 SELECT
-	id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
+	id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at
 FROM
-	kubernetes_clients
+	clients
 ORDER BY
 	id
 `
 
-func (q *Queries) ListKubernetesClients(ctx context.Context) ([]KubernetesClient, error) {
-	rows, err := q.db.Query(ctx, listKubernetesClients)
+func (q *Queries) ListClients(ctx context.Context) ([]Client, error) {
+	rows, err := q.db.Query(ctx, listClients)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []KubernetesClient{}
+	items := []Client{}
 	for rows.Next() {
-		var i KubernetesClient
+		var i Client
 		if err := rows.Scan(
 			&i.ID,
+			&i.Issuer,
 			&i.Environment,
 			&i.Namespace,
-			&i.Workload,
-			&i.Issuer,
+			&i.Name,
 			&i.AllowedScopes,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -203,12 +203,12 @@ func (q *Queries) UpsertAuthorizationPolicy(ctx context.Context, arg UpsertAutho
 	return err
 }
 
-const upsertKubernetesClient = `-- name: UpsertKubernetesClient :one
-INSERT INTO kubernetes_clients(
+const upsertClient = `-- name: UpsertClient :one
+INSERT INTO clients(
 	id,
 	environment,
 	namespace,
-	workload,
+	name,
 	issuer,
 	allowed_scopes)
 VALUES (
@@ -224,39 +224,39 @@ ON CONFLICT (
 		allowed_scopes = EXCLUDED.allowed_scopes,
 		updated_at = NOW()
 	WHERE
-		kubernetes_clients.environment = EXCLUDED.environment
-		AND kubernetes_clients.namespace = EXCLUDED.namespace
-		AND kubernetes_clients.workload = EXCLUDED.workload
-		AND kubernetes_clients.issuer = EXCLUDED.issuer
+		clients.environment = EXCLUDED.environment
+		AND clients.namespace = EXCLUDED.namespace
+		AND clients.name = EXCLUDED.name
+		AND clients.issuer = EXCLUDED.issuer
 	RETURNING
-		id, environment, namespace, workload, issuer, allowed_scopes, created_at, updated_at
+		id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at
 `
 
-type UpsertKubernetesClientParams struct {
+type UpsertClientParams struct {
 	ID            string
 	Environment   string
 	Namespace     string
-	Workload      string
+	Name          string
 	Issuer        string
 	AllowedScopes []string
 }
 
-func (q *Queries) UpsertKubernetesClient(ctx context.Context, arg UpsertKubernetesClientParams) (KubernetesClient, error) {
-	row := q.db.QueryRow(ctx, upsertKubernetesClient,
+func (q *Queries) UpsertClient(ctx context.Context, arg UpsertClientParams) (Client, error) {
+	row := q.db.QueryRow(ctx, upsertClient,
 		arg.ID,
 		arg.Environment,
 		arg.Namespace,
-		arg.Workload,
+		arg.Name,
 		arg.Issuer,
 		arg.AllowedScopes,
 	)
-	var i KubernetesClient
+	var i Client
 	err := row.Scan(
 		&i.ID,
+		&i.Issuer,
 		&i.Environment,
 		&i.Namespace,
-		&i.Workload,
-		&i.Issuer,
+		&i.Name,
 		&i.AllowedScopes,
 		&i.CreatedAt,
 		&i.UpdatedAt,

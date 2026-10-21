@@ -21,28 +21,13 @@ type SoftwareStatement struct {
 func (s SoftwareStatement) SetSignatureAlgorithm(_ jose.SignatureAlgorithm) {}
 
 func (s SoftwareStatement) validate() error {
-	clientID := oauth.ClientID(s.ClientID)
-	if err := clientID.Validate(); err != nil {
-		return fmt.Errorf("client_id: %w", err)
-	}
-	// TODO: decide whether client_id must be derived from the workload identity or remain independent.
-	if err := oauth.Name(s.Client.Environment).Validate(); err != nil {
-		return fmt.Errorf("workload environment: %w", err)
-	}
-	if err := oauth.ValidateSecureURL(s.Client.Issuer); err != nil {
-		return fmt.Errorf("workload issuer: %w", err)
-	}
-	if err := oauth.Name(s.Client.Namespace).Validate(); err != nil {
-		return fmt.Errorf("workload namespace: %w", err)
-	}
-	if err := oauth.Name(s.Client.Name).Validate(); err != nil {
-		return fmt.Errorf("workload name: %w", err)
+	if err := validateClient(s.Client); err != nil {
+		return fmt.Errorf("client: %w", err)
 	}
 
-	policies := make(map[string]struct{}, len(s.AuthorizationPolicies))
+	policies := make(map[api.Client]struct{}, len(s.AuthorizationPolicies))
 	for i, policy := range s.AuthorizationPolicies {
-		consumer := oauth.ClientID(policy.Consumer)
-		if err := consumer.Validate(); err != nil {
+		if err := validateClient(policy.Consumer); err != nil {
 			return fmt.Errorf("authorization policy %d consumer: %w", i, err)
 		}
 		key := policy.Consumer
@@ -64,6 +49,16 @@ func (s SoftwareStatement) validate() error {
 			}
 			roles[role] = struct{}{}
 		}
+	}
+	return nil
+}
+
+func validateClient(client api.Client) error {
+	if err := oauth.Name(client.Namespace).Validate(); err != nil {
+		return fmt.Errorf("namespace: %w", err)
+	}
+	if err := oauth.Name(client.Name).Validate(); err != nil {
+		return fmt.Errorf("name: %w", err)
 	}
 	return nil
 }

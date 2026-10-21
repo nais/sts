@@ -2,7 +2,6 @@ package sts
 
 import (
 	"context"
-	"fmt"
 
 	stsv1 "github.com/nais/sts-operator/api/nais.io/v1"
 	"github.com/nais/sts-operator/internal/config"
@@ -11,10 +10,9 @@ import (
 
 type Registrator struct {
 	*stsapi.RegistrationClient
-	Metadata         *stsapi.DiscoveryMetadata
-	ClusterName      string
-	kubernetesIssuer string
-	WellKnownURL     string
+	Metadata     *stsapi.DiscoveryMetadata
+	ClusterName  string
+	WellKnownURL string
 }
 
 func NewRegistrator(ctx context.Context, cfg *config.Config) (*Registrator, error) {
@@ -33,7 +31,6 @@ func NewRegistrator(ctx context.Context, cfg *config.Config) (*Registrator, erro
 		RegistrationClient: client,
 		Metadata:           metadata,
 		ClusterName:        cfg.ClusterName,
-		kubernetesIssuer:   cfg.KubernetesIssuer,
 		// TODO: go over this and the fetching, a bit weird as is
 		WellKnownURL: issuer.OAuthDiscoveryEndpoint(),
 	}
@@ -41,32 +38,22 @@ func NewRegistrator(ctx context.Context, cfg *config.Config) (*Registrator, erro
 	return r, nil
 }
 
+// MakeSoftwareStatement describes the client for the STSClient's service
+// account. STS derives the client's environment from the registrator, and
+// expands each consumer to every configured environment.
 func (r *Registrator) MakeSoftwareStatement(oauthClient stsv1.STSClient) stsapi.SoftwareStatement {
-	workload := stsapi.Client{
-		Name:        oauthClient.Name,
-		Namespace:   oauthClient.Namespace,
-		Environment: r.ClusterName,
-		Issuer:      r.kubernetesIssuer,
-	}
-
-	policies := make([]stsapi.AuthorizationPolicy, 0)
+	var policies []stsapi.AuthorizationPolicy
 	for _, acl := range oauthClient.Spec.AccessControlList {
-		team := acl.Team
-		for _, w := range acl.Workloads {
-			wName := w.Name
-			// TODO: make a function in stsapi to generate the client ID, since this is also used in the STS service itself
-			clientID := fmt.Sprintf("%s:%s:%s", r.ClusterName, team, wName)
-			policy := stsapi.AuthorizationPolicy{
-				Consumer: clientID,
-				Roles:    w.Roles,
-			}
-			policies = append(policies, policy)
+		for _, workload := range acl.Workloads {
+			policies = append(policies, stsapi.AuthorizationPolicy{
+				Consumer: stsapi.Client{Namespace: acl.Team, Name: workload.Name},
+				Roles:    workload.Roles,
+			})
 		}
 	}
 
 	return stsapi.SoftwareStatement{
-		ClientID:              workload.ClientID(),
-		Client:                workload,
+		Client:                stsapi.Client{Namespace: oauthClient.Namespace, Name: oauthClient.Name},
 		AuthorizationPolicies: policies,
 	}
 }

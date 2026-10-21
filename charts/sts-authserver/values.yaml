@@ -10,10 +10,9 @@ config:
     issuer: https://sts.environment.tenant.cloud.nais.io
     # Client assertions and registration bearer tokens use this as their sole audience.
     expectedAudience: nais
-    clientAuthIssuers: []
     subjectTokenIssuers: {}
     tokenExpiry: "1h"
-  registrators: []
+    environments: []
 
 image:
   repository: europe-north1-docker.pkg.dev/nais-io/nais/images/sts

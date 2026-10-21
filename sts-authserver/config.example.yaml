@@ -14,14 +14,14 @@ authorizationServer:
   tokenExpiry: "1h"
   environments:
     - name: dev-fss # required
-      clientAuthIssuer: http://apiserver.dev-fss # required
+      clientAuthIssuer: http://localhost:3004/env1 # required
       registrator: # required
         subject: system:serviceaccount:namespace1:client-registrator # required
-        registratorJwksUri: http://registrator.dev-fss/jwks # required
+        registratorJwksUri: http://localhost:3004/env1/jwks # required
         signingAlg: RS256 # required
     - name: dev-gcp
-      clientAuthIssuer: http://apiserver.dev-gcp
+      clientAuthIssuer: http://localhost:3004/env2
       registrator:
         subject: system:serviceaccount:namespace1:client-registrator
-        registratorJwksUri: http://registrator.dev-gcp/jwks
+        registratorJwksUri: http://localhost:3004/env2/jwks
         signingAlg: RS256

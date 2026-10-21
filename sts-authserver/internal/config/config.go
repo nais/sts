@@ -9,7 +9,6 @@ import (
 
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/oauth"
-	"github.com/nais/sts/internal/registration"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -20,7 +19,6 @@ type Config struct {
 	LogLevel                  slog.Level                      `yaml:"logLevel"`
 	LogFormat                 string                          `yaml:"logFormat"`
 	AuthorizationServerConfig oauth.AuthorizationServerConfig `yaml:"authorizationServer"`
-	Registrators              registration.ClientRegistrators `yaml:"registrators"`
 }
 
 func Load() (Config, error) {
@@ -86,8 +84,5 @@ func (c Config) validate() error {
 	if c.LogFormat != "text" && c.LogFormat != "json" {
 		return fmt.Errorf("log format must be text or json")
 	}
-	if err := c.AuthorizationServerConfig.Validate(); err != nil {
-		return err
-	}
-	return c.Registrators.Validate()
+	return c.AuthorizationServerConfig.Validate()
 }

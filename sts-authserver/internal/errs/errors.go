@@ -77,10 +77,6 @@ func InvalidSoftwareStatement(cause error, format string, args ...any) Error {
 	return newError("invalid_software_statement", http.StatusBadRequest, cause, format, args...)
 }
 
-func UnapprovedSoftwareStatement(cause error, format string, args ...any) Error {
-	return newError("unapproved_software_statement", http.StatusBadRequest, cause, format, args...)
-}
-
 func (e Error) Error() string {
 	if e.cause == nil {
 		return e.description

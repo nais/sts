@@ -11,15 +11,9 @@ import (
 func TestSoftwareStatementValidate(t *testing.T) {
 	valid := func() SoftwareStatement {
 		return SoftwareStatement{
-			ClientID: "client-1",
-			Client: api.Client{
-				Environment: "prod",
-				Issuer:      "https://issuer.example",
-				Namespace:   "team-a",
-				Name:        "workload-1",
-			},
+			Client: api.Client{Namespace: "team-a", Name: "workload-1"},
 			AuthorizationPolicies: []api.AuthorizationPolicy{{
-				Consumer: "client-2",
+				Consumer: api.Client{Namespace: "team-b", Name: "workload-2"},
 				Roles:    []string{"reader", "writer"},
 			}},
 		}
@@ -30,28 +24,16 @@ func TestSoftwareStatementValidate(t *testing.T) {
 		wantErr string
 	}{
 		"valid": {},
-		"uppercase client ID": {
-			mutate:  func(s *SoftwareStatement) { s.ClientID = "Client-1" },
-			wantErr: "client_id",
-		},
-		"invalid environment": {
-			mutate:  func(s *SoftwareStatement) { s.Client.Environment = "Prod" },
-			wantErr: "workload environment",
-		},
 		"invalid namespace": {
 			mutate:  func(s *SoftwareStatement) { s.Client.Namespace = "team_a" },
-			wantErr: "workload namespace",
+			wantErr: "client: namespace",
 		},
 		"invalid workload": {
 			mutate:  func(s *SoftwareStatement) { s.Client.Name = "workload.name" },
-			wantErr: "workload name",
-		},
-		"insecure issuer": {
-			mutate:  func(s *SoftwareStatement) { s.Client.Issuer = "http://issuer.example" },
-			wantErr: "workload issuer",
+			wantErr: "client: name",
 		},
 		"invalid consumer": {
-			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Consumer = "Client-2" },
+			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Consumer.Namespace = "Team-b" },
 			wantErr: "consumer",
 		},
 		"duplicate policy": {

@@ -2,7 +2,6 @@ package controllers_test
 
 import (
 	"context"
-	"crypto/rsa"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -17,8 +16,8 @@ import (
 	"github.com/nais/sts-operator/controllers"
 	"github.com/nais/sts-operator/internal/config"
 	"github.com/nais/sts-operator/internal/configmap"
-	"github.com/nais/sts-operator/internal/jwk"
 	"github.com/nais/sts-operator/internal/sts"
+	stsapi "github.com/nais/sts/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -34,9 +33,11 @@ import (
 )
 
 const (
-	namespace        = "default"
-	appName          = "app1"
-	clientID         = "local:default:app1"
+	namespace = "default"
+	appName   = "app1"
+	// The mock STS returns an ID unlike the operator's fallback derivation, so
+	// tests prove the operator stores the registration response.
+	clientID         = "sts-env:default:app1"
 	finalizerName    = "sts-operator.nais.io/finalizer"
 	configMapName    = "sts-" + appName
 	reconcileTimeout = 10 * time.Second
@@ -66,26 +67,32 @@ func TestSTSClientReconciler(t *testing.T) {
 		assert.NoError(t, testEnv.Stop())
 	})
 
-	operatorKey, err := jwk.Generate()
-	require.NoError(t, err)
-
-	registrations := make(chan sts.ClientRegistration, 10)
+	registrations := make(chan string, 10)
 	deletedIDs := make(chan string, 10)
+	var stsURL string
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /registration/client", func(w http.ResponseWriter, r *http.Request) {
-		var reg sts.ClientRegistration
+	mux.HandleFunc("GET "+stsapi.OAuthDiscoveryPath, func(w http.ResponseWriter, _ *http.Request) {
+		issuer := stsapi.STSIssuer(stsURL)
+		writeJSON(w, stsapi.DiscoveryMetadata{
+			Issuer:        stsURL,
+			TokenEndpoint: issuer.TokenEndpoint(),
+			JwksURI:       issuer.JWKSEndpoint(),
+		})
+	})
+	mux.HandleFunc("POST "+stsapi.RegistrationPath, func(w http.ResponseWriter, r *http.Request) {
+		var reg stsapi.ClientRegistration
 		if err := json.NewDecoder(r.Body).Decode(&reg); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		// Drop overflow so retry loops cannot block test cleanup.
 		select {
-		case registrations <- reg:
+		case registrations <- reg.SoftwareStatement:
 		default:
 		}
-		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, stsapi.ClientRegistrationResponse{ClientRegistration: reg, ClientID: clientID})
 	})
-	mux.HandleFunc("DELETE /registration/client/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE "+stsapi.RegistrationPath+"/{id}", func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case deletedIDs <- r.PathValue("id"):
 		default:
@@ -104,17 +111,20 @@ func TestSTSClientReconciler(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	stsURL := stsServer.URL
+	stsURL = stsServer.URL
+	authTokenPath := filepath.Join(t.TempDir(), "auth-token")
+	require.NoError(t, os.WriteFile(authTokenPath, []byte("a very secure token"), 0o600))
 	cfg := &config.Config{
+		AuthTokenPath:           authTokenPath,
 		ClusterName:             "local",
 		MaxConcurrentReconciles: 1,
 		STSBaseURL:              stsURL,
 	}
-	authTokenPath := os.TempDir() + "/auth-token"
-	err = os.WriteFile(authTokenPath, []byte("a very secure token"), 0o600)
+	ctx, cancel := context.WithCancel(context.Background())
+	registrator, err := sts.NewRegistrator(ctx, cfg)
 	require.NoError(t, err)
-
-	registrator := sts.NewRegistrator(stsURL, authTokenPath)
+	keySet, err := registrator.PublicKeySet()
+	require.NoError(t, err)
 
 	require.NoError(t, (&controllers.STSClientReconciler{
 		Client:      mgr.GetClient(),
@@ -124,7 +134,6 @@ func TestSTSClientReconciler(t *testing.T) {
 		Registrator: registrator,
 	}).SetupWithManager(mgr))
 
-	ctx, cancel := context.WithCancel(context.Background())
 	mgrDone := make(chan error, 1)
 	go func() {
 		mgrDone <- mgr.Start(ctx)
@@ -162,9 +171,9 @@ func TestSTSClientReconciler(t *testing.T) {
 		require.NoError(t, k8sClient.Get(ctx, key, stsClient))
 
 		require.Len(t, registrations, 1)
-		reg := <-registrations
-		assert.Equal(t, clientID, reg.ClientName)
-		assertSoftwareStatement(t, reg.SoftwareStatement, &operatorKey, clientID)
+		assert.Equal(t, stsapi.SoftwareStatement{
+			Client: stsapi.Client{Namespace: namespace, Name: appName},
+		}, verifySoftwareStatement(t, <-registrations, keySet))
 
 		var cm corev1.ConfigMap
 		require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm))
@@ -172,7 +181,7 @@ func TestSTSClientReconciler(t *testing.T) {
 		assert.Equal(t, map[string]string{configmap.StakaterReloaderAnnotationKey: "true"}, cm.Annotations)
 		assert.Equal(t, map[string]string{
 			configmap.STSClientIDKey:      clientID,
-			configmap.STSWellKnownURLKey:  stsURL + "/.well-known/oauth-authorization-server",
+			configmap.STSWellKnownURLKey:  stsURL + stsapi.OAuthDiscoveryPath,
 			configmap.STSIssuerKey:        stsURL,
 			configmap.STSJwksURIKey:       stsURL + "/jwks",
 			configmap.STSTokenEndpointKey: stsURL + "/token",
@@ -187,13 +196,17 @@ func TestSTSClientReconciler(t *testing.T) {
 		require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &before))
 		previousGeneration := stsClient.Generation
 
-		stsClient.Spec.AccessControlList = []stsv1.AccessControlList{{
-			Team: "team1",
-			Workloads: []stsv1.Workload{{
-				Name:  appName,
-				Roles: []string{"reader"},
-			}},
-		}}
+		stsClient.Spec.AccessControlList = []stsv1.AccessControlList{
+			{
+				Team: "team1",
+				Workloads: []stsv1.Workload{
+					{Name: "consumer1", Roles: []string{"reader"}},
+					// Roles are optional.
+					{Name: "consumer2"},
+				},
+			},
+			{Team: "team2", Workloads: []stsv1.Workload{{Name: "consumer1"}}},
+		}
 		require.NoError(t, k8sClient.Update(ctx, stsClient))
 		require.Greater(t, stsClient.Generation, previousGeneration)
 
@@ -206,9 +219,14 @@ func TestSTSClientReconciler(t *testing.T) {
 		}, reconcileTimeout, pollInterval)
 
 		require.Len(t, registrations, 1)
-		reg := <-registrations
-		assert.Equal(t, clientID, reg.ClientName)
-		assertSoftwareStatement(t, reg.SoftwareStatement, &operatorKey, clientID)
+		assert.Equal(t, stsapi.SoftwareStatement{
+			Client: stsapi.Client{Namespace: namespace, Name: appName},
+			AuthorizationPolicies: []stsapi.AuthorizationPolicy{
+				{Consumer: stsapi.Client{Namespace: "team1", Name: "consumer1"}, Roles: []string{"reader"}},
+				{Consumer: stsapi.Client{Namespace: "team1", Name: "consumer2"}},
+				{Consumer: stsapi.Client{Namespace: "team2", Name: "consumer1"}},
+			},
+		}, verifySoftwareStatement(t, <-registrations, keySet))
 
 		var after corev1.ConfigMap
 		require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &after))
@@ -231,21 +249,24 @@ func TestSTSClientReconciler(t *testing.T) {
 	})
 }
 
-func assertSoftwareStatement(t *testing.T, raw string, operatorKey *jose.JSONWebKey, expectedAppID string) {
+func verifySoftwareStatement(t *testing.T, raw string, keySet jose.JSONWebKeySet) stsapi.SoftwareStatement {
 	t.Helper()
 
-	privateKey, ok := operatorKey.Key.(*rsa.PrivateKey)
-	require.True(t, ok, "operator key must be RSA")
-
-	jws, err := jose.ParseSigned(raw, []jose.SignatureAlgorithm{jose.RS256})
+	jws, err := jose.ParseSigned(raw, []jose.SignatureAlgorithm{jose.ES256})
 	require.NoError(t, err)
 
-	payload, err := jws.Verify(&privateKey.PublicKey)
+	require.Len(t, keySet.Keys, 1)
+	payload, err := jws.Verify(keySet.Keys[0])
 	require.NoError(t, err, "software statement must verify with operator public key")
 
-	var statement sts.SoftwareStatement
+	var statement stsapi.SoftwareStatement
 	require.NoError(t, json.Unmarshal(payload, &statement))
-	assert.Equal(t, expectedAppID, statement.AppId)
+	return statement
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.

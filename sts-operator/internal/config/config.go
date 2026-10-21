@@ -17,7 +17,6 @@ type Config struct {
 	MetricsAddr             string `env:"METRICS_ADDR,default=:8181"`
 	ProbeAddr               string `env:"PROBE_ADDR,default=:8180"`
 	STSBaseURL              string `env:"STS_BASE_URL,required"`
-	KubernetesIssuer        string `env:"KUBERNETES_ISSUER,required"`
 }
 
 func New(ctx context.Context) (*Config, error) {

@@ -14,6 +14,7 @@ import (
 )
 
 type Registrators struct {
+	environments       []oauth.Name
 	byIdentity         map[registratorIdentity]*Registrator
 	clientAuthVerifier oauth.MultiIssuerTokenVerifier
 	expectedAudience   string
@@ -26,27 +27,34 @@ type registratorIdentity struct {
 }
 
 type Registrator struct {
+	Environment  oauth.Name
 	AuthIssuer   string
 	AuthSubject  string
 	RequiredAlgs []string
 	KeySet       oidc.KeySet
 }
 
-func NewRegistrators(ctx context.Context, httpClient *http.Client, authServerCfg oauth.AuthorizationServerConfig, config ...*ClientRegistratorConfig) (*Registrators, error) {
-	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, authServerCfg.ClientAuthIssuers, authServerCfg.ClientAuthSigningAlgorithms)
+func NewRegistrators(ctx context.Context, httpClient *http.Client, authServerCfg oauth.AuthorizationServerConfig) (*Registrators, error) {
+	environments := authServerCfg.Environments
+	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, environments.ClientAuthIssuers(), authServerCfg.ClientAuthSigningAlgorithms)
 	if err != nil {
 		return nil, err
 	}
-	registrators := make(map[registratorIdentity]*Registrator, len(config))
-	for _, cfg := range config {
-		registrators[registratorIdentity{issuer: cfg.Issuer, subject: cfg.Subject}] = &Registrator{
-			AuthIssuer:   cfg.Issuer,
-			AuthSubject:  cfg.Subject,
-			RequiredAlgs: cfg.RequiredAlgs,
-			KeySet:       rp.NewRemoteKeySet(httpClient, cfg.ClientJwksUri),
+	registrators := make(map[registratorIdentity]*Registrator, len(environments))
+	names := make([]oauth.Name, len(environments))
+	for i, env := range environments {
+		names[i] = env.Name
+		issuer := string(env.ClientAuthIssuer)
+		registrators[registratorIdentity{issuer: issuer, subject: env.Registrator.Subject}] = &Registrator{
+			Environment:  env.Name,
+			AuthIssuer:   issuer,
+			AuthSubject:  env.Registrator.Subject,
+			RequiredAlgs: []string{env.Registrator.SigningAlg},
+			KeySet:       rp.NewRemoteKeySet(httpClient, env.Registrator.RegistratorJwksUri),
 		}
 	}
 	return &Registrators{
+		environments:       names,
 		byIdentity:         registrators,
 		clientAuthVerifier: verifier,
 		expectedAudience:   authServerCfg.ExpectedAudience,

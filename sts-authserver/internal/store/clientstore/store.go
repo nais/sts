@@ -80,7 +80,7 @@ func (s *Store) Get(ctx context.Context, claims *oauth.AccessTokenClaims) (*oaut
 	if err != nil {
 		return nil, err
 	}
-	key := clientKey{issuer: claims.Issuer, namespace: workload.Namespace, workload: workload.ServiceAccount.Name}
+	key := clientKey{issuer: claims.Issuer, namespace: workload.Namespace, name: workload.ServiceAccount.Name}
 
 	snapshot, ok := s.snapshot.Current()
 	if !ok {
@@ -121,10 +121,10 @@ func (s *Store) initialize(ctx context.Context) error {
 }
 
 func (s *Store) getClientFromPostgres(ctx context.Context, key clientKey) (*oauth.Client, error) {
-	row, err := s.queries.GetKubernetesClient(ctx, sqlgen.GetKubernetesClientParams{
+	row, err := s.queries.GetClient(ctx, sqlgen.GetClientParams{
 		Issuer:    key.issuer,
 		Namespace: key.namespace,
-		Workload:  key.workload,
+		Name:      key.name,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: %s", oauth.ErrClientNotFound, key)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nais/sts/api"
+	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/http"
 	"github.com/nais/sts/internal/oauth"
@@ -18,8 +19,8 @@ type Api struct {
 	store        oauth.ClientStore
 }
 
-func NewApi(ctx context.Context, httpClient *nethttp.Client, registrators ClientRegistrators, authServerCfg oauth.AuthorizationServerConfig, store oauth.ClientStore) (*Api, error) {
-	registry, err := NewRegistrators(ctx, httpClient, authServerCfg, registrators...)
+func NewApi(ctx context.Context, httpClient *nethttp.Client, authServerCfg oauth.AuthorizationServerConfig, store oauth.ClientStore) (*Api, error) {
+	registry, err := NewRegistrators(ctx, httpClient, authServerCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -54,13 +55,14 @@ func (a *Api) PostEndpoint() nethttp.HandlerFunc {
 			return errs.InvalidSoftwareStatement(err, "software statement is invalid")
 		}
 
-		if err := a.SaveRegistration(r.Context(), registrator, ss); err != nil {
+		clientID, err := a.SaveRegistration(r.Context(), registrator, ss)
+		if err != nil {
 			return err
 		}
 
 		http.WriteJSON(w, r, &api.ClientRegistrationResponse{
 			ClientRegistration: *registration,
-			ClientID:           ss.ClientID,
+			ClientID:           string(clientID),
 		})
 		return nil
 	})
@@ -91,37 +93,39 @@ func (a *Api) DeleteEndpoint() nethttp.HandlerFunc {
 	})
 }
 
-func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s *SoftwareStatement) error {
-	if s.Client.Issuer != registrator.AuthIssuer {
-		return errs.UnapprovedSoftwareStatement(nil, "workload issuer %q does not match the registrator issuer %q", s.Client.Issuer, registrator.AuthIssuer)
-	}
-	policies := make([]oauth.AuthorizationPolicy, len(s.AuthorizationPolicies))
-	for i, policy := range s.AuthorizationPolicies {
-		policies[i] = oauth.AuthorizationPolicy{
-			Owner:    oauth.ClientID(s.ClientID),
-			Consumer: oauth.ClientID(policy.Consumer),
-			Roles:    policy.Roles,
+// SaveRegistration stores the client in the registrator's environment and
+// returns its client ID. Each policy authorizes the consumer namespace and name
+// in every configured environment, including consumers not registered yet.
+func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s *SoftwareStatement) (oauth.ClientID, error) {
+	clientID := oauth.NewClientID(registrator.Environment, oauth.Name(s.Client.Namespace), oauth.Name(s.Client.Name))
+	policies := make([]oauth.AuthorizationPolicy, 0, len(s.AuthorizationPolicies)*len(a.registrators.environments))
+	for _, policy := range s.AuthorizationPolicies {
+		for _, environment := range a.registrators.environments {
+			policies = append(policies, oauth.AuthorizationPolicy{
+				Consumer: oauth.NewClientID(environment, oauth.Name(policy.Consumer.Namespace), oauth.Name(policy.Consumer.Name)),
+				Roles:    policy.Roles,
+			})
 		}
 	}
-	err := a.store.Save(ctx, &oauth.Client{
-		ID:            s.ClientID,
-		Environment:   s.Client.Environment,
+	err := a.store.Save(ctx, &oauth.Client{Client: sqlgen.Client{
+		ID:            string(clientID),
+		Environment:   string(registrator.Environment),
 		Namespace:     s.Client.Namespace,
-		Workload:      s.Client.Name,
-		Issuer:        s.Client.Issuer,
+		Name:          s.Client.Name,
+		Issuer:        registrator.AuthIssuer,
 		AllowedScopes: []string{},
-	}, policies, registrator.AuthIssuer)
+	}}, policies, registrator.AuthIssuer)
 	switch {
 	case err == nil:
-		return nil
+		return clientID, nil
 	case errors.Is(err, oauth.ErrRegistrationUnauthorized):
-		return errs.UnauthorizedClient(err, "registrator is not authorized for client")
+		return "", errs.UnauthorizedClient(err, "registrator is not authorized for client")
 	case errors.Is(err, oauth.ErrImmutableFieldsChanged):
-		return errs.InvalidClientMetadata(err, "registration conflicts with existing client: immutable fields cannot change")
+		return "", errs.InvalidClientMetadata(err, "registration conflicts with existing client: immutable fields cannot change")
 	case errors.Is(err, oauth.ErrRegistrationConflict):
-		return errs.InvalidClientMetadata(err, "workload is already registered to another client")
+		return "", errs.InvalidClientMetadata(err, "workload is already registered to another client")
 	default:
-		return err
+		return "", err
 	}
 }
 

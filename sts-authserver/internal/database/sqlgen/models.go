@@ -14,12 +14,12 @@ type AuthorizationPolicy struct {
 	Roles            []string
 }
 
-type KubernetesClient struct {
+type Client struct {
 	ID            string
+	Issuer        string
 	Environment   string
 	Namespace     string
-	Workload      string
-	Issuer        string
+	Name          string
 	AllowedScopes []string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time

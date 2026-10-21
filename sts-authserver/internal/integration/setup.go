@@ -21,7 +21,6 @@ import (
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/jwk"
 	"github.com/nais/sts/internal/oauth"
-	"github.com/nais/sts/internal/registration"
 	stsserver "github.com/nais/sts/internal/server"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -48,15 +47,28 @@ type testFixtures struct {
 type clientFixture struct {
 	Environment string
 	Namespace   string
-	Workload    string
+	Name        string
 	ID          string
 }
 
+func newClientFixture(environment, namespace, name string) clientFixture {
+	return clientFixture{
+		Environment: environment,
+		Namespace:   namespace,
+		Name:        name,
+		ID:          environment + ":" + namespace + ":" + name,
+	}
+}
+
+func (c clientFixture) apiClient() stsapi.Client {
+	return stsapi.Client{Namespace: c.Namespace, Name: c.Name}
+}
+
 var fixtures = testFixtures{
-	Client1:          clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "workload1", ID: "env1:namespace1:workload1"},
-	Client2:          clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "workload2", ID: "env1:namespace1:workload2"},
-	Client3:          clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "workload3", ID: "env1:namespace1:workload3"},
-	RegisteredTarget: clientFixture{Environment: "env1", Namespace: "namespace1", Workload: "registered-workload", ID: "env1:namespace1:registered-workload"},
+	Client1:          newClientFixture("env1", "namespace1", "workload1"),
+	Client2:          newClientFixture("env1", "namespace1", "workload2"),
+	Client3:          newClientFixture("env1", "namespace1", "workload3"),
+	RegisteredTarget: newClientFixture("env1", "namespace1", "registered-workload"),
 	Role:             "reader",
 	TokenExpiry:      time.Hour,
 }
@@ -141,29 +153,31 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 			ExpectedAudience:            "nais",
 			ClientAuthSigningAlgorithms: []string{"RS256"},
 			MaxClientAuthTokenLifetime:  time.Hour,
-			ClientAuthIssuers: []oauth.TokenIssuer{
-				oauth.TokenIssuer(oauthServer.Endpoint("env1")),
-				oauth.TokenIssuer(oauthServer.Endpoint("env2")),
+			Environments: oauth.Environments{
+				{
+					Name:             "env1",
+					ClientAuthIssuer: oauth.TokenIssuer(oauthServer.Endpoint("env1")),
+					Registrator: oauth.RegistratorConfig{
+						Subject:            "system:serviceaccount:namespace1:registrator1",
+						RegistratorJwksUri: registratorServer.URL,
+						SigningAlg:         signer.Algorithm(),
+					},
+				},
+				{
+					Name:             "env2",
+					ClientAuthIssuer: oauth.TokenIssuer(oauthServer.Endpoint("env2")),
+					Registrator: oauth.RegistratorConfig{
+						Subject:            "system:serviceaccount:namespace1:registrator2",
+						RegistratorJwksUri: registratorServer.URL,
+						SigningAlg:         signer.Algorithm(),
+					},
+				},
 			},
 			SubjectTokenIssuers: map[oauth.TokenIssuer]string{
 				oauth.TokenIssuer(oauthServer.Endpoint("subject1")): "name1",
 				oauth.TokenIssuer(oauthServer.Endpoint("subject2")): "name2",
 			},
 			TokenExpiry: fixtures.TokenExpiry,
-		},
-		Registrators: []*registration.ClientRegistratorConfig{
-			{
-				Issuer:        oauthServer.Endpoint("env1"),
-				Subject:       "system:serviceaccount:namespace1:registrator1",
-				ClientJwksUri: registratorServer.URL,
-				RequiredAlgs:  []string{signer.Algorithm()},
-			},
-			{
-				Issuer:        oauthServer.Endpoint("env2"),
-				Subject:       "system:serviceaccount:namespace1:registrator2",
-				ClientJwksUri: registratorServer.URL,
-				RequiredAlgs:  []string{signer.Algorithm()},
-			},
 		},
 	}
 
@@ -236,11 +250,11 @@ func seedSts(t testing.TB, dsn string, oauthServer testServer) {
 
 	queries := sqlgen.New(pool)
 	for _, client := range []clientFixture{fixtures.Client1, fixtures.Client2, fixtures.Client3} {
-		if _, err := queries.UpsertKubernetesClient(t.Context(), sqlgen.UpsertKubernetesClientParams{
+		if _, err := queries.UpsertClient(t.Context(), sqlgen.UpsertClientParams{
 			ID:            client.ID,
 			Environment:   client.Environment,
 			Namespace:     client.Namespace,
-			Workload:      client.Workload,
+			Name:          client.Name,
 			Issuer:        oauthServer.Endpoint(client.Environment),
 			AllowedScopes: []string{},
 		}); err != nil {

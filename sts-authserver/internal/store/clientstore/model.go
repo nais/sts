@@ -9,12 +9,12 @@ import (
 )
 
 type clientSnapshot struct {
-	clients  map[clientKey]sqlgen.KubernetesClient
+	clients  map[clientKey]sqlgen.Client
 	policies map[policyKey]oauth.Roles
 }
 
 func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSnapshot, error) {
-	clients, err := queries.ListKubernetesClients(ctx)
+	clients, err := queries.ListClients(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list Kubernetes clients: %w", err)
 	}
@@ -24,7 +24,7 @@ func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSn
 	}
 
 	result := &clientSnapshot{
-		clients:  make(map[clientKey]sqlgen.KubernetesClient, len(clients)),
+		clients:  make(map[clientKey]sqlgen.Client, len(clients)),
 		policies: make(map[policyKey]oauth.Roles, len(policies)),
 	}
 	for _, client := range clients {
@@ -42,15 +42,15 @@ func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSn
 type clientKey struct {
 	issuer    string
 	namespace string
-	workload  string
+	name      string
 }
 
 func (k clientKey) String() string {
-	return fmt.Sprintf("issuer %q, namespace %q, workload %q", k.issuer, k.namespace, k.workload)
+	return fmt.Sprintf("issuer %q, namespace %q, name %q", k.issuer, k.namespace, k.name)
 }
 
-func clientKeyFromRow(row sqlgen.KubernetesClient) clientKey {
-	return clientKey{issuer: row.Issuer, namespace: row.Namespace, workload: row.Workload}
+func clientKeyFromRow(row sqlgen.Client) clientKey {
+	return clientKey{issuer: row.Issuer, namespace: row.Namespace, name: row.Name}
 }
 
 type policyKey struct {
@@ -62,6 +62,6 @@ func (k policyKey) String() string {
 	return fmt.Sprintf("target %q, consumer %q", k.owner, k.consumer)
 }
 
-func toClient(row sqlgen.KubernetesClient) *oauth.Client {
-	return &oauth.Client{KubernetesClient: row}
+func toClient(row sqlgen.Client) *oauth.Client {
+	return &oauth.Client{Client: row}
 }

@@ -77,7 +77,12 @@ func (r *STSClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// object is marked for deletion
 	if !stsClient.DeletionTimestamp.IsZero() {
-		if err := r.finalize(ctx, r.clientID(req), &stsClient); err != nil {
+		clientID := stsClient.Status.ClientID
+		if clientID == "" {
+			// Registration may have succeeded before its status update failed.
+			clientID = r.clientID(req)
+		}
+		if err := r.finalize(ctx, clientID, &stsClient); err != nil {
 			stsmetrics.STSClientsProcessingFailedCount.Inc()
 			return ctrl.Result{}, fmt.Errorf("finalize: %w", err)
 		}
@@ -121,14 +126,14 @@ func (r *STSClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("prepare: %w", err)
 	}
 
-	err = r.synchronize(ctx, req, stsClient)
+	clientID, err := r.synchronize(ctx, req, stsClient)
 	if err != nil {
 		stsmetrics.STSClientsProcessingFailedCount.Inc()
 		return ctrl.Result{}, fmt.Errorf("synchronize: %w", err)
 	}
 
 	stsClient.Status.ObservedGeneration = stsClient.GetGeneration()
-	stsClient.Status.ClientID = r.clientID(req)
+	stsClient.Status.ClientID = clientID
 
 	log.Info("successfully reconciled")
 	return ctrl.Result{}, nil
@@ -140,23 +145,24 @@ func (r *STSClientReconciler) prepare(ctx context.Context, _ ctrl.Request, _ sts
 	return nil
 }
 
-func (r *STSClientReconciler) synchronize(ctx context.Context, req ctrl.Request, stsClient stsv1.STSClient) error {
+func (r *STSClientReconciler) synchronize(ctx context.Context, req ctrl.Request, stsClient stsv1.STSClient) (string, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("subsystem", "synchronize")
 
-	statement := r.Registrator.MakeSoftwareStatement(stsClient)
-	_, err := r.Register(ctx, statement)
+	statement := r.MakeSoftwareStatement(stsClient)
+	registration, err := r.Register(ctx, statement)
 	if err != nil {
-		return fmt.Errorf("registering client with STS: %w", err)
+		return "", fmt.Errorf("registering client with STS: %w", err)
 	}
+	clientID := registration.ClientID
 
-	log.Info(fmt.Sprintf("registered %q with STS", statement.Client.ClientID()))
+	log.Info(fmt.Sprintf("registered %q with STS", clientID))
 
 	// TODO: set name properly, get from CRD
 	cmName := "sts-" + req.Name
 	// TODO: go over params here
-	configMap, err := configmap.CreateConfigMapSpec(cmName, req.Namespace, r.Registrator.WellKnownURL, r.Registrator.Metadata, statement.Client)
+	configMap, err := configmap.CreateConfigMapSpec(cmName, req.Namespace, r.WellKnownURL, r.Metadata, req.Name, clientID)
 	if err != nil {
-		return fmt.Errorf("creating config map spec: %w", err)
+		return "", fmt.Errorf("creating config map spec: %w", err)
 	}
 
 	target := &corev1.ConfigMap{
@@ -171,11 +177,11 @@ func (r *STSClientReconciler) synchronize(ctx context.Context, req ctrl.Request,
 		return ctrl.SetControllerReference(&stsClient, target, r.Scheme)
 	})
 	if err != nil {
-		return fmt.Errorf("creating or updating config map %s: %w", cmName, err)
+		return "", fmt.Errorf("creating or updating config map %s: %w", cmName, err)
 	}
 
 	log.Info(fmt.Sprintf("config map %q %s", cmName, res))
-	return nil
+	return clientID, nil
 }
 
 // finalize purges relevant resources from external systems (i.e. the STS instances)
@@ -212,5 +218,5 @@ func (r *STSClientReconciler) updateSTSClient(ctx context.Context, stsClient sts
 
 // TODO: move this and consolidate client id generation/usage
 func (r *STSClientReconciler) clientID(req ctrl.Request) string {
-	return fmt.Sprintf("%s:%s:%s", r.Registrator.ClusterName, req.Namespace, req.Name)
+	return fmt.Sprintf("%s:%s:%s", r.ClusterName, req.Namespace, req.Name)
 }

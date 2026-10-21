@@ -92,27 +92,27 @@ func testWithTx(t *testing.T, pool *pgxpool.Pool) {
 
 	queries := sqlgen.New(pool)
 
-	params := func(workload string) sqlgen.UpsertKubernetesClientParams {
-		return sqlgen.UpsertKubernetesClientParams{
+	params := func(workload string) sqlgen.UpsertClientParams {
+		return sqlgen.UpsertClientParams{
 			ID:            "environment:namespace:" + workload,
 			Environment:   "environment",
 			Namespace:     "namespace",
-			Workload:      workload,
+			Name:          workload,
 			Issuer:        "https://issuer.example",
 			AllowedScopes: []string{"scope"},
 		}
 	}
-	get := func(workload string) (sqlgen.KubernetesClient, error) {
-		return queries.GetKubernetesClient(t.Context(), sqlgen.GetKubernetesClientParams{
+	get := func(workload string) (sqlgen.Client, error) {
+		return queries.GetClient(t.Context(), sqlgen.GetClientParams{
 			Issuer:    "https://issuer.example",
 			Namespace: "namespace",
-			Workload:  workload,
+			Name:      workload,
 		})
 	}
 
 	t.Run("commits on success", func(t *testing.T) {
 		err := database.WithTx(t.Context(), pool, func(ctx context.Context, queries *sqlgen.Queries) error {
-			_, err := queries.UpsertKubernetesClient(ctx, params("committed"))
+			_, err := queries.UpsertClient(ctx, params("committed"))
 			return err
 		})
 		require.NoError(t, err)
@@ -124,7 +124,7 @@ func testWithTx(t *testing.T, pool *pgxpool.Pool) {
 	t.Run("rolls back on error", func(t *testing.T) {
 		wantErr := errors.New("fail transaction")
 		err := database.WithTx(t.Context(), pool, func(ctx context.Context, queries *sqlgen.Queries) error {
-			_, err := queries.UpsertKubernetesClient(ctx, params("rolled-back"))
+			_, err := queries.UpsertClient(ctx, params("rolled-back"))
 			require.NoError(t, err)
 			return wantErr
 		})
@@ -165,14 +165,14 @@ func testWithTx(t *testing.T, pool *pgxpool.Pool) {
 		err := database.WithTx(t.Context(), pool, func(ctx context.Context, queries *sqlgen.Queries) error {
 			outerTx, ok := database.Tx(ctx)
 			require.True(t, ok)
-			_, err := queries.UpsertKubernetesClient(ctx, params("outer"))
+			_, err := queries.UpsertClient(ctx, params("outer"))
 			require.NoError(t, err)
 
 			require.NoError(t, database.WithTx(ctx, pool, func(ctx context.Context, queries *sqlgen.Queries) error {
 				innerTx, ok := database.Tx(ctx)
 				require.True(t, ok)
 				require.Same(t, outerTx, innerTx)
-				_, err := queries.UpsertKubernetesClient(ctx, params("inner"))
+				_, err := queries.UpsertClient(ctx, params("inner"))
 				return err
 			}))
 			return wantErr
@@ -263,7 +263,7 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 		require.NoError(t, err)
 		defer cached.Close()
 
-		_, err = sqlgen.New(pool).UpsertKubernetesClient(t.Context(), testClientParams("scope"))
+		_, err = sqlgen.New(pool).UpsertClient(t.Context(), testClientParams("scope"))
 		require.NoError(t, err)
 
 		client, err := cached.Get(t.Context(), testClientClaims())
@@ -274,7 +274,7 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 	t.Run("refreshes after notification", func(t *testing.T) {
 		resetClients(t, pool)
 		queries := sqlgen.New(pool)
-		_, err := queries.UpsertKubernetesClient(t.Context(), testClientParams("old-scope"))
+		_, err := queries.UpsertClient(t.Context(), testClientParams("old-scope"))
 		require.NoError(t, err)
 
 		cached, err := clientstore.New(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -291,7 +291,7 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 			<-done
 		}()
 
-		_, err = queries.UpsertKubernetesClient(t.Context(), testClientParams("new-scope"))
+		_, err = queries.UpsertClient(t.Context(), testClientParams("new-scope"))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			client, err := cached.Get(t.Context(), testClientClaims())
@@ -386,7 +386,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		}{
 			"environment": {func(client *oauth.Client) { client.Environment = "new-environment" }, oauth.ErrImmutableFieldsChanged},
 			"namespace":   {func(client *oauth.Client) { client.Namespace = "new-namespace" }, oauth.ErrImmutableFieldsChanged},
-			"workload":    {func(client *oauth.Client) { client.Workload = "new-workload" }, oauth.ErrImmutableFieldsChanged},
+			"workload":    {func(client *oauth.Client) { client.Name = "new-workload" }, oauth.ErrImmutableFieldsChanged},
 			"issuer":      {func(client *oauth.Client) { client.Issuer = "https://new-issuer.example" }, oauth.ErrRegistrationUnauthorized},
 		} {
 			t.Run(name, func(t *testing.T) {
@@ -397,7 +397,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		}
 
 		queries := sqlgen.New(pool)
-		stored, err := queries.GetKubernetesClientByIDForUpdate(t.Context(), client.ID)
+		stored, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.NoError(t, err)
 		require.Equal(t, client.Issuer, stored.Issuer)
 		require.Equal(t, client.AllowedScopes, stored.AllowedScopes)
@@ -417,10 +417,10 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		require.ErrorIs(t, clients.Save(t.Context(), colliding, nil, client.Issuer), oauth.ErrRegistrationConflict)
 
 		queries := sqlgen.New(pool)
-		stored, err := queries.GetKubernetesClientByIDForUpdate(t.Context(), client.ID)
+		stored, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.NoError(t, err)
 		require.Equal(t, client.AllowedScopes, stored.AllowedScopes)
-		_, err = queries.GetKubernetesClientByIDForUpdate(t.Context(), colliding.ID)
+		_, err = queries.GetClientByIDForUpdate(t.Context(), colliding.ID)
 		require.ErrorIs(t, err, pgx.ErrNoRows)
 	})
 
@@ -428,7 +428,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		client := testClient("scope")
 		require.ErrorIs(t, clients.Save(t.Context(), client, nil, "https://other.example"), oauth.ErrRegistrationUnauthorized)
 
-		_, err := queries.GetKubernetesClientByIDForUpdate(t.Context(), client.ID)
+		_, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.ErrorIs(t, err, pgx.ErrNoRows)
 	})
 
@@ -449,7 +449,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 
 		// The client's issuer can delete both the client and its policy for consumer.
 		require.NoError(t, clients.Delete(t.Context(), oauth.ClientID(client.ID), client.Issuer))
-		_, err := queries.GetKubernetesClientByIDForUpdate(t.Context(), client.ID)
+		_, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.ErrorIs(t, err, pgx.ErrNoRows)
 
 		_, err = queries.GetAuthorizationPolicy(t.Context(), sqlgen.GetAuthorizationPolicyParams{
@@ -461,7 +461,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 
 func assertStoredRegistration(t *testing.T, queries *sqlgen.Queries, clientID string, scopes []string, policies []sqlgen.AuthorizationPolicy) {
 	t.Helper()
-	stored, err := queries.GetKubernetesClientByIDForUpdate(t.Context(), clientID)
+	stored, err := queries.GetClientByIDForUpdate(t.Context(), clientID)
 	require.NoError(t, err)
 	require.Equal(t, scopes, stored.AllowedScopes)
 	storedPolicies, err := queries.ListAuthorizationPolicies(t.Context())
@@ -471,34 +471,34 @@ func assertStoredRegistration(t *testing.T, queries *sqlgen.Queries, clientID st
 
 func resetDatabase(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
-	_, err := pool.Exec(t.Context(), "TRUNCATE authorization_policies, kubernetes_clients, rotatable_signing_keys")
+	_, err := pool.Exec(t.Context(), "TRUNCATE authorization_policies, clients, rotatable_signing_keys")
 	require.NoError(t, err)
 }
 
 func resetClients(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
-	_, err := pool.Exec(t.Context(), "TRUNCATE authorization_policies, kubernetes_clients")
+	_, err := pool.Exec(t.Context(), "TRUNCATE authorization_policies, clients")
 	require.NoError(t, err)
 }
 
 func testClient(scopes ...string) *oauth.Client {
-	return &oauth.Client{KubernetesClient: sqlgen.KubernetesClient{
+	return &oauth.Client{Client: sqlgen.Client{
 		ID:            "environment:namespace:workload",
 		Environment:   "environment",
 		Namespace:     "namespace",
-		Workload:      "workload",
+		Name:          "workload",
 		Issuer:        "https://issuer.example",
 		AllowedScopes: scopes,
 	}}
 }
 
-func testClientParams(scopes ...string) sqlgen.UpsertKubernetesClientParams {
+func testClientParams(scopes ...string) sqlgen.UpsertClientParams {
 	client := testClient(scopes...)
-	return sqlgen.UpsertKubernetesClientParams{
+	return sqlgen.UpsertClientParams{
 		ID:            client.ID,
 		Environment:   client.Environment,
 		Namespace:     client.Namespace,
-		Workload:      client.Workload,
+		Name:          client.Name,
 		Issuer:        client.Issuer,
 		AllowedScopes: client.AllowedScopes,
 	}
