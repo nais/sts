@@ -149,12 +149,12 @@ func (r *STSClientReconciler) synchronize(ctx context.Context, req ctrl.Request,
 		return fmt.Errorf("registering client with STS: %w", err)
 	}
 
-	log.Info(fmt.Sprintf("registered %q with STS", statement.Workload.ClientID()))
+	log.Info(fmt.Sprintf("registered %q with STS", statement.Client.ClientID()))
 
 	// TODO: set name properly, get from CRD
 	cmName := "sts-" + req.Name
 	// TODO: go over params here
-	configMap, err := configmap.CreateConfigMapSpec(cmName, req.Namespace, r.Registrator.WellKnownURL, r.Registrator.Metadata, statement.Workload)
+	configMap, err := configmap.CreateConfigMapSpec(cmName, req.Namespace, r.Registrator.WellKnownURL, r.Registrator.Metadata, statement.Client)
 	if err != nil {
 		return fmt.Errorf("creating config map spec: %w", err)
 	}

@@ -92,8 +92,8 @@ func (a *Api) DeleteEndpoint() nethttp.HandlerFunc {
 }
 
 func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s *SoftwareStatement) error {
-	if s.Workload.Issuer != registrator.AuthIssuer {
-		return errs.UnapprovedSoftwareStatement(nil, "workload issuer %q does not match the registrator issuer %q", s.Workload.Issuer, registrator.AuthIssuer)
+	if s.Client.Issuer != registrator.AuthIssuer {
+		return errs.UnapprovedSoftwareStatement(nil, "workload issuer %q does not match the registrator issuer %q", s.Client.Issuer, registrator.AuthIssuer)
 	}
 	policies := make([]oauth.AuthorizationPolicy, len(s.AuthorizationPolicies))
 	for i, policy := range s.AuthorizationPolicies {
@@ -105,10 +105,10 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 	}
 	err := a.store.Save(ctx, &oauth.Client{
 		ID:            s.ClientID,
-		Environment:   s.Workload.Environment,
-		Namespace:     s.Workload.Namespace,
-		Workload:      s.Workload.Name,
-		Issuer:        s.Workload.Issuer,
+		Environment:   s.Client.Environment,
+		Namespace:     s.Client.Namespace,
+		Workload:      s.Client.Name,
+		Issuer:        s.Client.Issuer,
 		AllowedScopes: []string{},
 	}, policies, registrator.AuthIssuer)
 	switch {

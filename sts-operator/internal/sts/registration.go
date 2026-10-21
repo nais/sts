@@ -42,7 +42,7 @@ func NewRegistrator(ctx context.Context, cfg *config.Config) (*Registrator, erro
 }
 
 func (r *Registrator) MakeSoftwareStatement(oauthClient stsv1.STSClient) stsapi.SoftwareStatement {
-	workload := stsapi.Workload{
+	workload := stsapi.Client{
 		Name:        oauthClient.Name,
 		Namespace:   oauthClient.Namespace,
 		Environment: r.ClusterName,
@@ -66,7 +66,7 @@ func (r *Registrator) MakeSoftwareStatement(oauthClient stsv1.STSClient) stsapi.
 
 	return stsapi.SoftwareStatement{
 		ClientID:              workload.ClientID(),
-		Workload:              workload,
+		Client:                workload,
 		AuthorizationPolicies: policies,
 	}
 }

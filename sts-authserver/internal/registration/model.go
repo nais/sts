@@ -26,16 +26,16 @@ func (s SoftwareStatement) validate() error {
 		return fmt.Errorf("client_id: %w", err)
 	}
 	// TODO: decide whether client_id must be derived from the workload identity or remain independent.
-	if err := oauth.Name(s.Workload.Environment).Validate(); err != nil {
+	if err := oauth.Name(s.Client.Environment).Validate(); err != nil {
 		return fmt.Errorf("workload environment: %w", err)
 	}
-	if err := oauth.ValidateSecureURL(s.Workload.Issuer); err != nil {
+	if err := oauth.ValidateSecureURL(s.Client.Issuer); err != nil {
 		return fmt.Errorf("workload issuer: %w", err)
 	}
-	if err := oauth.Name(s.Workload.Namespace).Validate(); err != nil {
+	if err := oauth.Name(s.Client.Namespace).Validate(); err != nil {
 		return fmt.Errorf("workload namespace: %w", err)
 	}
-	if err := oauth.Name(s.Workload.Name).Validate(); err != nil {
+	if err := oauth.Name(s.Client.Name).Validate(); err != nil {
 		return fmt.Errorf("workload name: %w", err)
 	}
 

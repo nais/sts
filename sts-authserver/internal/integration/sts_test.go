@@ -55,7 +55,7 @@ func TestSts(t *testing.T) {
 		otherRegistratorToken := getKubernetesToken(t, oauthServer, "env2", fixtures.RegisteredTarget.Namespace, "registrator2")
 		statement := registration.SoftwareStatement{
 			ClientID: fixtures.RegisteredTarget.ID,
-			Workload: api.Workload{
+			Client: api.Client{
 				Environment: fixtures.RegisteredTarget.Environment,
 				Issuer:      oauthServer.Endpoint(fixtures.RegisteredTarget.Environment),
 				Namespace:   fixtures.RegisteredTarget.Namespace,
@@ -126,7 +126,7 @@ func TestSts(t *testing.T) {
 		t.Run("registers another client", func(t *testing.T) {
 			another := statement
 			another.ClientID = "env1:namespace1:another-workload"
-			another.Workload.Name = "another-workload"
+			another.Client.Name = "another-workload"
 			another.AuthorizationPolicies = []api.AuthorizationPolicy{
 				{
 					Consumer: fixtures.Client3.ID,
@@ -160,7 +160,7 @@ func TestSts(t *testing.T) {
 				}
 				target := statement
 				target.ClientID = "env1:namespace1:" + roles + "-roles-target"
-				target.Workload.Name = roles + "-roles-target"
+				target.Client.Name = roles + "-roles-target"
 				policy := map[string]any{"consumer": consumer.ID}
 				if roles == "empty" {
 					policy["roles"] = []string{}
@@ -168,7 +168,7 @@ func TestSts(t *testing.T) {
 				status, response := postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{
 					SoftwareStatement: signSoftwareStatement(t, map[string]any{
 						"client_id":              target.ClientID,
-						"workload":               target.Workload,
+						"workload":               target.Client,
 						"authorization_policies": []map[string]any{policy},
 					}),
 				})
@@ -181,9 +181,9 @@ func TestSts(t *testing.T) {
 				status, response = postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{
 					SoftwareStatement: signSoftwareStatement(t, api.SoftwareStatement{
 						ClientID: consumer.ID,
-						Workload: api.Workload{
+						Client: api.Client{
 							Environment: consumer.Environment,
-							Issuer:      target.Workload.Issuer,
+							Issuer:      target.Client.Issuer,
 							Namespace:   consumer.Namespace,
 							Name:        consumer.Workload,
 						},
@@ -215,7 +215,7 @@ func TestSts(t *testing.T) {
 		t.Run("consumer cannot grant itself access to another target", func(t *testing.T) {
 			selfGrant := statement
 			selfGrant.ClientID = "env1:namespace1:self-grant-workload"
-			selfGrant.Workload.Name = "self-grant-workload"
+			selfGrant.Client.Name = "self-grant-workload"
 			selfGrant.AuthorizationPolicies = []api.AuthorizationPolicy{
 				{Consumer: fixtures.Client3.ID, Roles: []string{fixtures.Role}},
 			}
@@ -226,9 +226,9 @@ func TestSts(t *testing.T) {
 			require.Equal(t, http.StatusOK, status, response)
 
 			consumer := clientFixture{
-				Environment: selfGrant.Workload.Environment,
-				Namespace:   selfGrant.Workload.Namespace,
-				Workload:    selfGrant.Workload.Name,
+				Environment: selfGrant.Client.Environment,
+				Namespace:   selfGrant.Client.Namespace,
+				Workload:    selfGrant.Client.Name,
 				ID:          selfGrant.ClientID,
 			}
 			target := fixtures.Client3.ID
@@ -254,14 +254,14 @@ func TestSts(t *testing.T) {
 			unauthorized := statement
 			unauthorized.AuthorizationPolicies = slices.Clone(statement.AuthorizationPolicies)
 			unauthorized.ClientID = "env2:namespace1:unauthorized-workload"
-			unauthorized.Workload.Environment = "env2"
-			unauthorized.Workload.Issuer = oauthServer.Endpoint("env2")
+			unauthorized.Client.Environment = "env2"
+			unauthorized.Client.Issuer = oauthServer.Endpoint("env2")
 			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, api.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, unauthorized),
 			})
 			require.Equal(t, http.StatusBadRequest, status, response)
 			assert.Equal(t, "unapproved_software_statement", response.Code)
-			assert.Equal(t, fmt.Sprintf("workload issuer %q does not match the registrator issuer %q", unauthorized.Workload.Issuer, statement.Workload.Issuer), response.Description)
+			assert.Equal(t, fmt.Sprintf("workload issuer %q does not match the registrator issuer %q", unauthorized.Client.Issuer, statement.Client.Issuer), response.Description)
 		})
 
 		t.Run("rejects workload identity collision", func(t *testing.T) {
@@ -279,7 +279,7 @@ func TestSts(t *testing.T) {
 		t.Run("rejects immutable field change", func(t *testing.T) {
 			changed := statement
 			changed.AuthorizationPolicies = slices.Clone(statement.AuthorizationPolicies)
-			changed.Workload.Namespace = "other-namespace"
+			changed.Client.Namespace = "other-namespace"
 			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, api.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, changed),
 			})
@@ -290,8 +290,8 @@ func TestSts(t *testing.T) {
 
 		t.Run("rejects replacement without authority over existing issuer", func(t *testing.T) {
 			replacement := statement
-			replacement.Workload.Environment = "env2"
-			replacement.Workload.Issuer = oauthServer.Endpoint("env2")
+			replacement.Client.Environment = "env2"
+			replacement.Client.Issuer = oauthServer.Endpoint("env2")
 			status, response := postRegistration[errs.ErrorResponse](t, stsAddress, otherRegistratorToken, api.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, replacement),
 			})

@@ -8,17 +8,20 @@ authorizationServer:
   issuer: http://localhost:8080
   # Client assertions and registration bearer tokens use this as their sole audience.
   expectedAudience: nais
-  clientAuthIssuers:
-    - http://localhost:3004/env1
-    - http://localhost:3004/env2
   subjectTokenIssuers:
     http://localhost:3004/subject1: name1
     http://localhost:3004/subject2: name2
   tokenExpiry: "1h"
-
-registrators:
-  - issuer: http://localhost:3004/env1
-    subject: system:serviceaccount:namespace1:client-registrator
-    clientJwksUri: http://localhost:3004/env1/jwks
-    requiredAlgs:
-      - RS256
+  environments:
+    - name: dev-fss # required
+      clientAuthIssuer: http://apiserver.dev-fss # required
+      registrator: # required
+        subject: system:serviceaccount:namespace1:client-registrator # required
+        registratorJwksUri: http://registrator.dev-fss/jwks # required
+        signingAlg: RS256 # required
+    - name: dev-gcp
+      clientAuthIssuer: http://apiserver.dev-gcp
+      registrator:
+        subject: system:serviceaccount:namespace1:client-registrator
+        registratorJwksUri: http://registrator.dev-gcp/jwks
+        signingAlg: RS256

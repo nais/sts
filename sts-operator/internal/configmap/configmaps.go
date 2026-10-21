@@ -15,7 +15,7 @@ const (
 	StakaterReloaderAnnotationKey = "reloader.stakater.com/match"
 )
 
-func CreateConfigMapSpec(name, namespace string, wellKnownURL string, metadata *stsapi.DiscoveryMetadata, workload stsapi.Workload) (*corev1.ConfigMap, error) {
+func CreateConfigMapSpec(name, namespace string, wellKnownURL string, metadata *stsapi.DiscoveryMetadata, workload stsapi.Client) (*corev1.ConfigMap, error) {
 	return &corev1.ConfigMap{
 		Kind:       "ConfigMap",
 		APIVersion: "v1",

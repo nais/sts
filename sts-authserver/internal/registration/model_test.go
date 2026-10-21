@@ -12,7 +12,7 @@ func TestSoftwareStatementValidate(t *testing.T) {
 	valid := func() SoftwareStatement {
 		return SoftwareStatement{
 			ClientID: "client-1",
-			Workload: api.Workload{
+			Client: api.Client{
 				Environment: "prod",
 				Issuer:      "https://issuer.example",
 				Namespace:   "team-a",
@@ -35,19 +35,19 @@ func TestSoftwareStatementValidate(t *testing.T) {
 			wantErr: "client_id",
 		},
 		"invalid environment": {
-			mutate:  func(s *SoftwareStatement) { s.Workload.Environment = "Prod" },
+			mutate:  func(s *SoftwareStatement) { s.Client.Environment = "Prod" },
 			wantErr: "workload environment",
 		},
 		"invalid namespace": {
-			mutate:  func(s *SoftwareStatement) { s.Workload.Namespace = "team_a" },
+			mutate:  func(s *SoftwareStatement) { s.Client.Namespace = "team_a" },
 			wantErr: "workload namespace",
 		},
 		"invalid workload": {
-			mutate:  func(s *SoftwareStatement) { s.Workload.Name = "workload.name" },
+			mutate:  func(s *SoftwareStatement) { s.Client.Name = "workload.name" },
 			wantErr: "workload name",
 		},
 		"insecure issuer": {
-			mutate:  func(s *SoftwareStatement) { s.Workload.Issuer = "http://issuer.example" },
+			mutate:  func(s *SoftwareStatement) { s.Client.Issuer = "http://issuer.example" },
 			wantErr: "workload issuer",
 		},
 		"invalid consumer": {

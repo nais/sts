@@ -3,7 +3,7 @@ package api
 import "testing"
 
 func TestWorkloadClientID(t *testing.T) {
-	workload := Workload{
+	workload := Client{
 		Environment: "dev",
 		Issuer:      "https://issuer.example",
 		Namespace:   "team",
