@@ -33,7 +33,7 @@ values:
     computed:
       template: |
         {{ range $obj := .Envs  }}
-        {{if hasPrefix $.Env.name $obj.name }}
+        {{ if and (hasPrefix $.Env.name $obj.name) (not (empty $obj.apiserver_oidc_issuer)) }}
         - env: {{ $obj.name }}
           subject: system:serviceaccount:nais-system:sts-operator
           clientAuthIssuer: {{ $obj.apiserver_oidc_issuer }}
