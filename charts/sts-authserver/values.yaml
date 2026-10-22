@@ -13,12 +13,13 @@ config:
     subjectTokenIssuers: {}
     tokenExpiry: "1h"
     maxClientAuthTokenLifetime: "10m"
-
-registrators:
-  - env: dev
-    subject: system:serviceaccount:nais-system:sts-operator
-    clientAuthIssuer: https://sts.environment.tenant.cloud.nais.io
-    registratorJwksUri: https://sts.environment.tenant.cloud.nais.io/jwks
+    environments:
+      - name: env1
+        clientAuthIssuer: https://kubernetes.default.svc
+        registrator:
+          subject: system:serviceaccount:nais-system:sts-operator
+          registratorJwksUri: https://sts.environment.tenant.cloud.nais.io/jwks
+          signingAlg: ES256
 
 image:
   repository: europe-north1-docker.pkg.dev/nais-io/nais/images/sts

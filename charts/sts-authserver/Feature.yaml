@@ -7,15 +7,6 @@ values:
     displayName: STS host
     computed:
       template: '{{ subdomain . "sts" }}'
-  config.authorizationServer.issuer:
-    displayName: STS issuer
-    computed:
-      template: 'https://{{ subdomain . "sts" }}'
-  # TODO: make configurable
-  config.authorizationServer.subjectTokenIssuers:
-    displayName: Subject Token Issuers
-    computed:
-      template: '{ {{ .Env.apiserver_oidc_issuer }}: {{ .Env.name }} }'
   image.tag:
     displayName: Image version
     config:
@@ -28,15 +19,26 @@ values:
     displayName: DNS CIDRs
     computed:
       template: '["{{ .Env.svc_ip_cidr_range }}"]'
-  registrators:
-    displayName: Registrators
+  config.authorizationServer.issuer:
+    displayName: STS issuer
+    computed:
+      template: 'https://{{ subdomain . "sts" }}'
+  # TODO: make configurable
+  config.authorizationServer.subjectTokenIssuers:
+    displayName: Subject Token Issuers
+    computed:
+      template: '{ {{ .Env.apiserver_oidc_issuer }}: {{ .Env.name }} }'
+  config.authorizationServer.environments:
+    displayName: Trust domains
     computed:
       template: |
-        {{ range $obj := .Envs  }}
+        {{ range $obj := .Envs }}
         {{ if and (hasPrefix $.Env.name $obj.name) (not (empty $obj.apiserver_oidc_issuer)) }}
-        - env: {{ $obj.name }}
-          subject: system:serviceaccount:nais-system:sts-operator
-          clientAuthIssuer: {{ $obj.apiserver_oidc_issuer }}
-          registratorJwksUri: https://sts-operator.{{ $obj.name }}.{{ $.Tenant.Name}}.cloud.nais.io/jwks
+        - name: {{ $obj.name | quote }}
+          clientAuthIssuer: {{ $obj.apiserver_oidc_issuer | quote }}
+          registrator:
+            subject: system:serviceaccount:nais-system:sts-operator
+            registratorJwksUri: https://sts-operator.{{ $obj.name }}.{{ $.Tenant.Name }}.cloud.nais.io/jwks
+            signingAlg: ES256
         {{ end }}
         {{ end }}

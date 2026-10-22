@@ -41,16 +41,17 @@ render_config() {
 
 render_config | jq -e '
   (has("config") | not) and
+  (has("environments") | not) and
   .bindAddress == ":8080" and
   .internalBindAddress == ":8081" and
   .databaseUrl == "" and
   .authorizationServer.environments == [{
-    "name": "dev",
-    "clientAuthIssuer": "https://sts.environment.tenant.cloud.nais.io",
+    "name": "env1",
+    "clientAuthIssuer": "https://kubernetes.default.svc",
     "registrator": {
       "subject": "system:serviceaccount:nais-system:sts-operator",
       "registratorJwksUri": "https://sts.environment.tenant.cloud.nais.io/jwks",
-      "signingAlg": "RS256"
+      "signingAlg": "ES256"
     }
   }]
 ' >/dev/null
@@ -60,9 +61,9 @@ render_config \
   --set config.authorizationServer.maxClientAuthTokenLifetime=5m \
   --set-string config.authorizationServer.expectedAudience=true \
   --set-json 'config.authorizationServer.subjectTokenIssuers={"https://identity.example.com":"identity"}' \
-  --set-json 'registrators=[
-    {"env":"dev-gcp","clientAuthIssuer":"https://issuer.example.com/dev","subject":"system:serviceaccount:custom:operator # literal","registratorJwksUri":"https://operator.dev.example.com/jwks"},
-    {"env":"prod-gcp","clientAuthIssuer":"https://issuer.example.com/prod","subject":"system:serviceaccount:nais-system:sts-operator","registratorJwksUri":"https://operator.prod.example.com/jwks"}
+  --set-json 'config.authorizationServer.environments=[
+    {"name":"dev-gcp","clientAuthIssuer":"https://issuer.example.com/dev","registrator":{"subject":"system:serviceaccount:custom:operator # literal","registratorJwksUri":"https://operator.dev.example.com/jwks","signingAlg":"ES256"}},
+    {"name":"prod-gcp","clientAuthIssuer":"https://issuer.example.com/prod","registrator":{"subject":"system:serviceaccount:nais-system:sts-operator","registratorJwksUri":"https://operator.prod.example.com/jwks","signingAlg":"RS256"}}
   ]' | jq -e '
     .authorizationServer as $auth |
     $auth.clientAuthSigningAlgorithms == ["ES256"] and
@@ -74,7 +75,7 @@ render_config \
     ($auth.environments | map(.registrator.registratorJwksUri)) == ["https://operator.dev.example.com/jwks", "https://operator.prod.example.com/jwks"] and
     $auth.environments[0].registrator.subject == "system:serviceaccount:custom:operator # literal" and
     $auth.environments[1].registrator.subject == "system:serviceaccount:nais-system:sts-operator" and
-    all($auth.environments[]; .registrator.signingAlg == "RS256")
+    ($auth.environments | map(.registrator.signingAlg)) == ["ES256", "RS256"]
   ' >/dev/null
 
 printf 'authserver render tests passed\n'
