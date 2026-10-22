@@ -16,7 +16,7 @@ type RegistrationClient struct {
 	signer            jose.Signer
 	publicKey         jose.JSONWebKey
 	authTokenCallback AuthTokenCallback
-	issuer            STSIssuer
+	STSIssuer
 }
 
 type (
@@ -43,7 +43,7 @@ func NewRegistrationClient(issuer STSIssuer, authTokenCallback AuthTokenCallback
 	}
 
 	c := &RegistrationClient{
-		issuer:            issuer,
+		STSIssuer:         issuer,
 		requester:         r,
 		authTokenCallback: authTokenCallback,
 	}
@@ -101,13 +101,13 @@ func (r *RegistrationClient) Register(ctx context.Context, statement SoftwareSta
 		return nil, fmt.Errorf("sign software statement: %w", err)
 	}
 	cr := ClientRegistration{ss}
-	return r.requester.Do[ClientRegistrationResponse](ctx, r.issuer.RegistrationEndpoint(), http.MethodPost, cr, http.StatusOK, r.authTokenCallback)
+	return r.requester.Do[ClientRegistrationResponse](ctx, r.RegistrationEndpoint(), http.MethodPost, cr, http.StatusOK, r.authTokenCallback)
 }
 
 // Delete removes the registration identified by clientID.
 // It requires HTTP 204 No Content, including when the registration is missing.
 func (r *RegistrationClient) Delete(ctx context.Context, clientID string) error {
-	_, err := r.requester.Do[any](ctx, r.issuer.DeleteEndpoint(clientID), http.MethodDelete, nil, http.StatusNoContent, r.authTokenCallback)
+	_, err := r.requester.Do[any](ctx, r.DeleteEndpoint(clientID), http.MethodDelete, nil, http.StatusNoContent, r.authTokenCallback)
 	return err
 }
 
@@ -122,7 +122,7 @@ func (r *RegistrationClient) PublicKeySet() (jose.JSONWebKeySet, error) {
 // FetchSTSMetadata fetches the discovery metadata from the issuer's well-known endpoint.
 // It requires HTTP 200 OK and returns the decoded metadata.
 func (r *RegistrationClient) FetchSTSMetadata(ctx context.Context) (*DiscoveryMetadata, error) {
-	metadata, err := r.requester.Do[DiscoveryMetadata](ctx, r.issuer.OAuthDiscoveryEndpoint(), http.MethodGet, nil, http.StatusOK, nil)
+	metadata, err := r.requester.Do[DiscoveryMetadata](ctx, r.OAuthDiscoveryEndpoint(), http.MethodGet, nil, http.StatusOK, nil)
 	if err != nil {
 		return nil, fmt.Errorf("fetch discovery metadata: %w", err)
 	}

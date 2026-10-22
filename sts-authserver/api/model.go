@@ -57,8 +57,10 @@ const (
 	GrantTypeTokenExchange GrantType = "urn:ietf:params:oauth:grant-type:token-exchange" // #nosec G101 -- Public OAuth grant type identifier, not a credential.
 )
 
-type GrantType string
-type AuthMethod string
+type (
+	GrantType  string
+	AuthMethod string
+)
 
 const (
 	AuthMethodPrivateKeyJWT AuthMethod = "private_key_jwt"

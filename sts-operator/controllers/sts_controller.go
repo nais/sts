@@ -8,7 +8,7 @@ import (
 	"github.com/nais/sts-operator/internal/config"
 	"github.com/nais/sts-operator/internal/configmap"
 	stsmetrics "github.com/nais/sts-operator/internal/metric"
-	"github.com/nais/sts-operator/internal/sts"
+	stsapi "github.com/nais/sts/api"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -29,25 +29,25 @@ type STSClientReconciler struct {
 	Scheme   *runtime.Scheme
 	Recorder kevents.EventRecorder
 	Config   *config.Config
-	*sts.Registrator
+	*stsapi.RegistrationClient
 }
 
-func NewSTSClientReconciler(ctx context.Context, mgr ctrl.Manager, cfg *config.Config) error {
-	registrator, err := sts.NewRegistrator(ctx, cfg)
+func NewSTSClientReconciler(mgr ctrl.Manager, cfg *config.Config) (*STSClientReconciler, error) {
+	registrator, err := stsapi.NewRegistrationClient(stsapi.STSIssuer(cfg.STSBaseURL), stsapi.TokenFromFile(cfg.AuthTokenPath))
 	if err != nil {
-		return fmt.Errorf("create STS registrator: %w", err)
+		return nil, fmt.Errorf("create STS registrator: %w", err)
 	}
 	r := &STSClientReconciler{
-		Client:      mgr.GetClient(),
-		Config:      cfg,
-		Recorder:    mgr.GetEventRecorder("sts-operator"),
-		Scheme:      mgr.GetScheme(),
-		Registrator: registrator,
+		Client:             mgr.GetClient(),
+		Config:             cfg,
+		Recorder:           mgr.GetEventRecorder("sts-operator"),
+		Scheme:             mgr.GetScheme(),
+		RegistrationClient: registrator,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("create controller: %w", err)
+		return nil, fmt.Errorf("create controller: %w", err)
 	}
-	return nil
+	return r, nil
 }
 
 func (r *STSClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -78,13 +78,13 @@ func (r *STSClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// object is marked for deletion
 	if !stsClient.DeletionTimestamp.IsZero() {
 		clientID := stsClient.Status.ClientID
-		if clientID == "" {
-			// Registration may have succeeded before its status update failed.
-			clientID = r.clientID(req)
-		}
-		if err := r.finalize(ctx, clientID, &stsClient); err != nil {
-			stsmetrics.STSClientsProcessingFailedCount.Inc()
-			return ctrl.Result{}, fmt.Errorf("finalize: %w", err)
+		// Registration may have succeeded before its status update failed. It is ok if the client is not removed from STS
+		// in this edge case, as the STSClient will be re-registered on the next reconciliation.
+		if clientID != "" {
+			if err := r.finalize(ctx, clientID, &stsClient); err != nil {
+				stsmetrics.STSClientsProcessingFailedCount.Inc()
+				return ctrl.Result{}, fmt.Errorf("finalize: %w", err)
+			}
 		}
 		return ctrl.Result{}, nil
 	}
@@ -148,8 +148,7 @@ func (r *STSClientReconciler) prepare(ctx context.Context, _ ctrl.Request, _ sts
 func (r *STSClientReconciler) synchronize(ctx context.Context, req ctrl.Request, stsClient stsv1.STSClient) (string, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("subsystem", "synchronize")
 
-	statement := r.MakeSoftwareStatement(stsClient)
-	registration, err := r.Register(ctx, statement)
+	registration, err := r.Register(ctx, makeSoftwareStatement(stsClient))
 	if err != nil {
 		return "", fmt.Errorf("registering client with STS: %w", err)
 	}
@@ -159,8 +158,11 @@ func (r *STSClientReconciler) synchronize(ctx context.Context, req ctrl.Request,
 
 	// TODO: set name properly, get from CRD
 	cmName := "sts-" + req.Name
-	// TODO: go over params here
-	configMap, err := configmap.CreateConfigMapSpec(cmName, req.Namespace, r.WellKnownURL, r.Metadata, req.Name, clientID)
+	configMap, err := configmap.CreateConfigMapSpec(cmName, req.Namespace, configmap.ConfigMapData{
+		AppName:  req.Name,
+		ClientID: clientID,
+		Issuer:   r.STSIssuer,
+	})
 	if err != nil {
 		return "", fmt.Errorf("creating config map spec: %w", err)
 	}
@@ -216,7 +218,19 @@ func (r *STSClientReconciler) updateSTSClient(ctx context.Context, stsClient sts
 	return updateFunc(existing)
 }
 
-// TODO: move this and consolidate client id generation/usage
-func (r *STSClientReconciler) clientID(req ctrl.Request) string {
-	return fmt.Sprintf("%s:%s:%s", r.ClusterName, req.Namespace, req.Name)
+func makeSoftwareStatement(oauthClient stsv1.STSClient) stsapi.SoftwareStatement {
+	var policies []stsapi.AuthorizationPolicy
+	for _, acl := range oauthClient.Spec.AccessControlList {
+		for _, workload := range acl.Workloads {
+			policies = append(policies, stsapi.AuthorizationPolicy{
+				Consumer: stsapi.Client{Namespace: acl.Team, Name: workload.Name},
+				Roles:    workload.Roles,
+			})
+		}
+	}
+
+	return stsapi.SoftwareStatement{
+		Client:                stsapi.Client{Namespace: oauthClient.Namespace, Name: oauthClient.Name},
+		AuthorizationPolicies: policies,
+	}
 }

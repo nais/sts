@@ -16,7 +16,6 @@ import (
 	"github.com/nais/sts-operator/controllers"
 	"github.com/nais/sts-operator/internal/config"
 	"github.com/nais/sts-operator/internal/configmap"
-	"github.com/nais/sts-operator/internal/sts"
 	stsapi "github.com/nais/sts/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -121,18 +120,10 @@ func TestSTSClientReconciler(t *testing.T) {
 		STSBaseURL:              stsURL,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	registrator, err := sts.NewRegistrator(ctx, cfg)
+	registrator, err := controllers.NewSTSClientReconciler(mgr, cfg)
 	require.NoError(t, err)
 	keySet, err := registrator.PublicKeySet()
 	require.NoError(t, err)
-
-	require.NoError(t, (&controllers.STSClientReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		Recorder:    mgr.GetEventRecorder("sts-operator"),
-		Config:      cfg,
-		Registrator: registrator,
-	}).SetupWithManager(mgr))
 
 	mgrDone := make(chan error, 1)
 	go func() {

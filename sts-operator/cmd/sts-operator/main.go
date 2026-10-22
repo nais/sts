@@ -78,7 +78,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = controllers.NewSTSClientReconciler(ctx, mgr, cfg); err != nil {
+	if _, err = controllers.NewSTSClientReconciler(mgr, cfg); err != nil {
 		log.Error("unable to create controller", "controller", "stsclient", "error", err)
 		os.Exit(1)
 	}
