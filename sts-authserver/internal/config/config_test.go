@@ -104,3 +104,15 @@ func writeConfig(t *testing.T, contents string) string {
 	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
 	return path
 }
+
+func TestLoadFileAdditionalCAFile(t *testing.T) {
+	base := "databaseUrl: postgres://localhost/sts\nauthorizationServer:\n  issuer: https://sts.example\n  environments:\n    - name: dev\n      clientAuthIssuer: https://client.example\n      registrator:\n        subject: registrator\n        registratorJwksUri: https://registrator.example/jwks\n        signingAlg: RS256\n"
+
+	cfg, err := loadFile(writeConfig(t, base))
+	require.NoError(t, err)
+	assert.Empty(t, cfg.AdditionalCAFile)
+
+	cfg, err = loadFile(writeConfig(t, base+"additionalCAFile: /etc/ssl/k3d-ca.pem\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "/etc/ssl/k3d-ca.pem", cfg.AdditionalCAFile)
+}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nais/sts/api"
@@ -28,11 +27,9 @@ func stsApi(
 	keyStore oauth.KeyStore,
 	provider *stsmetrics.Provider,
 ) (http.Handler, error) {
-	httpClient := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
-			return fmt.Errorf("redirect to %q is not allowed", req.URL)
-		},
+	httpClient, err := newHTTPClient(cfg.AdditionalCAFile)
+	if err != nil {
+		return nil, fmt.Errorf("create upstream HTTP client: %w", err)
 	}
 
 	router := chi.NewRouter()
