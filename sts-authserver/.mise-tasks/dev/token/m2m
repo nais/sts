@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+#MISE description="Get a client credentials token from the k3d authserver with a Kubernetes service account"
+#USAGE flag "-n --namespace <namespace>" help="Namespace of the client and target" default="sts-demo"
+#USAGE flag "-w --workload <workload>" help="Service account of the client" default="consumer"
+#USAGE flag "-t --target_workload <target_workload>" help="Target workload" default="smoke-client"
+set -euo pipefail
+source "$(dirname "$0")/_common"
+
+WORKLOAD_TOKEN=$(workload_token "${usage_namespace}" "${usage_workload}")
+printf '%s\n' "Authenticating with token:"
+inspect <<< "${WORKLOAD_TOKEN}"
+
+post_token \
+  -d 'grant_type=client_credentials' \
+  -d 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
+  -d "client_assertion=${WORKLOAD_TOKEN}" \
+  -d "scope=${CLUSTER}:${usage_namespace}:${usage_target_workload}"

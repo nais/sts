@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Run the controller from your host"
-set -euo pipefail
-
-exec go run ./cmd/sts-operator/main.go

@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-#MISE description="Run STS locally"
-#MISE depends=["//sts-authserver:local"]

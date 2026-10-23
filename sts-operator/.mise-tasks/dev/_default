@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="Run the operator against k3d (needs dev:setup)"
+set -euo pipefail
+
+set -a
+source config/local/operator.env
+set +a
+# Build and exec instead of `go run`, so Mise signals the operator itself and no orphan survives.
+go build -o bin/sts-operator-local ./cmd/sts-operator-local
+exec bin/sts-operator-local

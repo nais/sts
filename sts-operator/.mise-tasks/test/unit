@@ -2,5 +2,5 @@
 #MISE description="Run unit tests"
 set -euo pipefail
 
-go test -race -cover ./cmd/... ./config/... ./internal/...
+go test -race -cover ./cmd/... ./internal/...
 (cd api && go test -race -cover ./...)

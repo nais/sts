@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="STS Local" type="CompoundRunConfigurationType">
+    <toRun name="go build sts-authserver" type="GoApplicationRunConfiguration" />
+    <toRun name="go build sts-operator" type="GoApplicationRunConfiguration" />
+    <method v="2" />
+  </configuration>
+</component>

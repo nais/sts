@@ -1,3 +1,20 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sts-demo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: consumer
+  namespace: sts-demo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: smoke-client
+  namespace: sts-demo
+---
 apiVersion: nais.io/v1
 kind: STSClient
 metadata:
@@ -9,3 +26,11 @@ spec:
       workloads:
         - name: consumer
           roles: [reader]
+---
+apiVersion: nais.io/v1
+kind: STSClient
+metadata:
+  name: consumer
+  namespace: sts-demo
+spec:
+  acl: []

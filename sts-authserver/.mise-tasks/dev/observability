@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-#MISE description="Start local Prometheus and Grafana"
+#MISE description="Start Prometheus and Grafana for STS metrics (mock or k3d)"
 
 set -e
 

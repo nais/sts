@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+#MISE description="Prepare k3d and PostgreSQL, then run the authserver and operator in the terminal"
+#MISE depends=["dev:setup"]
+set -e
+
+# Run after setup completes; listing these as depends would start them in parallel with setup.
+exec mise run //sts-authserver:dev ::: //sts-operator:dev

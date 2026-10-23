@@ -18,6 +18,7 @@ type Config struct {
 	InternalBindAddress       string                          `yaml:"internalBindAddress"`
 	LogLevel                  slog.Level                      `yaml:"logLevel"`
 	LogFormat                 string                          `yaml:"logFormat"`
+	AdditionalCAFile          string                          `yaml:"additionalCAFile"`
 	AuthorizationServerConfig oauth.AuthorizationServerConfig `yaml:"authorizationServer"`
 }
 

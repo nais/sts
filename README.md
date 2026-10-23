@@ -52,12 +52,32 @@ The service supports:
 
 ## Local development
 
-Install [mise](https://mise.jdx.dev/).
-Run the commands in this section from the repository root:
+Install [mise](https://mise.jdx.dev/) and start Docker.
+Run the commands in this section from the repository root.
+
+### Authserver and operator against k3d
 
 ```shell
-mise run local
+mise run dev  # prepares k3d and PostgreSQL, then runs both services
 ```
+
+For IntelliJ, run `mise run dev:setup` first, then run "STS Local".
+
+After `mise run sts-operator:k3d:sample`, try the token flows with Kubernetes service account tokens:
+
+- `mise run sts-authserver:dev:token:m2m`: get a client credentials token.
+- `mise run sts-authserver:dev:token:obo`: exchange a subject token from the mock issuer.
+
+See the [operator README](sts-operator/README.md#local-debugging-with-k3d) for details.
+
+### Standalone authserver with mock issuers
+
+```shell
+mise run sts-authserver:mock
+```
+
+This starts PostgreSQL and a mock OAuth server, seeds fixtures and runs the authserver with `sts-authserver/config.yaml`, copied from `config.example.yaml` if absent.
+It uses the same ports as the k3d workflow, so run only one at a time.
 
 Endpoints:
 
@@ -68,12 +88,7 @@ Endpoints:
 
 Try the token flows:
 
-- `mise run sts-authserver:token:m2m`: get a client credentials token.
-- `mise run sts-authserver:token:obo`: exchange a subject token.
-
-Configuration:
-
-- Local setup copies `sts-authserver/config.example.yaml` to the gitignored `sts-authserver/config.yaml` if absent.
-- Edit `sts-authserver/config.yaml` for local settings. See [configuration](docs/configuration.md).
+- `mise run sts-authserver:mock:token:m2m`: get a client credentials token.
+- `mise run sts-authserver:mock:token:obo`: exchange a subject token.
 
 Run `mise tasks --all` for all commands.

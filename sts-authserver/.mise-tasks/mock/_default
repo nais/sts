@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+#MISE description="Run the authserver against the mock environment"
+#MISE depends=["mock:setup"]
+#MISE env={CONFIG_FILE = "config.yaml"}
+
+set -e
+
+go run ./cmd/sts

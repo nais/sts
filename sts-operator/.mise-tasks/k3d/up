@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Create the dedicated operator development cluster"
-set -euo pipefail
-
-exec bash "$(dirname "${BASH_SOURCE[0]}")/.k3d.sh" up

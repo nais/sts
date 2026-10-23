@@ -38,7 +38,26 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
-func Run(cfg *config.Config, log *slog.Logger) error {
+type Options struct {
+	tokenCallback stsapi.AuthTokenCallback
+}
+
+type Option func(*Options)
+
+func WithAuthTokenCallback(callback stsapi.AuthTokenCallback) Option {
+	return func(o *Options) {
+		o.tokenCallback = callback
+	}
+}
+
+func Run(cfg *config.Config, log *slog.Logger, opts ...Option) error {
+	options := &Options{
+		tokenCallback: stsapi.TokenFromFile(cfg.AuthTokenPath),
+	}
+	for _, o := range opts {
+		o(options)
+	}
+
 	if err := setupLogger(cfg.LogLevel); err != nil {
 		return fmt.Errorf("set up logger: %w", err)
 	}
@@ -71,7 +90,7 @@ func Run(cfg *config.Config, log *slog.Logger) error {
 		return fmt.Errorf("register ready check: %w", err)
 	}
 
-	registrator, err := stsapi.NewRegistrationClient(stsapi.STSIssuer(cfg.STSBaseURL), stsapi.TokenFromFile(cfg.AuthTokenPath))
+	registrator, err := stsapi.NewRegistrationClient(stsapi.STSIssuer(cfg.STSBaseURL), options.tokenCallback)
 	if err != nil {
 		return fmt.Errorf("create STS registrator: %w", err)
 	}
