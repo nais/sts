@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -117,6 +118,25 @@ func (r *RegistrationClient) PublicKeySet() (jose.JSONWebKeySet, error) {
 	return jose.JSONWebKeySet{
 		Keys: []jose.JSONWebKey{r.publicKey},
 	}, nil
+}
+
+func (r *RegistrationClient) PublicKeySetHandler(w http.ResponseWriter, req *http.Request) {
+	jwks, err := r.PublicKeySet()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get public key set: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	contentType := "application/jwk-set+json"
+	if req.Header.Get("Accept") == "application/json" {
+		contentType = "application/json"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Add("Vary", "Accept")
+	if err := json.NewEncoder(w).Encode(jwks); err != nil {
+		http.Error(w, fmt.Sprintf("failed to encode public key set: %v", err), http.StatusInternalServerError)
+	}
 }
 
 // FetchSTSMetadata fetches the discovery metadata from the issuer's well-known endpoint.
