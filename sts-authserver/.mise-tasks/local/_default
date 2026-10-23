@@ -1,8 +1,0 @@
-#!/usr/bin/env sh
-#MISE description="Run the service locally"
-#MISE depends=["local:setup"]
-#MISE env={CONFIG_FILE = "config.yaml"}
-
-set -e
-
-go run ./cmd/sts

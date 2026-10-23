@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-#MISE description="Setup local environment"
+#MISE description="Set up the mock environment (Docker services and local data)"
 #MISE env={CONFIG_FILE = "config.yaml"}
 
 set -e

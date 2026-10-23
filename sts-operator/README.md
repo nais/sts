@@ -74,53 +74,29 @@ The API is a separate Go module under `api/`, referenced locally by the operator
 
 ### Local debugging with k3d
 
-Start Docker, then create the development cluster from the repository root:
+Both Go services run on your machine; k3d provides only Kubernetes.
+Start Docker, then run both services in the terminal from the repository root:
 
 ```shell
-mise run sts-operator:k3d
+mise run dev
 ```
 
-The task creates Kubernetes, installs the CRD, and creates the registrator service account.
-It writes a dedicated kubeconfig and public CA certificate to `sts-operator/.local/`, without changing your default Kubernetes context.
-It does not build images or deploy either Go service, a database, or a mock.
+`dev` first runs `dev:setup`, which is safe to repeat, and then starts both services.
 
-The API binds to `127.0.0.1:6553` and advertises that address as its token issuer.
-Public OIDC discovery and JWKS reads are enabled so the local authserver can verify Kubernetes tokens.
+`dev:setup` starts PostgreSQL and runs `sts-operator:k3d`, which creates the cluster, installs the CRD and creates the registrator service account.
+It writes a dedicated kubeconfig and CA certificate to `sts-operator/.local/` without changing your default Kubernetes context.
+The API listens on `127.0.0.1:6553` and is the token issuer.
 Set `K3D_API_PORT` before cluster creation to change the port, and update `clientAuthIssuer` in `config.k3d.yaml` to match.
 
-In one terminal, start PostgreSQL and run the authserver from the repository root:
+IntelliJ skips Mise, so run `mise run dev:setup` first, then open the repository root and run or debug `STS Local` from `.run/`.
+Use one or the other; both bind the same ports.
 
-```shell
-mise run sts-authserver:run
-```
-
-In another terminal, run the operator:
-
-```shell
-mise run sts-operator:run
-```
-
-No token file is needed: the operator obtains real service account tokens through the current kubeconfig.
-The authserver trusts the generated Kubernetes CA through `additionalCAFile`; no system trust-store changes or disabled TLS checks are needed.
-Both services use ordinary localhost HTTP endpoints:
+The operator runs `cmd/sts-operator-local`, which requests service account tokens through the kubeconfig; production uses `cmd/sts-operator`.
+The authserver trusts the k3d CA through `additionalCAFile`.
+Endpoints:
 
 - Authserver: `http://localhost:8080`
 - Operator JWKS: `http://localhost:8182/jwks`
-
-For IntelliJ with the Go plugin, shared run configurations are available in the repository's `.run/` directory.
-Open the repository root, then select `STS Local` to run or debug both services, or select either service individually.
-The operator configuration runs `cmd/sts-operator-local`; production uses `cmd/sts-operator`.
-
-Before starting the IDE configurations, start Docker and run these commands from the repository root:
-
-```shell
-mise run sts-operator:k3d
-docker compose -f sts-authserver/docker-compose.yaml up -d --wait postgres
-```
-
-The IDE configurations run Go directly, so mise task dependencies do not apply.
-Do not run `mise run local` at the same time; it would start duplicate services on the same ports.
-No container rebuild or redeployment is involved.
 
 Apply and inspect sample clients from `sts-operator/`:
 

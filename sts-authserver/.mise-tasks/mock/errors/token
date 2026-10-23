@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Send failing requests to the local token endpoint"
+#MISE description="Send failing requests to the mock authserver token endpoint"
 #MISE env={CONFIG_FILE = "config.yaml"}
 
 set -euo pipefail

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Prepare k3d and PostgreSQL for local development"
+set -euo pipefail
+
+mise run //sts-operator:k3d
+docker compose -f sts-authserver/docker-compose.yaml up -d --wait postgres

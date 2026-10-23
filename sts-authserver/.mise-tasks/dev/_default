@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Run the authserver against k3d (needs dev:setup)"
+set -euo pipefail
+
+CONFIG_FILE=config.k3d.yaml exec go run ./cmd/sts
