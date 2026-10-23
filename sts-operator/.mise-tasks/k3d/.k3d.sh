@@ -35,7 +35,7 @@ up() {
 
 deploy() {
   load_kubeconfig
-  docker build -t sts-operator:dev .
+  docker build --build-context sts-api=../sts-authserver/api -t sts-operator:dev .
   docker build -f config/local/Dockerfile.mock -t sts-operator-mock:dev .
   k3d image import sts-operator:dev sts-operator-mock:dev --cluster "$CLUSTER"
 

@@ -14,6 +14,7 @@ type Config struct {
 	LeaderElection          bool   `env:"LEADER_ELECTION,default=false"`
 	LogLevel                string `env:"LOG_LEVEL,default=info"`
 	MaxConcurrentReconciles int    `env:"MAX_CONCURRENT_RECONCILES,default=20"`
+	JwksAddr                string `env:"JWKS_ADDR,default=:8182"`
 	MetricsAddr             string `env:"METRICS_ADDR,default=:8181"`
 	ProbeAddr               string `env:"PROBE_ADDR,default=:8180"`
 	STSBaseURL              string `env:"STS_BASE_URL,required"`
