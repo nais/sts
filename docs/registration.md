@@ -27,7 +27,7 @@ authorizationServer:
       registrator:
         subject: client-registrator
         registratorJwksUri: https://registrator.example.com/jwks
-        signingAlg: RS256
+        signingAlg: ES256
 ```
 
 The bearer token's decoded claims look like this:
@@ -116,19 +116,21 @@ Content-Type: application/json
 {
   "keys": [
     {
-      "kty": "RSA",
+      "kty": "EC",
       "kid": "registration-key-1",
       "use": "sig",
-      "alg": "RS256",
-      "n": "<omitted for brevity>",
-      "e": "AQAB"
+      "alg": "ES256",
+      "crv": "P-256",
+      "x": "<base64url x coordinate>",
+      "y": "<base64url y coordinate>"
     }
   ]
 }
 ```
 
 The JWT header's `kid` must match a published key.
-Its `alg` must match the registrator's `signingAlg`. In this example, it must be `RS256`.
+Its `alg` must match the registrator's `signingAlg`.
+In this example, it must be `ES256`.
 
 ## Create or replace a client
 

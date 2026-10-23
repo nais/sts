@@ -76,8 +76,26 @@ func TestLoadFileRejectsUnknownFields(t *testing.T) {
 
 func TestLoadExampleConfig(t *testing.T) {
 	t.Setenv("CONFIG_FILE", filepath.Join("..", "..", "config.example.yaml"))
-	_, err := Load()
+	cfg, err := Load()
 	require.NoError(t, err)
+	for _, env := range cfg.AuthorizationServerConfig.Environments {
+		assert.Equal(t, string(api.SoftwareStatementSigningAlgorithm), env.Registrator.SigningAlg)
+	}
+}
+
+func TestLoadRenderedConfigs(t *testing.T) {
+	dir := os.Getenv("STS_TEST_CONFIG_DIR")
+	if dir == "" {
+		t.Skip("run mise run check:helm-render to validate rendered chart configuration")
+	}
+	// The Deployment supplies the database URL through a Secret-backed variable.
+	t.Setenv("DATABASE_URL", "postgres://localhost/sts")
+	for _, name := range []string{"default.json", "custom.json"} {
+		t.Run(name, func(t *testing.T) {
+			_, err := loadFile(filepath.Join(dir, name))
+			require.NoError(t, err)
+		})
+	}
 }
 
 func writeConfig(t *testing.T, contents string) string {

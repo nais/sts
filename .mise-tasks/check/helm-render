@@ -33,13 +33,17 @@ helm template authserver ./charts/sts-authserver --set postgresqlEnabled=false \
   ' >/dev/null
 
 # Parse the embedded application config, not just the Kubernetes manifest.
+config_dir=$(mktemp -d)
+trap 'rm -rf "$config_dir"' EXIT
+
 render_config() {
   helm template authserver ./charts/sts-authserver \
     --show-only templates/config-secret.yaml "$@" |
     yq -r '.stringData["config.yaml"]' | yq -o=json
 }
 
-render_config | jq -e '
+render_config > "$config_dir/default.json"
+jq -e '
   (has("config") | not) and
   (has("environments") | not) and
   .bindAddress == ":8080" and
@@ -50,11 +54,11 @@ render_config | jq -e '
     "clientAuthIssuer": "https://kubernetes.default.svc",
     "registrator": {
       "subject": "system:serviceaccount:nais-system:sts-operator",
-      "registratorJwksUri": "https://sts.environment.tenant.cloud.nais.io/jwks",
+      "registratorJwksUri": "https://sts-operator.environment.tenant.cloud.nais.io/jwks",
       "signingAlg": "ES256"
     }
   }]
-' >/dev/null
+' "$config_dir/default.json" >/dev/null
 
 render_config \
   --set 'config.authorizationServer.clientAuthSigningAlgorithms[0]=ES256' \
@@ -64,7 +68,7 @@ render_config \
   --set-json 'config.authorizationServer.environments=[
     {"name":"dev-gcp","clientAuthIssuer":"https://issuer.example.com/dev","registrator":{"subject":"system:serviceaccount:custom:operator # literal","registratorJwksUri":"https://operator.dev.example.com/jwks","signingAlg":"ES256"}},
     {"name":"prod-gcp","clientAuthIssuer":"https://issuer.example.com/prod","registrator":{"subject":"system:serviceaccount:nais-system:sts-operator","registratorJwksUri":"https://operator.prod.example.com/jwks","signingAlg":"RS256"}}
-  ]' | jq -e '
+  ]' | tee "$config_dir/custom.json" | jq -e '
     .authorizationServer as $auth |
     $auth.clientAuthSigningAlgorithms == ["ES256"] and
     $auth.maxClientAuthTokenLifetime == "5m" and
@@ -77,5 +81,8 @@ render_config \
     $auth.environments[1].registrator.subject == "system:serviceaccount:nais-system:sts-operator" and
     ($auth.environments | map(.registrator.signingAlg)) == ["ES256", "RS256"]
   ' >/dev/null
+
+# Check the rendered configuration with the same defaults and validation as startup.
+(cd sts-authserver && STS_TEST_CONFIG_DIR="$config_dir" go test -count=1 ./internal/config -run '^TestLoadRenderedConfigs$')
 
 printf 'authserver render tests passed\n'

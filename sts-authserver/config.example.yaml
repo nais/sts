@@ -18,10 +18,10 @@ authorizationServer:
       registrator: # required
         subject: system:serviceaccount:namespace1:client-registrator # required
         registratorJwksUri: http://localhost:3004/env1/jwks # required
-        signingAlg: RS256 # required
+        signingAlg: ES256 # required
     - name: dev-gcp
       clientAuthIssuer: http://localhost:3004/env2
       registrator:
         subject: system:serviceaccount:namespace1:client-registrator
         registratorJwksUri: http://localhost:3004/env2/jwks
-        signingAlg: RS256
+        signingAlg: ES256

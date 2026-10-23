@@ -18,7 +18,7 @@ config:
         clientAuthIssuer: https://kubernetes.default.svc
         registrator:
           subject: system:serviceaccount:nais-system:sts-operator
-          registratorJwksUri: https://sts.environment.tenant.cloud.nais.io/jwks
+          registratorJwksUri: https://sts-operator.environment.tenant.cloud.nais.io/jwks
           signingAlg: ES256
 
 image:

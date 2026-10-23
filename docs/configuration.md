@@ -9,6 +9,10 @@ before validation. Otherwise, `databaseUrl` must be supplied in the file.
 See [`config.example.yaml`](../sts-authserver/config.example.yaml) for a local example.
 It sets `tokenExpiry` to `1h` instead of the `15m` default.
 
+The Helm chart's `config` values map verbatim to this file's fields.
+`clientAuthSigningAlgorithms` controls the algorithms accepted for Kubernetes-issued client assertions and registration bearer tokens.
+`environments[].registrator.signingAlg` is separate: it sets the algorithm the registrator must use to sign software statements.
+
 | Field                                             | Default   | Required | Constraints                                                   | Description                                                                                    |
 |---------------------------------------------------|-----------|----------|---------------------------------------------------------------|------------------------------------------------------------------------------------------------|
 | `bindAddress`                                     | `:8080`   |          | Nonempty.                                                     | Public HTTP listener.                                                                          |
