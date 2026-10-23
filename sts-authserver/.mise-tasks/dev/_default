@@ -2,4 +2,6 @@
 #MISE description="Run the authserver against k3d (needs dev:setup)"
 set -euo pipefail
 
-CONFIG_FILE=config.k3d.yaml exec go run ./cmd/sts
+# Build and exec instead of `go run`, so Mise signals the server itself and no orphan survives.
+go build -o bin/sts-dev ./cmd/sts
+CONFIG_FILE=config.k3d.yaml exec bin/sts-dev
