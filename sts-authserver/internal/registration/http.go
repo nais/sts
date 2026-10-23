@@ -8,7 +8,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nais/sts/api"
-	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/http"
 	"github.com/nais/sts/internal/oauth"
@@ -107,14 +106,13 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 			})
 		}
 	}
-	err := a.store.Save(ctx, &oauth.Client{Client: sqlgen.Client{
+	err := a.store.Save(ctx, &oauth.Client{
 		ID:            string(clientID),
 		Environment:   string(registrator.Environment),
 		Namespace:     s.Client.Namespace,
 		Name:          s.Client.Name,
 		Issuer:        registrator.AuthIssuer,
-		AllowedScopes: []string{},
-	}}, policies, registrator.AuthIssuer)
+		AllowedScopes: []string{}}, policies, registrator.AuthIssuer)
 	switch {
 	case err == nil:
 		return clientID, nil
