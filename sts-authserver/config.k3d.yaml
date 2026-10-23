@@ -8,7 +8,8 @@ logFormat: text
 authorizationServer:
   issuer: http://localhost:8080
   expectedAudience: nais
-  subjectTokenIssuers: {}
+  subjectTokenIssuers:
+    http://localhost:3004/subject1: name1
   environments:
     - name: sts-operator-dev
       clientAuthIssuer: https://127.0.0.1:6553

@@ -83,7 +83,7 @@ mise run dev
 
 `dev` first runs `dev:setup`, which is safe to repeat, and then starts both services.
 
-`dev:setup` starts PostgreSQL and runs `sts-operator:k3d`, which creates the cluster, installs the CRD and creates the registrator service account.
+`dev:setup` starts PostgreSQL and the mock subject issuer, and runs `sts-operator:k3d`, which creates the cluster, installs the CRD and creates the registrator service account.
 It writes a dedicated kubeconfig and CA certificate to `sts-operator/.local/` without changing your default Kubernetes context.
 The API listens on `127.0.0.1:6553` and is the token issuer.
 Set `K3D_API_PORT` before cluster creation to change the port, and update `clientAuthIssuer` in `config.k3d.yaml` to match.

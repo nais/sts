@@ -63,6 +63,11 @@ mise run dev  # prepares k3d and PostgreSQL, then runs both services
 
 For IntelliJ, run `mise run dev:setup` first, then run "STS Local".
 
+After `mise run sts-operator:k3d:sample`, try the token flows with Kubernetes service account tokens:
+
+- `mise run sts-authserver:dev:token:m2m`: get a client credentials token.
+- `mise run sts-authserver:dev:token:obo`: exchange a subject token from the mock issuer.
+
 See the [operator README](sts-operator/README.md#local-debugging-with-k3d) for details.
 
 ### Standalone authserver with mock issuers

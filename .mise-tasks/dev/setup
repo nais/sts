@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
-#MISE description="Prepare k3d and PostgreSQL for local development"
+#MISE description="Prepare k3d, PostgreSQL and the mock subject issuer for local development"
 set -euo pipefail
 
 mise run //sts-operator:k3d
-docker compose -f sts-authserver/docker-compose.yaml up -d --wait postgres
+docker compose -f sts-authserver/docker-compose.yaml up -d --wait postgres mock-oauth-server
+
+# The mock image has no healthcheck, so wait until the subject issuer answers discovery.
+for _ in $(seq 1 30); do
+  curl -fsS -o /dev/null http://localhost:3004/subject1/.well-known/openid-configuration && exit 0
+  sleep 1
+done
+echo "mock-oauth-server did not become ready on localhost:3004" >&2
+exit 1

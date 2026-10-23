@@ -1,0 +1,20 @@
+# Sourced by dev token tasks; not a task itself.
+STS_URL=http://localhost:8080
+KUBECONFIG_FILE=../sts-operator/.local/kubeconfig
+CLUSTER=sts-operator-dev
+
+inspect() { step crypto jwt inspect --insecure | jq -r .; }
+
+# Requests a real Kubernetes service account token for the client assertion.
+workload_token() {
+  kubectl --kubeconfig="${KUBECONFIG_FILE}" -n "$1" create token "$2" --audience nais --duration 10m
+}
+
+post_token() {
+  local response
+  if ! response=$(curl -sS --fail-with-body "${STS_URL}/token" "$@"); then
+    printf '%s\n' "${response}" >&2
+    exit 1
+  fi
+  jq -r '.access_token' <<< "${response}" | inspect
+}
