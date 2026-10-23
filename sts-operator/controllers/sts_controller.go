@@ -32,11 +32,7 @@ type STSClientReconciler struct {
 	*stsapi.RegistrationClient
 }
 
-func NewSTSClientReconciler(mgr ctrl.Manager, cfg *config.Config) (*STSClientReconciler, error) {
-	registrator, err := stsapi.NewRegistrationClient(stsapi.STSIssuer(cfg.STSBaseURL), stsapi.TokenFromFile(cfg.AuthTokenPath))
-	if err != nil {
-		return nil, fmt.Errorf("create STS registrator: %w", err)
-	}
+func NewSTSClientReconciler(mgr ctrl.Manager, cfg *config.Config, registrator *stsapi.RegistrationClient) error {
 	r := &STSClientReconciler{
 		Client:             mgr.GetClient(),
 		Config:             cfg,
@@ -44,10 +40,7 @@ func NewSTSClientReconciler(mgr ctrl.Manager, cfg *config.Config) (*STSClientRec
 		Scheme:             mgr.GetScheme(),
 		RegistrationClient: registrator,
 	}
-	if err := r.SetupWithManager(mgr); err != nil {
-		return nil, fmt.Errorf("create controller: %w", err)
-	}
-	return r, nil
+	return r.SetupWithManager(mgr)
 }
 
 func (r *STSClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
