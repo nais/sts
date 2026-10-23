@@ -28,25 +28,27 @@ An ACL lists teams and workloads allowed to access the client, with optional wor
 
 The operator creates application configuration in a ConfigMap named `sts-<workload>`.
 
-Registration protocol adaptation is still pending: the operator uses `/registration/client`, expects `201 Created`, and signs the legacy software-statement payload. The repository's STS authserver uses `/v1/registration/client`, returns `200 OK`, and requires workload claims. ACL roles are not yet included in the operator's software statement. The local k3d setup uses a mock matching the operator's current protocol.
+The operator uses the shared STS registration client at `/v1/registration/client` and includes ACL roles in its signed software statement.
+For local development, k3d supplies Kubernetes while both Go services run on your machine.
 
 ## Configuration
 
-| Flag | Environment variable | Description |
-|------|----------------------|-------------|
-| `--cluster-name` | `CLUSTER_NAME` | Cluster name. |
-| `--client-id` | `STS_OPERATOR_CLIENT_ID` | Operator's client ID at STS. |
-| `--client-jwk-json` | `STS_OPERATOR_PRIVATE_JWK` | Operator's private key in JWK format. |
-| `--sts-base-url` | `STS_URL` | STS base URL. |
-| `--sts-instances` | `STS_INSTANCES` | Comma-separated STS base URLs. |
-| `--auth-token-path` | `AUTH_TOKEN_PATH` | Service account token file; empty uses a client assertion. |
-| `--max-concurrent-reconciles` | `STS_OPERATOR_MAX_CONCURRENT_RECONCILES` | Maximum concurrent reconciles (default `20`). |
-| `--metrics-addr` | | Metrics bind address (default `:8181`). |
-| `--probe-addr` | | Health probe bind address (default `:8180`). |
-| `--leader-election` | | Enable leader election (default `false`). |
-| `--log-level` | `LOG_LEVEL` | Log level (default `info`). |
+| Environment variable | Description |
+|----------------------|-------------|
+| `CLUSTER_NAME` | Cluster name (required). |
+| `STS_BASE_URL` | STS base URL (required). |
+| `AUTH_TOKEN_PATH` | Bearer token file (default `/var/run/secrets/nais.io/sts/token`). |
+| `LOCAL_SERVICE_ACCOUNT` | Local debugging only: request bearer tokens for `namespace/name` through the current kubeconfig instead of reading a file. |
+| `MAX_CONCURRENT_RECONCILES` | Maximum concurrent reconciles (default `20`). |
+| `METRICS_ADDR` | Metrics bind address (default `:8181`). |
+| `PROBE_ADDR` | Health probe bind address (default `:8180`). |
+| `JWKS_ADDR` | Public signing-key bind address (default `:8182`). |
+| `LEADER_ELECTION` | Enable leader election (default `false`). |
+| `LOG_LEVEL` | Log level (default `info`). |
 
-STS authentication uses either a client assertion signed with the operator's private JWK or a service account token read from `--auth-token-path`.
+By default, STS authentication uses the bearer token read from `AUTH_TOKEN_PATH`.
+With `LOCAL_SERVICE_ACCOUNT` set, the registrator callback requests a fresh Kubernetes token for each registration or deletion, with audience `nais` and a one-hour lifetime.
+The registration client generates an in-memory signing key for software statements and exposes its public key at `/jwks`.
 
 ### Application ConfigMap keys
 
@@ -56,7 +58,9 @@ STS authentication uses either a client assertion signed with the operator's pri
 - `STS_JWKS_URI`
 - `STS_TOKEN_ENDPOINT`
 
-The operator's private signing JWK belongs in a Secret, never an application ConfigMap. STSClient resources use finalizer `sts-operator.nais.io/finalizer`. Metrics use the `sts_client_` prefix.
+Private signing keys must never appear in application ConfigMaps.
+STSClient resources use finalizer `sts-operator.nais.io/finalizer`.
+Metrics use the `sts_client_` prefix.
 
 ## Development
 
@@ -68,32 +72,54 @@ mise run generate
 
 The API is a separate Go module under `api/`, referenced locally by the operator's `go.mod`.
 
-### Run in k3d
+### Local debugging with k3d
 
-Start Docker Desktop (or another Docker runtime), then run from `sts-operator/`:
-
-```shell
-mise install
-mise run k3d
-```
-
-This creates the dedicated `sts-operator-dev` cluster, builds and imports local images, installs the CRD and RBAC, deploys mock STS and the operator, and runs a reconciliation smoke test. It generates a development signing JWK in a Kubernetes Secret. No real STS credentials or external STS service are needed.
-
-The smoke test recreates only `sts-demo/smoke-client`, waits for its observed generation, checks the generated `sts-smoke-client` ConfigMap and owner reference, and confirms registration with the mock. The sample remains available for inspection.
+Start Docker, then create the development cluster from the repository root:
 
 ```shell
-mise run k3d:deploy  # rebuild and redeploy after code changes
-mise run k3d:smoke   # rerun reconciliation smoke test
-mise run k3d:logs    # follow operator logs
-mise run k3d:down    # delete the dev cluster, including all resources and data
+mise run sts-operator:k3d
 ```
 
-Tasks use a temporary kubeconfig and explicit context. They do not change your current Kubernetes context. The Kubernetes API binds to `127.0.0.1:6553`; set `K3D_API_PORT` before creating the cluster to use another port. To inspect resources manually:
+The task creates Kubernetes, installs the CRD, and creates the registrator service account.
+It writes a dedicated kubeconfig and public CA certificate to `sts-operator/.local/`, without changing your default Kubernetes context.
+It does not build images or deploy either Go service, a database, or a mock.
+
+The API binds to `127.0.0.1:6553` and advertises that address as its token issuer.
+Public OIDC discovery and JWKS reads are enabled so the local authserver can verify Kubernetes tokens.
+Set `K3D_API_PORT` before cluster creation to change the port, and update `clientAuthIssuer` in `config.k3d.yaml` to match.
+
+In one terminal, start PostgreSQL and run the authserver from the repository root:
 
 ```shell
-(umask 077; k3d kubeconfig get sts-operator-dev > /tmp/sts-operator-dev.kubeconfig)
-kubectl --kubeconfig=/tmp/sts-operator-dev.kubeconfig -n sts-demo get stsclients,configmaps
-kubectl --kubeconfig=/tmp/sts-operator-dev.kubeconfig -n sts-operator-dev logs deployment/mock-sts
+mise run sts-authserver:run
 ```
 
-The mock is cluster-internal, stores registrations in memory, and does **not** authenticate requests, verify JWT signatures, enforce ACLs, or issue tokens. `/registrations` lists its current registrations. It is for controller smoke tests only, not real authentication flows. See [`config/local/`](config/local/) for manifests and [`.mise-tasks/k3d/`](.mise-tasks/k3d/) for task scripts.
+In another terminal, run the operator:
+
+```shell
+mise run sts-operator:run
+```
+
+No token file is needed: the operator obtains real service account tokens through the current kubeconfig.
+The authserver trusts the generated Kubernetes CA through `additionalCAFile`; no system trust-store changes or disabled TLS checks are needed.
+Both services use ordinary localhost HTTP endpoints:
+
+- Authserver: `http://localhost:8080`
+- Operator JWKS: `http://localhost:8182/jwks`
+
+For IntelliJ, use the same working directories and Go packages.
+Set `CONFIG_FILE=config.k3d.yaml` for the authserver and copy the variables from `config/local/operator.env` into the operator's run configuration.
+Run either package with the debugger; no container rebuild or redeployment is involved.
+
+Apply and inspect sample clients from `sts-operator/`:
+
+```shell
+mise run k3d:sample
+kubectl --kubeconfig=.local/kubeconfig -n sts-demo get stsclients,configmaps
+```
+
+Delete only the development cluster when finished:
+
+```shell
+mise run sts-operator:k3d:down
+```

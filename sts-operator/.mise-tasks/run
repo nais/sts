@@ -2,4 +2,7 @@
 #MISE description="Run the controller from your host"
 set -euo pipefail
 
-exec go run ./cmd/sts-operator/main.go
+set -a
+source config/local/operator.env
+set +a
+exec go run ./cmd/sts-operator

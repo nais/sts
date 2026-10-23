@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Run the authserver locally against k3d, starting PostgreSQL if needed"
+set -euo pipefail
+
+docker compose up -d --wait postgres
+CONFIG_FILE=config.k3d.yaml exec go run ./cmd/sts

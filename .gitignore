@@ -6,3 +6,4 @@ benchmark-report/
 bin/
 
 /sts-authserver/config.yaml
+/sts-operator/.local/

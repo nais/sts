@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Apply sample STS clients to the development cluster"
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+exec kubectl --kubeconfig="$PWD/.local/kubeconfig" --context=k3d-sts-operator-dev \
+  apply -f config/local/sample.yaml
