@@ -4,17 +4,21 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-logr/logr"
 	stsv1 "github.com/nais/sts-operator/api/nais.io/v1"
 	"github.com/nais/sts-operator/controllers"
 	"github.com/nais/sts-operator/internal/config"
 	stsmetrics "github.com/nais/sts-operator/internal/metric"
+	stsapi "github.com/nais/sts/api"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	ctrlmetricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	// +kubebuilder:scaffold:imports
@@ -39,20 +43,25 @@ func init() {
 func main() {
 	ctx := context.Background()
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("logger", "setup")
+	if err := run(ctx, log); err != nil {
+		log.Error("run", "error", err)
+		os.Exit(1)
+	}
+}
 
+func run(ctx context.Context, log *slog.Logger) error {
 	cfg, err := config.New(ctx)
 	if err != nil {
-		log.Error("unable to load configuration", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("load configuration: %w", err)
 	}
 
 	if err := setupLogger(cfg.LogLevel); err != nil {
-		log.Error("unable to set up logger", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("set up logger: %w", err)
 	}
 
 	log.Info("starting sts-operator")
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	kubeConfig := ctrl.GetConfigOrDie()
+	mgr, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Scheme: scheme,
 		Metrics: ctrlmetricsserver.Options{
 			BindAddress: cfg.MetricsAddr,
@@ -64,30 +73,55 @@ func main() {
 		LeaderElectionID:       "sts.nais.io",
 	})
 	if err != nil {
-		log.Error("unable to create manager", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("create manager: %w", err)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		log.Error("unable to set up health check", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("register health check: %w", err)
 	}
 
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		log.Error("unable to set up ready check", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("register ready check: %w", err)
 	}
 
-	if _, err = controllers.NewSTSClientReconciler(mgr, cfg); err != nil {
-		log.Error("unable to create controller", "controller", "stsclient", "error", err)
-		os.Exit(1)
+	authToken, err := authTokenCallback(cfg, kubeConfig)
+	if err != nil {
+		return fmt.Errorf("create auth token callback: %w", err)
+	}
+
+	registrator, err := stsapi.NewRegistrationClient(stsapi.STSIssuer(cfg.STSBaseURL), authToken)
+	if err != nil {
+		return fmt.Errorf("create STS registrator: %w", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/jwks", registrator.PublicKeySetHandler)
+
+	if err := mgr.Add(&manager.Server{
+		Name: "Public JWKS",
+		Server: &http.Server{
+			Addr:              cfg.JwksAddr,
+			Handler:           mux,
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       15 * time.Second,
+			WriteTimeout:      15 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		},
+		OnlyServeWhenLeader: cfg.LeaderElection,
+		ShutdownTimeout:     new(30 * time.Second),
+	}); err != nil {
+		return fmt.Errorf("add public jwks server: %w", err)
+	}
+
+	if err = controllers.NewSTSClientReconciler(mgr, cfg, registrator); err != nil {
+		return fmt.Errorf("create STSClient reconciler: %w", err)
 	}
 
 	log.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		log.Error("problem running manager", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("problem running manager: %w", err)
 	}
+	return nil
 }
 
 func setupLogger(logLevel string) error {

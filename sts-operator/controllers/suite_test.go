@@ -120,8 +120,13 @@ func TestSTSClientReconciler(t *testing.T) {
 		STSBaseURL:              stsURL,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	registrator, err := controllers.NewSTSClientReconciler(mgr, cfg)
+
+	registrator, err := stsapi.NewRegistrationClient(stsapi.STSIssuer(cfg.STSBaseURL), stsapi.TokenFromFile(cfg.AuthTokenPath))
 	require.NoError(t, err)
+
+	err = controllers.NewSTSClientReconciler(mgr, cfg, registrator)
+	require.NoError(t, err)
+
 	keySet, err := registrator.PublicKeySet()
 	require.NoError(t, err)
 
