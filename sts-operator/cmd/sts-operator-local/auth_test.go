@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -62,17 +60,17 @@ func fakeKubeAPI(t *testing.T, status int, token string) (*httptest.Server, *[]t
 	return srv, &requests
 }
 
-func localConfig(sa string, tokenPath string) *config.Config {
-	return &config.Config{LocalServiceAccount: sa, AuthTokenPath: tokenPath}
+func localConfig(sa string) *config.Config {
+	return &config.Config{LocalServiceAccount: sa}
 }
 
-func TestAuthTokenCallback_LocalServiceAccount(t *testing.T) {
+func TestFetchAPIServerToken_LocalServiceAccount(t *testing.T) {
 	srv, requests := fakeKubeAPI(t, http.StatusCreated, "genuine")
 	kubeConfig := &rest.Config{Host: srv.URL, Timeout: 0}
 
-	cb, err := authTokenCallback(localConfig("ns/sa", "/does/not/exist"), kubeConfig)
+	cb, err := fetchAPIServerToken(localConfig("ns/sa"), kubeConfig)
 	if err != nil {
-		t.Fatalf("authTokenCallback: %v", err)
+		t.Fatalf("fetchAPIServerToken: %v", err)
 	}
 
 	first, err := cb(context.Background())
@@ -109,37 +107,37 @@ func TestAuthTokenCallback_LocalServiceAccount(t *testing.T) {
 	}
 }
 
-func TestAuthTokenCallback_APIFailure(t *testing.T) {
+func TestFetchAPIServerToken_APIFailure(t *testing.T) {
 	srv, _ := fakeKubeAPI(t, http.StatusForbidden, "")
-	cb, err := authTokenCallback(localConfig("ns/sa", ""), &rest.Config{Host: srv.URL})
+	cb, err := fetchAPIServerToken(localConfig("ns/sa"), &rest.Config{Host: srv.URL})
 	if err != nil {
-		t.Fatalf("authTokenCallback: %v", err)
+		t.Fatalf("fetchAPIServerToken: %v", err)
 	}
 	if _, err := cb(context.Background()); err == nil || !strings.Contains(err.Error(), "ns/sa") {
 		t.Fatalf("expected wrapped API error naming the service account, got %v", err)
 	}
 }
 
-func TestAuthTokenCallback_EmptyToken(t *testing.T) {
+func TestFetchAPIServerToken_EmptyToken(t *testing.T) {
 	srv, _ := fakeKubeAPI(t, http.StatusCreated, "")
-	cb, err := authTokenCallback(localConfig("ns/sa", ""), &rest.Config{Host: srv.URL})
+	cb, err := fetchAPIServerToken(localConfig("ns/sa"), &rest.Config{Host: srv.URL})
 	if err != nil {
-		t.Fatalf("authTokenCallback: %v", err)
+		t.Fatalf("fetchAPIServerToken: %v", err)
 	}
 	if tok, err := cb(context.Background()); err == nil || tok != "" {
 		t.Fatalf("expected error for empty token, got token=%q err=%v", tok, err)
 	}
 }
 
-func TestAuthTokenCallback_CallerCancellation(t *testing.T) {
+func TestFetchAPIServerToken_CallerCancellation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
 	}))
 	t.Cleanup(srv.Close)
 
-	cb, err := authTokenCallback(localConfig("ns/sa", ""), &rest.Config{Host: srv.URL})
+	cb, err := fetchAPIServerToken(localConfig("ns/sa"), &rest.Config{Host: srv.URL})
 	if err != nil {
-		t.Fatalf("authTokenCallback: %v", err)
+		t.Fatalf("fetchAPIServerToken: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -148,25 +146,16 @@ func TestAuthTokenCallback_CallerCancellation(t *testing.T) {
 	}
 }
 
-func TestAuthTokenCallback_FileFallback(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "token")
-	if err := os.WriteFile(path, []byte("  dummy-token\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cb, err := authTokenCallback(localConfig("", path), nil)
-	if err != nil {
-		t.Fatalf("authTokenCallback: %v", err)
-	}
-	tok, err := cb(context.Background())
-	if err != nil || tok != "dummy-token" {
-		t.Fatalf("token = %q, err = %v; want dummy-token", tok, err)
+func TestFetchAPIServerToken_RequiresServiceAccount(t *testing.T) {
+	if _, err := fetchAPIServerToken(localConfig(""), nil); err == nil {
+		t.Fatal("expected error when local service account is missing")
 	}
 }
 
-func TestAuthTokenCallback_MalformedServiceAccount(t *testing.T) {
+func TestFetchAPIServerToken_MalformedServiceAccount(t *testing.T) {
 	for _, sa := range []string{"ns", "/name", "ns/", "/", "a/b/c", "ns/name/", "ns//name"} {
 		t.Run(sa, func(t *testing.T) {
-			if _, err := authTokenCallback(localConfig(sa, ""), &rest.Config{Host: "http://127.0.0.1:1"}); err == nil {
+			if _, err := fetchAPIServerToken(localConfig(sa), &rest.Config{Host: "http://127.0.0.1:1"}); err == nil {
 				t.Fatalf("expected error for %q", sa)
 			}
 		})

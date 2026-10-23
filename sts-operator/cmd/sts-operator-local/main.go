@@ -3,15 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/nais/sts-operator/internal/config"
+	"github.com/nais/sts-operator/internal/operator"
 	stsapi "github.com/nais/sts/api"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 const (
@@ -20,13 +24,34 @@ const (
 	localTokenTimeout  = 10 * time.Second
 )
 
-// authTokenCallback returns the registrator's auth token source. Production reads
-// cfg.AuthTokenPath. When cfg.LocalServiceAccount is set, each call requests a
-// fresh token for that ServiceAccount from the apiserver; this is for local
-// debugging only, so it has no caching or refresh.
-func authTokenCallback(cfg *config.Config, kubeConfig *rest.Config) (stsapi.AuthTokenCallback, error) {
+func main() {
+	ctx := context.Background()
+	log := slog.New(slog.NewTextHandler(os.Stdout, nil)).With("logger", "setup")
+	cfg, err := config.New(ctx)
+	if err != nil {
+		log.Error("load configuration", "error", err)
+		os.Exit(1)
+	}
+	kubeConfig, err := ctrl.GetConfig()
+	if err != nil {
+		log.Error("load kubeconfig", "error", err)
+		os.Exit(1)
+	}
+	tokenCallback, err := fetchAPIServerToken(cfg, kubeConfig)
+	if err != nil {
+		log.Error("create auth token callback", "error", err)
+		os.Exit(1)
+	}
+
+	if err := operator.Run(cfg, log, operator.WithAuthTokenCallback(tokenCallback)); err != nil {
+		log.Error("run", "error", err)
+		os.Exit(1)
+	}
+}
+
+func fetchAPIServerToken(cfg *config.Config, kubeConfig *rest.Config) (stsapi.AuthTokenCallback, error) {
 	if cfg.LocalServiceAccount == "" {
-		return stsapi.TokenFromFile(cfg.AuthTokenPath), nil
+		return nil, fmt.Errorf("no local service account provided")
 	}
 
 	namespace, name, err := parseServiceAccount(cfg.LocalServiceAccount)
