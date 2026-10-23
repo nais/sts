@@ -56,7 +56,7 @@ func newClientFixture(environment, namespace, name string) clientFixture {
 		Environment: environment,
 		Namespace:   namespace,
 		Name:        name,
-		ID:          environment + ":" + namespace + ":" + name,
+		ID:          string(oauth.NewClientID(oauth.Name(environment), oauth.Name(namespace), oauth.Name(name))),
 	}
 }
 
