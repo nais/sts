@@ -107,9 +107,20 @@ Both services use ordinary localhost HTTP endpoints:
 - Authserver: `http://localhost:8080`
 - Operator JWKS: `http://localhost:8182/jwks`
 
-For IntelliJ, use the same working directories and Go packages.
-Set `CONFIG_FILE=config.k3d.yaml` for the authserver and copy the variables from `config/local/operator.env` into the operator's run configuration.
-Run either package with the debugger; no container rebuild or redeployment is involved.
+For IntelliJ with the Go plugin, shared run configurations are available in the repository's `.run/` directory.
+Open the repository root, then select `STS Local` to run or debug both services, or select either service individually.
+The operator configuration runs `cmd/sts-operator-local`; production uses `cmd/sts-operator`.
+
+Before starting the IDE configurations, start Docker and run these commands from the repository root:
+
+```shell
+mise run sts-operator:k3d
+docker compose -f sts-authserver/docker-compose.yaml up -d --wait postgres
+```
+
+The IDE configurations run Go directly, so mise task dependencies do not apply.
+Do not run `mise run local` at the same time; it would start duplicate services on the same ports.
+No container rebuild or redeployment is involved.
 
 Apply and inspect sample clients from `sts-operator/`:
 

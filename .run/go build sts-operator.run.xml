@@ -1,0 +1,17 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="go build sts-operator" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="sts" />
+    <working_directory value="$PROJECT_DIR$/sts-operator" />
+    <envs>
+      <env name="CLUSTER_NAME" value="sts-operator-dev" />
+      <env name="KUBECONFIG" value=".local/kubeconfig" />
+      <env name="LOCAL_SERVICE_ACCOUNT" value="sts-operator-dev/sts-operator" />
+      <env name="STS_BASE_URL" value="http://localhost:8080" />
+    </envs>
+    <EXTENSION ID="com.github.l34130.mise.core.run.MiseRunConfigurationSettingsEditor" myConfigEnvironmentStrategy="use_project_settings" myMiseDirEnvCb="false" myMiseConfigEnvironmentTf="" />
+    <kind value="DIRECTORY" />
+    <directory value="$PROJECT_DIR$/sts-operator/cmd/sts-operator-local" />
+    <filePath value="$PROJECT_DIR$" />
+    <method v="2" />
+  </configuration>
+</component>
