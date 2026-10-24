@@ -1,6 +1,6 @@
 module github.com/nais/sts-operator/api
 
-go 1.27.3
+go 1.26.0
 
 require k8s.io/apimachinery v0.37.1
 
