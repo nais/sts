@@ -1,0 +1,7 @@
+apiVersion: v2
+name: sts-operator-crds
+description: Custom resource definitions for the STS operator
+type: application
+version: 0.1.0
+sources:
+  - https://github.com/nais/sts/tree/main/charts/sts-operator-crds

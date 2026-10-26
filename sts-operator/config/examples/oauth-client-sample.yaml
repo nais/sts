@@ -1,11 +1,11 @@
 apiVersion: nais.io/v1
-kind: STSClient
+kind: OAuthClient
 metadata:
   name: workload-a
   namespace: team-a
 ---
 apiVersion: nais.io/v1
-kind: STSClient
+kind: OAuthClient
 metadata:
   name: workload-b
   namespace: team-b

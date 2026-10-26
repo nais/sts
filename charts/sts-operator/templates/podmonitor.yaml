@@ -1,0 +1,22 @@
+{{- if and .Values.podMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "sts-operator.fullname" . }}
+  labels:
+    {{- include "sts-operator.labels" . | nindent 4 }}
+spec:
+  podTargetLabels:
+    - app
+  podMetricsEndpoints:
+    - interval: 1m
+      port: metrics
+      path: /metrics
+      scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "sts-operator.selectorLabels" . | nindent 6 }}
+{{- end }}

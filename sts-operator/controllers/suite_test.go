@@ -43,7 +43,7 @@ const (
 	pollInterval     = 100 * time.Millisecond
 )
 
-func TestSTSClientReconciler(t *testing.T) {
+func TestOAuthClientReconciler(t *testing.T) {
 	ctrl.SetLogger(zap.New())
 
 	scheme := runtime.NewScheme()
@@ -124,7 +124,7 @@ func TestSTSClientReconciler(t *testing.T) {
 	registrator, err := stsapi.NewRegistrationClient(stsapi.STSIssuer(cfg.STSBaseURL), stsapi.TokenFromFile(cfg.AuthTokenPath))
 	require.NoError(t, err)
 
-	err = controllers.NewSTSClientReconciler(mgr, cfg, registrator)
+	err = controllers.NewOAuthClientReconciler(mgr, cfg, registrator)
 	require.NoError(t, err)
 
 	keySet, err := registrator.PublicKeySet()
@@ -147,7 +147,7 @@ func TestSTSClientReconciler(t *testing.T) {
 	k8sClient, err := client.New(restCfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
 
-	stsClient := &stsv1.STSClient{
+	stsClient := &stsv1.OAuthClient{
 		Name: appName, Namespace: namespace,
 	}
 	require.NoError(t, k8sClient.Create(ctx, stsClient))
@@ -155,7 +155,7 @@ func TestSTSClientReconciler(t *testing.T) {
 
 	if !t.Run("creation registers client and creates config map", func(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			var obj stsv1.STSClient
+			var obj stsv1.OAuthClient
 			if !assert.NoError(c, k8sClient.Get(ctx, key, &obj)) {
 				return
 			}
@@ -182,7 +182,7 @@ func TestSTSClientReconciler(t *testing.T) {
 			configmap.STSJwksURIKey:       stsURL + "/jwks",
 			configmap.STSTokenEndpointKey: stsURL + "/token",
 		}, cm.Data)
-		assert.True(t, metav1.IsControlledBy(&cm, stsClient), "config map should be controlled by STSClient")
+		assert.True(t, metav1.IsControlledBy(&cm, stsClient), "config map should be controlled by OAuthClient")
 	}) {
 		t.FailNow()
 	}
@@ -207,7 +207,7 @@ func TestSTSClientReconciler(t *testing.T) {
 		require.Greater(t, stsClient.Generation, previousGeneration)
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			var obj stsv1.STSClient
+			var obj stsv1.OAuthClient
 			if !assert.NoError(c, k8sClient.Get(ctx, key, &obj)) {
 				return
 			}
@@ -231,13 +231,13 @@ func TestSTSClientReconciler(t *testing.T) {
 		t.FailNow()
 	}
 
-	t.Run("deletion deregisters client and removes STSClient", func(t *testing.T) {
+	t.Run("deletion deregisters client and removes OAuthClient", func(t *testing.T) {
 		require.NoError(t, k8sClient.Delete(ctx, stsClient))
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			var obj stsv1.STSClient
+			var obj stsv1.OAuthClient
 			err := k8sClient.Get(ctx, key, &obj)
-			assert.True(c, apierrors.IsNotFound(err), "STSClient should be removed, got: %v", err)
+			assert.True(c, apierrors.IsNotFound(err), "OAuthClient should be removed, got: %v", err)
 		}, reconcileTimeout, pollInterval)
 
 		require.Len(t, deletedIDs, 1)

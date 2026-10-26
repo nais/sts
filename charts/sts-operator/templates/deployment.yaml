@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sts-operator.fullname" . }}
+  labels:
+    {{- include "sts-operator.labels" . | nindent 4 }}
+spec:
+  # Signing keys are process-local; do not serve JWKS from multiple pods.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "sts-operator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "sts-operator.selectorLabels" . | nindent 8 }}
+        app: {{ include "sts-operator.name" . }}
+        tenant: {{ .Values.tenantName | quote }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "sts-operator.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: CLUSTER_NAME
+              value: {{ required "config.clusterName is required" .Values.config.clusterName | quote }}
+            - name: STS_BASE_URL
+              value: {{ required "config.stsBaseUrl is required" .Values.config.stsBaseUrl | quote }}
+            - name: AUTH_TOKEN_PATH
+              value: /var/run/secrets/nais.io/sts/token
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            - name: MAX_CONCURRENT_RECONCILES
+              value: {{ .Values.config.maxConcurrentReconciles | quote }}
+            - name: LEADER_ELECTION
+              value: "false"
+            - name: PROBE_ADDR
+              value: ":8180"
+            - name: METRICS_ADDR
+              value: ":8181"
+            - name: JWKS_ADDR
+              value: ":8182"
+          ports:
+            - name: probe
+              containerPort: 8180
+              protocol: TCP
+            - name: metrics
+              containerPort: 8181
+              protocol: TCP
+            - name: jwks
+              containerPort: 8182
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probe
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probe
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: sts-token
+              mountPath: /var/run/secrets/nais.io/sts
+              readOnly: true
+      volumes:
+        - name: sts-token
+          projected:
+            defaultMode: 288 # 0440
+            sources:
+              - serviceAccountToken:
+                  audience: {{ required "authToken.audience is required" .Values.authToken.audience | quote }}
+                  expirationSeconds: {{ .Values.authToken.expirationSeconds }}
+                  path: token
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

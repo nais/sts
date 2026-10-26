@@ -27,10 +27,10 @@ var scheme = runtime.NewScheme()
 func init() {
 	// Register custom metrics with the global prometheus registry
 	metrics.Registry.MustRegister(
-		stsmetrics.STSClientsTotal,
-		stsmetrics.STSClientsProcessedCount,
-		stsmetrics.STSClientsFinalizedCount,
-		stsmetrics.STSClientsProcessingFailedCount,
+		stsmetrics.OAuthClientsTotal,
+		stsmetrics.OAuthClientsProcessedCount,
+		stsmetrics.OAuthClientsFinalizedCount,
+		stsmetrics.OAuthClientsProcessingFailedCount,
 	)
 
 	_ = clientgoscheme.AddToScheme(scheme)
@@ -114,8 +114,8 @@ func Run(cfg *config.Config, log *slog.Logger, opts ...Option) error {
 		return fmt.Errorf("add public jwks server: %w", err)
 	}
 
-	if err = controllers.NewSTSClientReconciler(mgr, cfg, registrator); err != nil {
-		return fmt.Errorf("create STSClient reconciler: %w", err)
+	if err = controllers.NewOAuthClientReconciler(mgr, cfg, registrator); err != nil {
+		return fmt.Errorf("create OAuthClient reconciler: %w", err)
 	}
 
 	log.Info("starting manager")

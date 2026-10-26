@@ -5,26 +5,26 @@ import (
 )
 
 var (
-	STSClientsTotal = prometheus.NewGauge(
+	OAuthClientsTotal = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "sts_client_total",
+			Name: "oauth_client_total",
 		})
-	STSClientsProcessedCount = prometheus.NewCounter(
+	OAuthClientsProcessedCount = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Name: "sts_client_processed_count",
-			Help: "Number of STS clients processed",
+			Name: "oauth_client_processed_count",
+			Help: "Number of OAuth clients processed",
 		},
 	)
-	STSClientsFinalizedCount = prometheus.NewCounter(
+	OAuthClientsFinalizedCount = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Name: "sts_client_finalized_count",
-			Help: "Number of STS clients finalized",
+			Name: "oauth_client_finalized_count",
+			Help: "Number of OAuth clients finalized",
 		},
 	)
-	STSClientsProcessingFailedCount = prometheus.NewCounter(
+	OAuthClientsProcessingFailedCount = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Name: "sts_client_processing_failed_count",
-			Help: "Number of STS clients that failed to process",
+			Name: "oauth_client_processing_failed_count",
+			Help: "Number of OAuth clients that failed to process",
 		},
 	)
 )

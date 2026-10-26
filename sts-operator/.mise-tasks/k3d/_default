@@ -28,7 +28,7 @@ kube get --raw /.well-known/openid-configuration |
   jq -e --arg issuer "https://127.0.0.1:$api_port" \
     '.issuer == $issuer and .jwks_uri == ($issuer + "/openid/v1/jwks")' > /dev/null ||
   { echo 'Cluster issuer differs. Run k3d:down, then k3d again to recreate this development cluster.' >&2; exit 1; }
-kube apply -f config/crd/bases/nais.io_stsclients.yaml -f config/local/bootstrap.yaml
-kube wait --for=condition=Established crd/stsclients.nais.io --timeout=60s
+kube apply -f config/crd/bases/nais.io_oauthclients.yaml -f config/local/bootstrap.yaml
+kube wait --for=condition=Established crd/oauthclients.nais.io --timeout=60s
 kube config view --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d > .local/ca.crt
 printf 'Kubeconfig: %s/.local/kubeconfig\nCA certificate: %s/.local/ca.crt\n' "$PWD" "$PWD"

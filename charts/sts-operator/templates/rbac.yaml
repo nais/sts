@@ -1,0 +1,34 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "sts-operator.rbacName" . }}
+  labels:
+    {{- include "sts-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [nais.io]
+    resources: [oauthclients]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [nais.io]
+    resources: [oauthclients/status, oauthclients/finalizers]
+    verbs: [get, update, patch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch]
+  - apiGroups: ["", events.k8s.io]
+    resources: [events]
+    verbs: [create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "sts-operator.rbacName" . }}
+  labels:
+    {{- include "sts-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "sts-operator.rbacName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sts-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

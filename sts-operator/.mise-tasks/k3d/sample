@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Apply sample STS clients to the development cluster"
+#MISE description="Apply sample OAuth clients to the development cluster"
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
