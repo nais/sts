@@ -1,8 +1,4 @@
 values:
-  tenantName:
-    displayName: Tenant name
-    computed:
-      template: "{{.Tenant.Name}}"
   config.clusterName:
     displayName: Cluster name
     computed:

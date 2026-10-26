@@ -1,5 +1,3 @@
-tenantName: example
-
 config:
   clusterName: env1
   stsBaseUrl: https://sts.environment.tenant.cloud.nais.io

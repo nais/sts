@@ -20,8 +20,6 @@ spec:
       {{- end }}
       labels:
         {{- include "sts-operator.selectorLabels" . | nindent 8 }}
-        app: {{ include "sts-operator.name" . }}
-        tenant: {{ .Values.tenantName | quote }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
