@@ -5,15 +5,29 @@ set -euo pipefail
 
 version="${1:?Supply the image version}"
 image="${2:?Supply the image reference}"
+prefix="${3:-}"
 
 # Workflow locks serialize runs, but do not guarantee commit order.
-latest=$(gh release view --json tagName --jq .tagName)
-status=$(gh api "repos/$GH_REPO/compare/$latest...$GITHUB_SHA" --jq .status)
-case "$status" in
-  ahead|identical) make_latest=true ;;
-  behind) make_latest=false ;;
-  *) echo "Cannot order release commits: $status" >&2; exit 1 ;;
-esac
+latest=$("$(dirname "$0")/latest-image-release" "$prefix")
+make_latest=true
+if [[ -n "$latest" ]]; then
+  status=$(gh api "repos/$GH_REPO/compare/$latest...$GITHUB_SHA" --jq .status)
+  case "$status" in
+    ahead|identical) ;;
+    behind)
+      if [[ -n "$prefix" ]]; then
+        # Prefix-scoped lookup uses publication order; never publish a stale release.
+        echo "Skipping stale component release $prefix$version"
+        exit 0
+      fi
+      make_latest=false
+      ;;
+    *) echo "Cannot order release commits: $status" >&2; exit 1 ;;
+  esac
+fi
 
-gh release create "$version" --target "$GITHUB_SHA" \
-  --title "$version" --notes "$image" --latest="$make_latest"
+# Only the authserver owns the repository's global latest release.
+if [[ -n "$prefix" ]]; then make_latest=false; fi
+
+gh release create "$prefix$version" --target "$GITHUB_SHA" \
+  --title "$prefix$version" --notes "$image" --latest="$make_latest"

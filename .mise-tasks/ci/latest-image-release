@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#MISE description="Find the latest image release for a component"
+
+set -euo pipefail
+
+prefix="${1:-}"
+if [[ -z "$prefix" ]]; then
+  # Preserve the existing authserver release stream and tags.
+  gh release view --json tagName --jq .tagName
+else
+  # Operator releases never become the repository's global latest release.
+  # Older component builds are skipped by ci:release, so publication order is safe.
+  gh api --paginate "repos/$GH_REPO/releases" \
+    --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' \
+    | awk -v prefix="$prefix" 'index($0, prefix) == 1 && !found { print; found = 1 }'
+fi

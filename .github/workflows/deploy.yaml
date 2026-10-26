@@ -1,0 +1,32 @@
+name: deploy
+
+on:
+  workflow_call:
+    inputs:
+      name:
+        description: Chart name in the feature registry
+        type: string
+        required: true
+      version:
+        type: string
+        required: true
+      targets:
+        description: Fasit target JSON
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: fasit-deploy
+    permissions:
+      id-token: write
+    steps:
+      - uses: nais/fasit-deploy@53e433b1bdd08fc622e03a78584c0832c9083bd3 # ratchet:nais/fasit-deploy@v4.1.1
+        with:
+          chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/${{ inputs.name }}
+          version: ${{ inputs.version }}
+          targets: ${{ inputs.targets }}

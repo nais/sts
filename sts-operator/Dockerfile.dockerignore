@@ -1,0 +1,9 @@
+.git
+**/*.kubeconfig
+**/.env
+**/.idea
+**/.local
+**/.mise-tasks
+**/README.md
+**/bin
+**/mise.toml

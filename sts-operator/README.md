@@ -68,6 +68,25 @@ Install the [sts-operator Helm chart](../charts/sts-operator/README.md), which
 includes the [CRD chart](../charts/sts-operator-crds/README.md) as a local
 dependency, cluster-wide RBAC and a public JWKS endpoint.
 
+On pushes to `main`, `.github/workflows/operator.yaml` builds and signs changed
+operator images, publishes the chart, then deploys to `ci-nais` (waiting for
+completion) and `dev-nais`. Chart-only changes reuse the latest operator image.
+Changes to `sts-authserver/api` also rebuild the operator because it uses that
+module locally.
+
+Image, chart, change-detection and deployment workflows are shared with the
+authserver. Publishing uses the existing `gh-sts` Google service account.
+Operator image releases use the `sts-operator-` tag prefix and do not replace
+the repository's latest authserver release. The prefix is stripped when setting
+the chart's image tag. CI versions the operator chart and its CRD dependency
+together.
+
+The operator Dockerfile uses the repository root as its build context:
+
+```shell
+docker build -f sts-operator/Dockerfile .
+```
+
 ## Development
 
 Use [mise](https://mise.jdx.dev/) for the configured tools and generation tasks:

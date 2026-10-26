@@ -4,9 +4,15 @@
 set -euo pipefail
 
 chart="${1:?Supply the chart directory}"
+prefix="${2:-}"
 
-# Use the latest release so delayed runs do not restore older images.
-IMAGE_TAG=$(gh release view --json tagName --jq .tagName)
+# Use this component's latest release so delayed runs do not restore older images.
+release=$("$(dirname "$0")/latest-image-release" "$prefix")
+if [[ -z "$release" ]]; then
+  echo "No image release found for prefix '$prefix'; publish an image first" >&2
+  exit 1
+fi
+IMAGE_TAG="${release#"$prefix"}"
 version="$(date -u +%Y-%m-%d-%H%M%S)-$(git rev-parse --short=7 HEAD)"
 export IMAGE_TAG CHART_VERSION="$version"
 

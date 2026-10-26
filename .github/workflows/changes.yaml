@@ -1,0 +1,47 @@
+name: changes
+
+on:
+  workflow_call:
+    inputs:
+      code-paths:
+        description: JSON array of Git pathspecs that require a new image
+        type: string
+        required: true
+      chart-paths:
+        description: JSON array of Git pathspecs that require a new chart
+        type: string
+        required: true
+    outputs:
+      code:
+        value: ${{ jobs.classify.outputs.code }}
+      chart:
+        value: ${{ jobs.classify.outputs.chart }}
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+      chart: ${{ steps.changes.outputs.chart }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # ratchet:jdx/mise-action@v5
+        with:
+          install_args: jq
+      - id: changes
+        name: Classify changes
+        env:
+          BEFORE: ${{ github.event.before }}
+          CODE_PATHS: ${{ inputs.code-paths }}
+          CHART_PATHS: ${{ inputs.chart-paths }}
+        run: |
+          args=()
+          while IFS= read -r path; do args+=(--code "$path"); done < <(jq -r '.[]' <<< "$CODE_PATHS")
+          while IFS= read -r path; do args+=(--chart "$path"); done < <(jq -r '.[]' <<< "$CHART_PATHS")
+          mise run --skip-tools ci:classify-changes "${args[@]}"

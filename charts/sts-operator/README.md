@@ -23,8 +23,9 @@ mise exec -- helm upgrade --install sts-operator ./charts/sts-operator \
 Create `operator-network.yaml` with the cluster's actual API/DNS destinations
 before installing (see [Network access](#network-access)).
 
-The image must contain the `sts-operator` binary, not the authserver. Image
-publishing is not configured by this chart.
+The image must contain the `sts-operator` binary, not the authserver. The
+[operator workflow](../../.github/workflows/operator.yaml) publishes the image
+and chart together; chart-only changes reuse the latest operator image.
 
 Configure the authserver's matching `authorizationServer.environments` entry:
 

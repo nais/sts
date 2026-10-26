@@ -1,7 +1,31 @@
-name: authserver-image
+name: image
 
 on:
   workflow_call:
+    inputs:
+      name:
+        type: string
+        required: true
+      context:
+        type: string
+        required: true
+      dockerfile:
+        type: string
+        required: true
+      cache-scope:
+        type: string
+        required: true
+      tasks:
+        description: JSON array of checks required before creating the image release
+        type: string
+        required: true
+      release-prefix:
+        description: Component-specific release tag prefix; empty preserves authserver tags
+        type: string
+        default: ""
+      google-service-account:
+        type: string
+        default: gh-sts
     secrets:
       NAIS_IO_WORKLOAD_IDENTITY_PROVIDER:
         required: true
@@ -10,22 +34,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: sts-authserver-image
+  group: ${{ inputs.cache-scope }}-image
   cancel-in-progress: false
-
-env:
-  NAME: sts
 
 jobs:
   checks:
     uses: ./.github/workflows/mise.yaml
     with:
       go-cache: true
-      tasks: |
-        [
-          "sts-authserver:check",
-          "sts-authserver:test"
-        ]
+      tasks: ${{ inputs.tasks }}
 
   build:
     if: github.ref == 'refs/heads/main'
@@ -44,12 +61,12 @@ jobs:
       - uses: nais/platform-build-push-sign@07a21e2293624a78499c79eeea3ce6d314f8a8d9 # ratchet:nais/platform-build-push-sign@main
         id: build-push-sign
         with:
-          name: ${{ env.NAME }}
-          dockerfile: sts-authserver/Dockerfile
-          context: sts-authserver
-          cache_from: type=gha,scope=sts-authserver
-          cache_to: type=gha,mode=max,scope=sts-authserver
-          google_service_account: gh-${{ env.NAME }}
+          name: ${{ inputs.name }}
+          dockerfile: ${{ inputs.dockerfile }}
+          context: ${{ inputs.context }}
+          cache_from: type=gha,scope=${{ inputs.cache-scope }}
+          cache_to: type=gha,mode=max,scope=${{ inputs.cache-scope }}
+          google_service_account: ${{ inputs.google-service-account }}
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
           push_ghcr: true
           push: true
@@ -73,4 +90,5 @@ jobs:
           GH_REPO: ${{ github.repository }}
           IMAGE_VERSION: ${{ needs.build.outputs.version }}
           IMAGE: ${{ needs.build.outputs.image }}
-        run: mise run --skip-tools ci:release "$IMAGE_VERSION" "$IMAGE"
+          RELEASE_PREFIX: ${{ inputs.release-prefix }}
+        run: mise run --skip-tools ci:release "$IMAGE_VERSION" "$IMAGE" "$RELEASE_PREFIX"
