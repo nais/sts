@@ -11,9 +11,11 @@ import (
 	stsapi "github.com/nais/sts/api"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	kevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -22,6 +24,18 @@ import (
 const (
 	finalizer = "sts-operator.nais.io/finalizer"
 )
+
+// CacheOptions limits the ConfigMap informer to ConfigMaps managed by this
+// operator, instead of caching every ConfigMap in the cluster.
+func CacheOptions() cache.Options {
+	return cache.Options{
+		ByObject: map[client.Object]cache.ByObject{
+			&corev1.ConfigMap{}: {
+				Label: labels.SelectorFromSet(labels.Set{configmap.ManagedByLabelKey: configmap.ManagedByLabelValue}),
+			},
+		},
+	}
+}
 
 // OAuthClientReconciler reconciles an OAuthClient object.
 type OAuthClientReconciler struct {
@@ -55,6 +69,9 @@ func (r *OAuthClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // +kubebuilder:rbac:groups=nais.io,resources=oauthclients,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=nais.io,resources=oauthclients/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=nais.io,resources=oauthclients/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="";events.k8s.io,resources=events,verbs=create;update;patch
 
 func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("reconciler")

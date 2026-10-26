@@ -1,0 +1,30 @@
+values:
+  tenantName:
+    displayName: Tenant name
+    computed:
+      template: "{{.Tenant.Name}}"
+  config.clusterName:
+    displayName: Cluster name
+    computed:
+      template: "{{ .Env.name }}"
+  config.stsBaseUrl:
+    displayName: STS issuer
+    computed:
+      template: 'https://{{ subdomain . "sts" }}'
+  # Must match registratorJwksUri in the authserver's Feature.yaml.
+  ingress.host:
+    displayName: Operator JWKS host
+    computed:
+      template: "sts-operator.{{ .Env.name }}.{{ .Tenant.Name }}.cloud.nais.io"
+  image.tag:
+    displayName: Image version
+    config:
+      type: string
+  networkPolicy.apiServerCidrs:
+    displayName: API server CIDRs
+    computed:
+      template: '["{{ .Env.apiserver_endpoint }}/32"]'
+  networkPolicy.dnsCidrs:
+    displayName: DNS CIDRs
+    computed:
+      template: '["{{ .Env.svc_ip_cidr_range }}"]'

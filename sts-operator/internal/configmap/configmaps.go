@@ -13,6 +13,11 @@ const (
 	STSWellKnownURLKey  = "STS_WELL_KNOWN_URL"
 
 	StakaterReloaderAnnotationKey = "reloader.stakater.com/match"
+
+	// ManagedByLabelKey marks ConfigMaps written by the operator. The operator
+	// only caches ConfigMaps with this label.
+	ManagedByLabelKey   = "app.kubernetes.io/managed-by"
+	ManagedByLabelValue = "sts-operator"
 )
 
 type ConfigMapData struct {
@@ -43,6 +48,7 @@ func CreateConfigMapSpec(name, namespace string, data ConfigMapData) (*corev1.Co
 
 func Labels(appName string) map[string]string {
 	return map[string]string{
-		"app": appName,
+		"app":             appName,
+		ManagedByLabelKey: ManagedByLabelValue,
 	}
 }

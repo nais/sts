@@ -1,3 +1,4 @@
+# Used by builds with the repository root as context (sts-operator).
 .git
 **/*.kubeconfig
 **/.env
@@ -7,3 +8,4 @@
 **/README.md
 **/bin
 **/mise.toml
+charts

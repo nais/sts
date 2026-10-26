@@ -5,15 +5,21 @@ metadata:
   labels:
     {{- include "sts-operator.labels" . | nindent 4 }}
 rules:
+  # Keep in sync with the kubebuilder:rbac markers in oauthclient_controller.go.
   - apiGroups: [nais.io]
     resources: [oauthclients]
-    verbs: [get, list, watch, update, patch]
+    verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [nais.io]
-    resources: [oauthclients/status, oauthclients/finalizers]
+    resources: [oauthclients/status]
     verbs: [get, update, patch]
+  - apiGroups: [nais.io]
+    resources: [oauthclients/finalizers]
+    verbs: [update]
+  # The operator caches only ConfigMaps labelled app.kubernetes.io/managed-by=sts-operator,
+  # but label-selected informers still need list/watch.
   - apiGroups: [""]
     resources: [configmaps]
-    verbs: [get, list, watch, create, update, patch]
+    verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: ["", events.k8s.io]
     resources: [events]
     verbs: [create, update, patch]

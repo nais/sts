@@ -77,7 +77,15 @@ interrupt reconciliation and JWKS availability. Do not scale this deployment or
 run multiple operators for the same cluster.
 
 The chart grants cluster-wide access to OAuthClients, their status/finalizers,
-ConfigMaps and events. It does not grant access to Secrets or token creation.
+ConfigMaps and events, matching the reconciler's kubebuilder RBAC markers.
+The operator labels its ConfigMaps `app.kubernetes.io/managed-by: sts-operator`
+and caches only ConfigMaps with that label. Don't remove the label: the operator
+would no longer see the ConfigMap and would fail to recreate it. It does not grant
+access to Secrets or token creation.
+
+[Feature.yaml](Feature.yaml) defines the Fasit values: cluster name, same-env
+STS URL, JWKS host (matching the authserver's `registratorJwksUri`), image tag,
+and API/DNS CIDRs.
 
 ## Network access
 
@@ -108,20 +116,9 @@ and do not restrict ingress to JWKS or metrics.
 
 ## CRD lifecycle
 
-The local [sts-operator-crds dependency](../sts-operator-crds/README.md) places
-the CRD in `templates/`, so an operator chart upgrade also updates the CRD.
-Install only one operator release per cluster; do not install a separate CRD
-release alongside it. Keep CRD changes compatible with existing resources and
-the running operator; schema updates do not perform data migrations.
+The CRD comes from the local [sts-operator-crds dependency](../sts-operator-crds/README.md)
+and is updated on every operator chart upgrade. See that README for generation,
+retention and migration constraints.
 
-`helm rollback` can revert both the operator and CRD schema. The keep annotation
-prevents removal, not updates or rollback. To revert only the operator, upgrade
-using the current chart and values with an older `image.tag`.
-
-`mise run sts-operator:generate` generates deepcopy methods and CRDs, then runs
-`sts-operator:generate:chart-crds` to copy generated CRDs into
-`charts/sts-operator-crds/templates/` with `helm.sh/resource-policy: keep`, then
-rebuilds the dependency bundle. Edit
-`sts-operator/api/nais.io/v1/oauthclient_types.go`, not the generated YAML.
-Uninstalling the operator retains the CRD and OAuthClient resources, but leaves
-the CRD unmanaged.
+`helm rollback` reverts both the operator and the CRD schema. To revert only the
+operator, upgrade with the current chart and values and an older `image.tag`.

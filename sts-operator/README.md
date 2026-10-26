@@ -87,6 +87,10 @@ The operator Dockerfile uses the repository root as its build context:
 docker build -f sts-operator/Dockerfile .
 ```
 
+It needs the root context because `go.mod` replaces `github.com/nais/sts/api`
+with `../sts-authserver/api`. The root `.dockerignore` keeps local files, `.git`
+and charts out of that context.
+
 ## Development
 
 Use [mise](https://mise.jdx.dev/) for the configured tools and generation tasks:

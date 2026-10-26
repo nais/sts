@@ -105,6 +105,7 @@ func TestOAuthClientReconciler(t *testing.T) {
 	skipNameValidation := true
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme:     scheme,
+		Cache:      controllers.CacheOptions(),
 		Metrics:    ctrlmetricsserver.Options{BindAddress: "0"},
 		Controller: controllerconfig.Controller{SkipNameValidation: &skipNameValidation},
 	})
@@ -173,7 +174,10 @@ func TestOAuthClientReconciler(t *testing.T) {
 
 		var cm corev1.ConfigMap
 		require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm))
-		assert.Equal(t, map[string]string{"app": appName}, cm.Labels)
+		assert.Equal(t, map[string]string{
+			"app":                       appName,
+			configmap.ManagedByLabelKey: configmap.ManagedByLabelValue,
+		}, cm.Labels)
 		assert.Equal(t, map[string]string{configmap.StakaterReloaderAnnotationKey: "true"}, cm.Annotations)
 		assert.Equal(t, map[string]string{
 			configmap.STSClientIDKey:      clientID,
@@ -183,6 +187,23 @@ func TestOAuthClientReconciler(t *testing.T) {
 			configmap.STSTokenEndpointKey: stsURL + "/token",
 		}, cm.Data)
 		assert.True(t, metav1.IsControlledBy(&cm, stsClient), "config map should be controlled by OAuthClient")
+	}) {
+		t.FailNow()
+	}
+
+	if !t.Run("cache only contains managed config maps", func(t *testing.T) {
+		unmanaged := &corev1.ConfigMap{Name: "unmanaged", Namespace: namespace}
+		require.NoError(t, k8sClient.Create(ctx, unmanaged))
+		t.Cleanup(func() { assert.NoError(t, k8sClient.Delete(context.Background(), unmanaged)) })
+
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			var managed corev1.ConfigMap
+			assert.NoError(c, mgr.GetClient().Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &managed))
+		}, reconcileTimeout, pollInterval)
+
+		var cached corev1.ConfigMap
+		err := mgr.GetClient().Get(ctx, client.ObjectKeyFromObject(unmanaged), &cached)
+		assert.True(t, apierrors.IsNotFound(err), "unmanaged config map should not be cached, got %v", err)
 	}) {
 		t.FailNow()
 	}

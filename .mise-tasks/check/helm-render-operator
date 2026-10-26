@@ -78,7 +78,10 @@ helm template sts-operator "$chart" --namespace nais-system --include-crds \
   $binding.roleRef.name == $role.metadata.name and
   $binding.subjects == [{"kind": "ServiceAccount", "name": $pod.serviceAccountName, "namespace": "nais-system"}] and
   any($role.rules[]; .resources == ["oauthclients"] and (.verbs | index("watch")) != null) and
+  any($role.rules[]; .resources == ["oauthclients"] and (.verbs | index("delete")) != null) and
   any($role.rules[]; .resources == ["configmaps"] and (.verbs | index("create")) != null) and
+  any($role.rules[]; .resources == ["configmaps"] and (.verbs | index("delete")) != null) and
+  any($role.rules[]; .resources == ["configmaps"] and (.verbs | index("watch")) != null) and
   all($role.rules[]; (.resources | index("secrets")) == null)
 ' >/dev/null
 
@@ -179,6 +182,28 @@ for endpoint in https://sts.example.com http://sts.example.com https://sts.examp
     }]
   ' >/dev/null
 done
+
+# Fasit values must target existing chart values.
+while IFS= read -r key; do
+  yq -o=json "$chart/values.yaml" | jq -e --arg key "$key" 'getpath($key | split(".")) != null' >/dev/null ||
+    { printf 'Feature.yaml key %s missing from values.yaml\n' "$key" >&2; exit 1; }
+done < <(yq -r '.values | keys | .[]' "$chart/Feature.yaml")
+
+# Render with values shaped like Fasit's computed output.
+helm template sts-operator "$chart" --namespace nais-system \
+  --set config.clusterName=dev --set config.stsBaseUrl=https://sts.dev.tenant.cloud.nais.io \
+  --set ingress.host=sts-operator.dev.tenant.cloud.nais.io --set image.tag=v1 \
+  --set-json 'networkPolicy.apiServerCidrs=["192.0.2.1/32"]' \
+  --set-json 'networkPolicy.dnsCidrs=["192.0.2.0/24"]' | yq -o=json | jq -s -e '
+  [.[] | select(.kind == "NetworkPolicy")][0].spec.egress[0].to == [{"ipBlock": {"cidr": "192.0.2.1/32"}}] and
+  [.[] | select(.kind == "Ingress")][0].spec.rules[0].host == "sts-operator.dev.tenant.cloud.nais.io"
+' >/dev/null
+
+# Fasit reads Feature.yaml from the packaged chart.
+package_dir=$(mktemp -d)
+trap 'rm -rf "$package_dir"' EXIT
+helm package "$chart" --destination "$package_dir" >/dev/null
+tar -tzf "$package_dir"/sts-operator-*.tgz | grep -qx 'sts-operator/Feature.yaml'
 
 helm template sts-operator "$chart" --api-versions networking.gke.io/v1alpha3 \
   --set fqdnNetworkPolicy.enabled=false | yq -o=json | jq -s -e '

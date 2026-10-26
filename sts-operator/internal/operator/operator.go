@@ -69,6 +69,7 @@ func Run(cfg *config.Config, log *slog.Logger, opts ...Option) error {
 	}
 	mgr, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Scheme: scheme,
+		Cache:  controllers.CacheOptions(),
 		Metrics: ctrlmetricsserver.Options{
 			BindAddress: cfg.MetricsAddr,
 		},
