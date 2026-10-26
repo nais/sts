@@ -38,7 +38,7 @@ jobs:
       tasks: |
         [
           "check:ratchet",
-          "check:ci",
+          "check:release-scripts",
           "check:helm-lint",
           "check:helm-render"
         ]
