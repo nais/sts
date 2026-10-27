@@ -1,0 +1,17 @@
+apiVersion: nais.io/v1
+kind: OAuthClient
+metadata:
+  name: workload1
+  namespace: tommy
+---
+apiVersion: nais.io/v1
+kind: OAuthClient
+metadata:
+  name: workload2
+  namespace: trong
+spec:
+  acl:
+    - team: tommy
+      workloads:
+        - name: workload1
+          roles: ["king"]
