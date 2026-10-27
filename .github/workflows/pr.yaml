@@ -15,8 +15,7 @@ jobs:
           "check:ratchet",
           "check:release-scripts",
           "check:helm-lint",
-          "check:helm-render",
-          "check:helm-render-operator"
+          "check:helm-render"
         ]
 
   authserver:

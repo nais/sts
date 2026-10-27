@@ -40,7 +40,7 @@ jobs:
           "check:ratchet",
           "check:release-scripts",
           "check:helm-lint",
-          "check:helm-render"
+          "sts-authserver:check:helm-render"
         ]
 
   image:

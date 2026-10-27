@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+#MISE description="Test authserver chart configuration and database wiring"
+#MISE depends=["//:check:helm-lint"]
+set -euo pipefail
+
+# Check the Deployment's Secret reference against the dependency's Cluster name.
+for cluster_name in sts-postgresql custom-db "$(printf 'a%.0s' {1..50})"; do
+  helm template authserver ../charts/sts-authserver --namespace application \
+    --set-string "postgresql.fullnameOverride=$cluster_name" | yq -o=json | jq -s -e '
+      ([.[] | select(.kind == "Cluster")][0].metadata.name + "-app") as $secret |
+      [.[] | select(.kind == "Deployment")][0].spec.template.spec.containers[0].env |
+      map(select(.name == "DATABASE_URL")) == [
+        {"name":"DATABASE_URL", "valueFrom":{"secretKeyRef":{"name":$secret,"key":"uri"}}}
+      ]
+    ' >/dev/null
+done
+
+for invalid_name in '' invalid.name "$(printf 'a%.0s' {1..51})"; do
+  if helm template authserver ../charts/sts-authserver \
+    --set-string "postgresql.fullnameOverride=$invalid_name" >/dev/null 2>&1; then
+    printf 'Expected validation failure for Cluster name: %s\n' "$invalid_name" >&2
+    exit 1
+  fi
+done
+
+helm template authserver ../charts/sts-authserver --set postgresqlEnabled=false \
+  --set-string postgresql.fullnameOverride= --set config.databaseUrl=postgres://external/app | yq -o=json | jq -s -e '
+    all(.[]; .kind != "Cluster") and
+    ([.[] | select(.kind == "Deployment")][0].spec.template.spec.containers[0].env |
+      all(.[]; .name != "DATABASE_URL")) and
+    ([.[] | select(.kind == "Secret")][0].stringData["config.yaml"] |
+      contains("databaseUrl: postgres://external/app"))
+  ' >/dev/null
+
+# Parse the embedded application config, not just the Kubernetes manifest.
+config_dir=$(mktemp -d)
+trap 'rm -rf "$config_dir"' EXIT
+
+render_config() {
+  helm template authserver ../charts/sts-authserver \
+    --show-only templates/config-secret.yaml "$@" |
+    yq -r '.stringData["config.yaml"]' | yq -o=json
+}
+
+render_config > "$config_dir/default.json"
+jq -e '
+  (has("config") | not) and
+  (has("environments") | not) and
+  .bindAddress == ":8080" and
+  .internalBindAddress == ":8081" and
+  .databaseUrl == "" and
+  .authorizationServer.environments == [{
+    "name": "env1",
+    "clientAuthIssuer": "https://kubernetes.default.svc",
+    "registrator": {
+      "subject": "system:serviceaccount:nais-system:sts-operator",
+      "registratorJwksUri": "https://sts-operator.environment.tenant.cloud.nais.io/jwks",
+      "signingAlg": "ES256"
+    }
+  }]
+' "$config_dir/default.json" >/dev/null
+
+render_config \
+  --set 'config.authorizationServer.clientAuthSigningAlgorithms[0]=ES256' \
+  --set config.authorizationServer.maxClientAuthTokenLifetime=5m \
+  --set-string config.authorizationServer.expectedAudience=true \
+  --set-json 'config.authorizationServer.subjectTokenIssuers={"https://identity.example.com":"identity"}' \
+  --set-json 'config.authorizationServer.environments=[
+    {"name":"dev-gcp","clientAuthIssuer":"https://issuer.example.com/dev","registrator":{"subject":"system:serviceaccount:custom:operator # literal","registratorJwksUri":"https://operator.dev.example.com/jwks","signingAlg":"ES256"}},
+    {"name":"prod-gcp","clientAuthIssuer":"https://issuer.example.com/prod","registrator":{"subject":"system:serviceaccount:nais-system:sts-operator","registratorJwksUri":"https://operator.prod.example.com/jwks","signingAlg":"RS256"}}
+  ]' | tee "$config_dir/custom.json" | jq -e '
+    .authorizationServer as $auth |
+    $auth.clientAuthSigningAlgorithms == ["ES256"] and
+    $auth.maxClientAuthTokenLifetime == "5m" and
+    $auth.expectedAudience == "true" and
+    $auth.subjectTokenIssuers == {"https://identity.example.com": "identity"} and
+    ($auth.environments | map(.name)) == ["dev-gcp", "prod-gcp"] and
+    ($auth.environments | map(.clientAuthIssuer)) == ["https://issuer.example.com/dev", "https://issuer.example.com/prod"] and
+    ($auth.environments | map(.registrator.registratorJwksUri)) == ["https://operator.dev.example.com/jwks", "https://operator.prod.example.com/jwks"] and
+    $auth.environments[0].registrator.subject == "system:serviceaccount:custom:operator # literal" and
+    $auth.environments[1].registrator.subject == "system:serviceaccount:nais-system:sts-operator" and
+    ($auth.environments | map(.registrator.signingAlg)) == ["ES256", "RS256"]
+  ' >/dev/null
+
+# Check the rendered configuration with the same defaults and validation as startup.
+STS_TEST_CONFIG_DIR="$config_dir" go test -count=1 ./internal/config -run '^TestLoadRenderedConfigs$'
+
+# FQDN egress: one bare hostname per registrator JWKS host, deduplicated, and
+# only when enabled and the GKE API is available.
+fqdn_policy() {
+  helm template authserver ../charts/sts-authserver --show-only templates/fqdnnetpol.yaml "$@" | yq -o=json
+}
+fqdn_policy --api-versions networking.gke.io/v1alpha3 \
+  --set-json 'config.authorizationServer.environments=[
+    {"name":"a","clientAuthIssuer":"https://a.example.com","registrator":{"subject":"s","registratorJwksUri":"https://op.example.com:8443/jwks","signingAlg":"ES256"}},
+    {"name":"b","clientAuthIssuer":"https://b.example.com","registrator":{"subject":"s","registratorJwksUri":"https://op.example.com/jwks","signingAlg":"ES256"}},
+    {"name":"c","clientAuthIssuer":"https://c.example.com","registrator":{"subject":"s","registratorJwksUri":"https://other.example.com/jwks","signingAlg":"ES256"}}
+  ]' | jq -e '
+    .kind == "FQDNNetworkPolicy" and
+    .spec.egress == [{
+      "to": [{"fqdns": ["op.example.com", "other.example.com"]}],
+      "ports": [{"protocol": "TCP", "port": 443}]
+    }]
+  ' >/dev/null
+
+for args in '' '--api-versions networking.gke.io/v1alpha3 --set fqdnNetworkPolicy.enabled=false'; do
+  # shellcheck disable=SC2086 # Intentional word splitting of Helm flags.
+  if helm template authserver ../charts/sts-authserver $args | grep -q 'kind: FQDNNetworkPolicy'; then
+    printf 'Unexpected FQDNNetworkPolicy with args: %s\n' "$args" >&2
+    exit 1
+  fi
+done
+
+printf 'authserver render tests passed\n'

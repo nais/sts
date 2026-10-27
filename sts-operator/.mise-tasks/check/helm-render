@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #MISE description="Test CRD and operator charts, RBAC and token wiring"
-#MISE depends=["check:helm-lint"]
+#MISE depends=["//:check:helm-lint"]
 set -euo pipefail
 
-chart=./charts/sts-operator
-crd_chart=./charts/sts-operator-crds
+chart=../charts/sts-operator
+crd_chart=../charts/sts-operator-crds
 
 # The chart copy differs from the generated source only by Helm retention.
 cmp \
-  <(yq -o=json sts-operator/config/crd/bases/nais.io_oauthclients.yaml | jq -S .) \
+  <(yq -o=json config/crd/bases/nais.io_oauthclients.yaml | jq -S .) \
   <(yq -o=json "$crd_chart/templates/nais.io_oauthclients.yaml" |
     jq -S 'del(.metadata.annotations."helm.sh/resource-policy")')
 

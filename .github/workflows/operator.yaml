@@ -41,7 +41,7 @@ jobs:
           "check:ratchet",
           "check:release-scripts",
           "check:helm-lint",
-          "check:helm-render-operator"
+          "sts-operator:check:helm-render"
         ]
 
   image:
