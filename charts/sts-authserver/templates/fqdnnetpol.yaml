@@ -1,0 +1,28 @@
+{{- if and .Values.fqdnNetworkPolicy.enabled (.Capabilities.APIVersions.Has "networking.gke.io/v1alpha3") }}
+{{- $hosts := list }}
+{{- range .Values.config.authorizationServer.environments }}
+{{- $url := required "registrator.registratorJwksUri is required" .registrator.registratorJwksUri }}
+{{- $hosts = append $hosts (urlParse $url).hostname }}
+{{- end }}
+apiVersion: networking.gke.io/v1alpha3
+kind: FQDNNetworkPolicy
+metadata:
+  name: {{ include "sts.fullname" . }}-fqdn
+  labels:
+    {{- include "sts.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "sts.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - fqdns:
+            {{- range uniq $hosts }}
+            - {{ . | quote }}
+            {{- end }}
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}
