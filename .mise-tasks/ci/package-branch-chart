@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="Package a branch chart with this build's image"
+set -euo pipefail
+
+chart="${1:?Supply the chart directory}"
+export IMAGE_TAG="${2:?Supply the image version}"
+# Branch versions never collide with main's timestamp versions.
+version="0.0.0-branch.$(git rev-parse --short=7 HEAD).${GITHUB_RUN_ID:?}.${GITHUB_RUN_ATTEMPT:?}"
+
+yq -i '.image.tag = strenv(IMAGE_TAG)' "$chart/values.yaml"
+helm package "$chart" --dependency-update --version "$version" --app-version "$IMAGE_TAG"
+echo "version=$version" >> "${GITHUB_OUTPUT:?}"
