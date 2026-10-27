@@ -4,14 +4,14 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: stsclients.nais.io
+  name: oauthclients.nais.io
 spec:
   group: nais.io
   names:
-    kind: STSClient
-    listKind: STSClientList
-    plural: stsclients
-    singular: stsclient
+    kind: OAuthClient
+    listKind: OAuthClientList
+    plural: oauthclients
+    singular: oauthclient
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -35,7 +35,7 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
-        description: STSClient is the Schema for the sts-operator API
+        description: OAuthClient represents an OAuth2 client registered with STS.
         properties:
           apiVersion:
             description: |-
@@ -94,7 +94,7 @@ spec:
                 x-kubernetes-list-type: map
             type: object
           status:
-            description: STSClientStatus defines the observed state of STSClient
+            description: OAuthClientStatus defines the observed state of OAuthClient.
             properties:
               clientID:
                 description: ClientID is the OAuth2 Client ID associated with this

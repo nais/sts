@@ -43,7 +43,7 @@ const (
 	pollInterval     = 100 * time.Millisecond
 )
 
-func TestSTSClientReconciler(t *testing.T) {
+func TestOAuthClientReconciler(t *testing.T) {
 	ctrl.SetLogger(zap.New())
 
 	scheme := runtime.NewScheme()
@@ -105,6 +105,7 @@ func TestSTSClientReconciler(t *testing.T) {
 	skipNameValidation := true
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme:     scheme,
+		Cache:      controllers.CacheOptions(),
 		Metrics:    ctrlmetricsserver.Options{BindAddress: "0"},
 		Controller: controllerconfig.Controller{SkipNameValidation: &skipNameValidation},
 	})
@@ -124,7 +125,7 @@ func TestSTSClientReconciler(t *testing.T) {
 	registrator, err := stsapi.NewRegistrationClient(stsapi.STSIssuer(cfg.STSBaseURL), stsapi.TokenFromFile(cfg.AuthTokenPath))
 	require.NoError(t, err)
 
-	err = controllers.NewSTSClientReconciler(mgr, cfg, registrator)
+	err = controllers.NewOAuthClientReconciler(mgr, cfg, registrator)
 	require.NoError(t, err)
 
 	keySet, err := registrator.PublicKeySet()
@@ -147,7 +148,7 @@ func TestSTSClientReconciler(t *testing.T) {
 	k8sClient, err := client.New(restCfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
 
-	stsClient := &stsv1.STSClient{
+	stsClient := &stsv1.OAuthClient{
 		Name: appName, Namespace: namespace,
 	}
 	require.NoError(t, k8sClient.Create(ctx, stsClient))
@@ -155,7 +156,7 @@ func TestSTSClientReconciler(t *testing.T) {
 
 	if !t.Run("creation registers client and creates config map", func(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			var obj stsv1.STSClient
+			var obj stsv1.OAuthClient
 			if !assert.NoError(c, k8sClient.Get(ctx, key, &obj)) {
 				return
 			}
@@ -173,7 +174,10 @@ func TestSTSClientReconciler(t *testing.T) {
 
 		var cm corev1.ConfigMap
 		require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm))
-		assert.Equal(t, map[string]string{"app": appName}, cm.Labels)
+		assert.Equal(t, map[string]string{
+			"app":                       appName,
+			configmap.ManagedByLabelKey: configmap.ManagedByLabelValue,
+		}, cm.Labels)
 		assert.Equal(t, map[string]string{configmap.StakaterReloaderAnnotationKey: "true"}, cm.Annotations)
 		assert.Equal(t, map[string]string{
 			configmap.STSClientIDKey:      clientID,
@@ -182,7 +186,24 @@ func TestSTSClientReconciler(t *testing.T) {
 			configmap.STSJwksURIKey:       stsURL + "/jwks",
 			configmap.STSTokenEndpointKey: stsURL + "/token",
 		}, cm.Data)
-		assert.True(t, metav1.IsControlledBy(&cm, stsClient), "config map should be controlled by STSClient")
+		assert.True(t, metav1.IsControlledBy(&cm, stsClient), "config map should be controlled by OAuthClient")
+	}) {
+		t.FailNow()
+	}
+
+	if !t.Run("cache only contains managed config maps", func(t *testing.T) {
+		unmanaged := &corev1.ConfigMap{Name: "unmanaged", Namespace: namespace}
+		require.NoError(t, k8sClient.Create(ctx, unmanaged))
+		t.Cleanup(func() { assert.NoError(t, k8sClient.Delete(context.Background(), unmanaged)) })
+
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			var managed corev1.ConfigMap
+			assert.NoError(c, mgr.GetClient().Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &managed))
+		}, reconcileTimeout, pollInterval)
+
+		var cached corev1.ConfigMap
+		err := mgr.GetClient().Get(ctx, client.ObjectKeyFromObject(unmanaged), &cached)
+		assert.True(t, apierrors.IsNotFound(err), "unmanaged config map should not be cached, got %v", err)
 	}) {
 		t.FailNow()
 	}
@@ -207,7 +228,7 @@ func TestSTSClientReconciler(t *testing.T) {
 		require.Greater(t, stsClient.Generation, previousGeneration)
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			var obj stsv1.STSClient
+			var obj stsv1.OAuthClient
 			if !assert.NoError(c, k8sClient.Get(ctx, key, &obj)) {
 				return
 			}
@@ -231,13 +252,13 @@ func TestSTSClientReconciler(t *testing.T) {
 		t.FailNow()
 	}
 
-	t.Run("deletion deregisters client and removes STSClient", func(t *testing.T) {
+	t.Run("deletion deregisters client and removes OAuthClient", func(t *testing.T) {
 		require.NoError(t, k8sClient.Delete(ctx, stsClient))
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			var obj stsv1.STSClient
+			var obj stsv1.OAuthClient
 			err := k8sClient.Get(ctx, key, &obj)
-			assert.True(c, apierrors.IsNotFound(err), "STSClient should be removed, got: %v", err)
+			assert.True(c, apierrors.IsNotFound(err), "OAuthClient should be removed, got: %v", err)
 		}, reconcileTimeout, pollInterval)
 
 		require.Len(t, deletedIDs, 1)

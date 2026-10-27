@@ -85,4 +85,30 @@ render_config \
 # Check the rendered configuration with the same defaults and validation as startup.
 (cd sts-authserver && STS_TEST_CONFIG_DIR="$config_dir" go test -count=1 ./internal/config -run '^TestLoadRenderedConfigs$')
 
+# FQDN egress: one bare hostname per registrator JWKS host, deduplicated, and
+# only when enabled and the GKE API is available.
+fqdn_policy() {
+  helm template authserver ./charts/sts-authserver --show-only templates/fqdnnetpol.yaml "$@" | yq -o=json
+}
+fqdn_policy --api-versions networking.gke.io/v1alpha3 \
+  --set-json 'config.authorizationServer.environments=[
+    {"name":"a","clientAuthIssuer":"https://a.example.com","registrator":{"subject":"s","registratorJwksUri":"https://op.example.com:8443/jwks","signingAlg":"ES256"}},
+    {"name":"b","clientAuthIssuer":"https://b.example.com","registrator":{"subject":"s","registratorJwksUri":"https://op.example.com/jwks","signingAlg":"ES256"}},
+    {"name":"c","clientAuthIssuer":"https://c.example.com","registrator":{"subject":"s","registratorJwksUri":"https://other.example.com/jwks","signingAlg":"ES256"}}
+  ]' | jq -e '
+    .kind == "FQDNNetworkPolicy" and
+    .spec.egress == [{
+      "to": [{"fqdns": ["op.example.com", "other.example.com"]}],
+      "ports": [{"protocol": "TCP", "port": 443}]
+    }]
+  ' >/dev/null
+
+for args in '' '--api-versions networking.gke.io/v1alpha3 --set fqdnNetworkPolicy.enabled=false'; do
+  # shellcheck disable=SC2086 # Intentional word splitting of Helm flags.
+  if helm template authserver ./charts/sts-authserver $args | grep -q 'kind: FQDNNetworkPolicy'; then
+    printf 'Unexpected FQDNNetworkPolicy with args: %s\n' "$args" >&2
+    exit 1
+  fi
+done
+
 printf 'authserver render tests passed\n'

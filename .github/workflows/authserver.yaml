@@ -13,35 +13,24 @@ concurrency:
 
 jobs:
   changes:
-    runs-on: ubuntu-latest
-    outputs:
-      code: ${{ steps.changes.outputs.code }}
-      chart: ${{ steps.changes.outputs.chart }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # ratchet:jdx/mise-action@v5
-        with:
-          install: false
-          cache: false
-      - id: changes
-        name: Classify changes
-        env:
-          BEFORE: ${{ github.event.before }}
-        run: |
-          mise run --skip-tools ci:classify-changes \
-            --code sts-authserver \
-            --code ':!sts-authserver/*.md' \
-            --code mise.toml \
-            --code .mise-tasks \
-            --code .github/workflows/authserver.yaml \
-            --code .github/workflows/authserver-image.yaml \
-            --code .github/workflows/pr.yaml \
-            --code .github/workflows/mise.yaml \
-            --chart charts/sts-authserver \
-            --chart .github/workflows/authserver-chart.yaml
+    uses: ./.github/workflows/changes.yaml
+    with:
+      code-paths: |
+        [
+          "sts-authserver", ":!sts-authserver/*.md",
+          "mise.toml", ".mise-tasks",
+          ".github/workflows/authserver.yaml",
+          ".github/workflows/image.yaml",
+          ".github/workflows/changes.yaml",
+          ".github/workflows/pr.yaml",
+          ".github/workflows/mise.yaml"
+        ]
+      chart-paths: |
+        [
+          "charts/sts-authserver",
+          ".github/workflows/release-chart.yaml",
+          ".github/workflows/deploy.yaml"
+        ]
 
   checks:
     uses: ./.github/workflows/mise.yaml
@@ -49,6 +38,7 @@ jobs:
       tasks: |
         [
           "check:ratchet",
+          "check:release-scripts",
           "check:helm-lint",
           "check:helm-render"
         ]
@@ -60,7 +50,13 @@ jobs:
       contents: write
       packages: write
       id-token: write
-    uses: ./.github/workflows/authserver-image.yaml
+    uses: ./.github/workflows/image.yaml
+    with:
+      name: sts
+      context: sts-authserver
+      dockerfile: sts-authserver/Dockerfile
+      cache-scope: sts-authserver
+      tasks: '["sts-authserver:check", "sts-authserver:test"]'
     secrets:
       NAIS_IO_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
 
@@ -76,7 +72,10 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/authserver-chart.yaml
+    uses: ./.github/workflows/release-chart.yaml
+    with:
+      name: sts
+      chart: charts/sts-authserver
     secrets:
       NAIS_IO_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
 
@@ -86,16 +85,15 @@ jobs:
       !cancelled() &&
       needs.chart.result == 'success' &&
       github.ref == 'refs/heads/main'
-    runs-on: fasit-deploy
     permissions:
+      contents: read
       id-token: write
-    steps:
-      - uses: nais/fasit-deploy@53e433b1bdd08fc622e03a78584c0832c9083bd3 # ratchet:nais/fasit-deploy@v4.1.1
-        with:
-          chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/sts
-          version: ${{ needs.chart.outputs.version }}
-          targets: |
-            [
-              { "target": { "kind": "tenant", "tenant": "ci-nais" }, "wait": true },
-              { "target": { "kind": "tenant", "tenant": "dev-nais" } }
-            ]
+    uses: ./.github/workflows/deploy.yaml
+    with:
+      name: sts
+      version: ${{ needs.chart.outputs.version }}
+      targets: |
+        [
+          { "target": { "kind": "tenant", "tenant": "ci-nais" }, "wait": true },
+          { "target": { "kind": "tenant", "tenant": "dev-nais" } }
+        ]

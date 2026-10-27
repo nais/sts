@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sts-operator.fullname" . }}
+  labels:
+    {{- include "sts-operator.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: jwks
+      port: 8182
+      targetPort: jwks
+      protocol: TCP
+  selector:
+    {{- include "sts-operator.selectorLabels" . | nindent 4 }}

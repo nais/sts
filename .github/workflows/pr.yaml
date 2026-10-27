@@ -13,8 +13,10 @@ jobs:
       tasks: |
         [
           "check:ratchet",
+          "check:release-scripts",
           "check:helm-lint",
-          "check:helm-render"
+          "check:helm-render",
+          "check:helm-render-operator"
         ]
 
   authserver:

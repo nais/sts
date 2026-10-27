@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#MISE description="Copy generated CRDs into the CRD Helm chart"
+#MISE depends=["generate:manifests"]
+set -euo pipefail
+
+chart_dir=../charts/sts-operator-crds/templates
+mkdir -p "$chart_dir"
+for source in config/crd/bases/*.yaml; do
+  target="$chart_dir/$(basename "$source")"
+  cp "$source" "$target"
+  yq -i '.metadata.annotations."helm.sh/resource-policy" = "keep"' "$target"
+done
+
+# Refresh the bundled local dependency after changing generated CRDs.
+helm dependency build ../charts/sts-operator

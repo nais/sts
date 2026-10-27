@@ -1,0 +1,102 @@
+name: operator
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sts-operator-chart
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    uses: ./.github/workflows/changes.yaml
+    with:
+      code-paths: |
+        [
+          "sts-operator", ":!sts-operator/*.md",
+          "sts-authserver/api", ":!sts-authserver/api/*.md",
+          "mise.toml", ".mise-tasks",
+          ".github/workflows/operator.yaml",
+          ".github/workflows/image.yaml",
+          ".github/workflows/changes.yaml",
+          ".github/workflows/pr.yaml",
+          ".github/workflows/mise.yaml"
+        ]
+      chart-paths: |
+        [
+          "charts/sts-operator", "charts/sts-operator-crds",
+          ".github/workflows/release-chart.yaml",
+          ".github/workflows/deploy.yaml"
+        ]
+
+  checks:
+    uses: ./.github/workflows/mise.yaml
+    with:
+      tasks: |
+        [
+          "check:ratchet",
+          "check:release-scripts",
+          "check:helm-lint",
+          "check:helm-render-operator"
+        ]
+
+  image:
+    needs: [changes, checks]
+    if: needs.changes.outputs.code == 'true'
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    uses: ./.github/workflows/image.yaml
+    with:
+      name: sts-operator
+      context: .
+      dockerfile: sts-operator/Dockerfile
+      cache-scope: sts-operator
+      tasks: '["sts-operator:check", "sts-operator:test"]'
+      release-prefix: sts-operator-
+    secrets:
+      NAIS_IO_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
+
+  chart:
+    needs: [changes, checks, image]
+    if: >-
+      !cancelled() &&
+      needs.checks.result == 'success' &&
+      (
+        (needs.changes.outputs.code == 'true' && needs.image.result == 'success') ||
+        (needs.changes.outputs.chart == 'true' && needs.changes.outputs.code != 'true')
+      )
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/release-chart.yaml
+    with:
+      name: sts-operator
+      chart: charts/sts-operator
+      release-prefix: sts-operator-
+    secrets:
+      NAIS_IO_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
+
+  deploy:
+    needs: chart
+    if: >-
+      !cancelled() &&
+      needs.chart.result == 'success' &&
+      github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy.yaml
+    with:
+      name: sts-operator
+      version: ${{ needs.chart.outputs.version }}
+      targets: |
+        [
+          { "target": { "kind": "tenant", "tenant": "ci-nais" }, "wait": true },
+          { "target": { "kind": "tenant", "tenant": "dev-nais" } }
+        ]

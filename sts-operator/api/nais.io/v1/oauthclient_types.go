@@ -7,7 +7,7 @@ import (
 
 func init() {
 	SchemeBuilder.Register(func(s *runtime.Scheme) error {
-		s.AddKnownTypes(GroupVersion, &STSClient{}, &STSClientList{})
+		s.AddKnownTypes(GroupVersion, &OAuthClient{}, &OAuthClientList{})
 		return nil
 	})
 }
@@ -21,26 +21,25 @@ func init() {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// TODO: rename to OAuthClient or similar, since STSClient is a bit misleading. The resource represents an OAuth2 client that is registered with STS, not the STS service itself.
-// STSClient is the Schema for the sts-operator API
-type STSClient struct {
+// OAuthClient represents an OAuth2 client registered with STS.
+type OAuthClient struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   STSClientSpec   `json:"spec,omitempty"`
-	Status STSClientStatus `json:"status,omitempty"`
+	Spec   OAuthClientSpec   `json:"spec,omitempty"`
+	Status OAuthClientStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// STSClientList contains a list of STSClient
-type STSClientList struct {
+// OAuthClientList contains a list of OAuthClient.
+type OAuthClientList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []STSClient `json:"items"`
+	Items           []OAuthClient `json:"items"`
 }
 
-type STSClientSpec struct {
+type OAuthClientSpec struct {
 	// AccessControlList grants consumers access to this client, grouped by team.
 	// +listType=map
 	// +listMapKey=team
@@ -65,8 +64,8 @@ type Workload struct {
 	Roles []string `json:"roles,omitempty"`
 }
 
-// STSClientStatus defines the observed state of STSClient
-type STSClientStatus struct {
+// OAuthClientStatus defines the observed state of OAuthClient.
+type OAuthClientStatus struct {
 	// ClientID is the OAuth2 Client ID associated with this workload
 	ClientID string `json:"clientID,omitempty"`
 	// ObservedGeneration is the most recent generation observed by the controller.

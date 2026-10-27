@@ -76,6 +76,10 @@ ingress:
 nodeSelector: {}
 tolerations: []
 
+# Allow egress to registrator JWKS hosts on 443, if the GKE FQDNNetworkPolicy API is available.
+fqdnNetworkPolicy:
+  enabled: true
+
 postgresqlEnabled: true
 postgresql:
   # Shared Cluster/Secret naming contract. Keep stable after the first install.

@@ -1,0 +1,79 @@
+config:
+  clusterName: env1
+  stsBaseUrl: https://sts.environment.tenant.cloud.nais.io
+  logLevel: info
+  maxConcurrentReconciles: 20
+
+# Must match the authserver's authorizationServer.expectedAudience.
+authToken:
+  audience: nais
+  expirationSeconds: 600
+
+image:
+  repository: europe-north1-docker.pkg.dev/nais-io/nais/images/sts-operator
+  pullPolicy: IfNotPresent
+  tag: main
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  # Must match the authserver's configured registrator subject.
+  name: sts-operator
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 65532
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+
+resources:
+  limits:
+    memory: 256Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# Exposes only the public signing keys at /jwks.
+ingress:
+  enabled: true
+  className: internal-haproxy
+  annotations: {}
+  host: sts-operator.environment.tenant.cloud.nais.io
+  tls: []
+
+podMonitor:
+  enabled: true
+
+# Restrict operator egress. Configure the cluster's API/DNS destinations before use.
+networkPolicy:
+  enabled: true
+  # API endpoints on TCP 443; may differ from the Kubernetes Service IP.
+  apiServerCidrs: []
+  # DNS service/node-local addresses on UDP/TCP 53, in addition to DNS pods.
+  dnsCidrs: []
+  # Additional rules in standard Kubernetes NetworkPolicy syntax.
+  egress: []
+
+# Allow STS egress when the GKE FQDNNetworkPolicy API is available.
+fqdnNetworkPolicy:
+  enabled: true
+
+nodeSelector: {}
+affinity: {}
+tolerations: []

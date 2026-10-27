@@ -1,0 +1,40 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "sts-operator.rbacName" . }}
+  labels:
+    {{- include "sts-operator.labels" . | nindent 4 }}
+rules:
+  # Keep in sync with the kubebuilder:rbac markers in oauthclient_controller.go.
+  - apiGroups: [nais.io]
+    resources: [oauthclients]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [nais.io]
+    resources: [oauthclients/status]
+    verbs: [get, update, patch]
+  - apiGroups: [nais.io]
+    resources: [oauthclients/finalizers]
+    verbs: [update]
+  # The operator caches only ConfigMaps labelled app.kubernetes.io/managed-by=sts-operator,
+  # but label-selected informers still need list/watch.
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ["", events.k8s.io]
+    resources: [events]
+    verbs: [create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "sts-operator.rbacName" . }}
+  labels:
+    {{- include "sts-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "sts-operator.rbacName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sts-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

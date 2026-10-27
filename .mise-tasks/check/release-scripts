@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+#MISE description="Test component image releases and chart packaging"
+set -euo pipefail
+
+repo=$(git rev-parse --show-toplevel)
+cd "$repo"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+export GH_CALLS="$tmp/gh-calls" HELM_CALLS="$tmp/helm-calls"
+export GH_REPO=example/sts GITHUB_SHA=current GITHUB_OUTPUT="$tmp/output"
+export AUTH_RELEASE=v1 RELEASES COMPARE_STATUS=ahead GH_FAIL=false
+RELEASES=$'unrelated-v9\nsts-operator-v2\nsts-operator-v1'
+
+# Exercise the scripts without publishing, network calls or modifying source charts.
+gh() {
+  printf '%s\n' "$*" >> "$GH_CALLS"
+  if [[ "$GH_FAIL" == true ]]; then return 42; fi
+  case "$1 $2" in
+    'release view') printf '%s\n' "$AUTH_RELEASE" ;;
+    'release create') ;;
+    'api --paginate') printf '%s\n' "$RELEASES" ;;
+    api\ repos/*/compare/*) printf '%s\n' "$COMPARE_STATUS" ;;
+    *) echo "Unexpected gh call: $*" >&2; return 1 ;;
+  esac
+}
+helm() { printf '%s\n' "$*" >> "$HELM_CALLS"; }
+export -f gh helm
+
+assert_equal() {
+  if [[ "$1" != "$2" ]]; then
+    printf 'Expected <%s>, got <%s>\n' "$2" "$1" >&2
+    exit 1
+  fi
+}
+expect_failure() {
+  if "$@" >"$tmp/failure" 2>&1; then
+    echo "Expected failure: $*" >&2
+    exit 1
+  fi
+}
+
+latest="$repo/.mise-tasks/ci/latest-image-release"
+release="$repo/.mise-tasks/ci/release"
+package="$repo/.mise-tasks/ci/package-chart"
+assert_equal "$("$latest")" v1
+assert_equal "$("$latest" sts-operator-)" sts-operator-v2
+assert_equal "$("$latest" missing-)" ""
+
+# Authserver retains its existing tags and global latest behavior.
+: > "$GH_CALLS"
+"$release" v3 image:v3
+grep -Fx 'release create v3 --target current --title v3 --notes image:v3 --latest=true' "$GH_CALLS"
+COMPARE_STATUS=behind
+: > "$GH_CALLS"
+"$release" v0 image:v0
+grep -Fx 'release create v0 --target current --title v0 --notes image:v0 --latest=false' "$GH_CALLS"
+
+# A stale operator run must not supersede the latest component image.
+: > "$GH_CALLS"
+"$release" v0 image:v0 sts-operator-
+if grep -q '^release create ' "$GH_CALLS"; then
+  echo 'A stale operator release was published' >&2
+  exit 1
+fi
+for COMPARE_STATUS in ahead identical; do
+  export COMPARE_STATUS
+  : > "$GH_CALLS"
+  "$release" v3 image:v3 sts-operator-
+  grep -Fx 'release create sts-operator-v3 --target current --title sts-operator-v3 --notes image:v3 --latest=false' "$GH_CALLS"
+done
+COMPARE_STATUS=diverged
+expect_failure "$release" v3 image:v3 sts-operator-
+
+# Bootstrap is allowed without a previous component release.
+RELEASES=unrelated-v9
+: > "$GH_CALLS"
+"$release" v1 image:v1 sts-operator-
+grep -Fx 'release create sts-operator-v1 --target current --title sts-operator-v1 --notes image:v1 --latest=false' "$GH_CALLS"
+expect_failure "$package" charts/sts-operator sts-operator-
+
+# API failures must propagate, not be mistaken for a missing release.
+GH_FAIL=true
+expect_failure "$latest" sts-operator-
+expect_failure "$release" v3 image:v3 sts-operator-
+expect_failure "$package" charts/sts-operator sts-operator-
+GH_FAIL=false
+
+# Packaging strips only the release prefix, aligns local dependency versions,
+# and leaves external dependency versions unchanged.
+RELEASES=$'sts-operator-v2\nsts-operator-v1'
+mkdir -p "$tmp/charts/sts-operator" "$tmp/charts/sts-operator-crds" "$tmp/charts/sts-authserver"
+cp charts/sts-operator/{Chart.yaml,values.yaml} "$tmp/charts/sts-operator/"
+cp charts/sts-operator-crds/{Chart.yaml,values.yaml} "$tmp/charts/sts-operator-crds/"
+cp charts/sts-authserver/{Chart.yaml,values.yaml} "$tmp/charts/sts-authserver/"
+: > "$HELM_CALLS"
+"$package" "$tmp/charts/sts-operator" sts-operator-
+version=$(yq -r .version "$tmp/charts/sts-operator/Chart.yaml")
+assert_equal "$(yq -r .version "$tmp/charts/sts-operator-crds/Chart.yaml")" "$version"
+assert_equal "$(yq -r '.dependencies[0].version' "$tmp/charts/sts-operator/Chart.yaml")" "$version"
+assert_equal "$(yq -r .appVersion "$tmp/charts/sts-operator/Chart.yaml")" v2
+assert_equal "$(yq -r .image.tag "$tmp/charts/sts-operator/values.yaml")" v2
+grep -Fx "dependency update $tmp/charts/sts-operator --skip-refresh" "$HELM_CALLS"
+
+: > "$HELM_CALLS"
+"$package" "$tmp/charts/sts-authserver"
+assert_equal "$(yq -r .image.tag "$tmp/charts/sts-authserver/values.yaml")" v1
+assert_equal "$(yq -r '.dependencies[0].version' "$tmp/charts/sts-authserver/Chart.yaml")" 0.1.0
+grep -Fx "dependency build $tmp/charts/sts-authserver" "$HELM_CALLS"
+printf 'Component release and packaging tests passed\n'

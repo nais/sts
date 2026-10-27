@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+#MISE description="Test CRD and operator charts, RBAC and token wiring"
+#MISE depends=["check:helm-lint"]
+set -euo pipefail
+
+chart=./charts/sts-operator
+crd_chart=./charts/sts-operator-crds
+
+# The chart copy differs from the generated source only by Helm retention.
+cmp \
+  <(yq -o=json sts-operator/config/crd/bases/nais.io_oauthclients.yaml | jq -S .) \
+  <(yq -o=json "$crd_chart/templates/nais.io_oauthclients.yaml" |
+    jq -S 'del(.metadata.annotations."helm.sh/resource-policy")')
+
+# CRDs must be regular Helm templates, present on both install and upgrade.
+for is_upgrade in false true; do
+  helm template sts-operator-crds "$crd_chart" --namespace nais-system --is-upgrade="$is_upgrade" \
+    | yq -o=json | jq -s -e '
+    length == 1 and
+    .[0].kind == "CustomResourceDefinition" and
+    .[0].metadata.annotations."helm.sh/resource-policy" == "keep"
+  ' >/dev/null
+
+  # The parent must bundle the current CRD on both install and upgrade.
+  cmp \
+    <(yq -o=json "$crd_chart/templates/nais.io_oauthclients.yaml" | jq -S .) \
+    <(helm template sts-operator "$chart" --namespace nais-system --is-upgrade="$is_upgrade" |
+      yq -o=json | jq -s -S '
+        [.[] | select(.kind == "CustomResourceDefinition")] |
+        if length == 1 then .[0] else error("expected one bundled CRD") end
+      ')
+done
+
+helm template sts-operator "$chart" --namespace nais-system \
+  --api-versions monitoring.coreos.com/v1 | yq -o=json | jq -s -e '
+  [.[] | select(.kind == "Deployment")][0] as $deployment |
+  $deployment.spec.template.spec as $pod |
+  $pod.containers[0] as $container |
+  ($container.env | map({key: .name, value: .value}) | from_entries) as $env |
+  [.[] | select(.kind == "Service")][0] as $service |
+  [.[] | select(.kind == "Ingress")][0] as $ingress |
+  [.[] | select(.kind == "ClusterRole")][0] as $role |
+  [.[] | select(.kind == "ClusterRoleBinding")][0] as $binding |
+  [.[] | select(.kind == "PodMonitor")][0] as $monitor |
+  $deployment.spec.replicas == 1 and
+  $deployment.spec.strategy.type == "Recreate" and
+  $pod.automountServiceAccountToken == true and
+  $env.LEADER_ELECTION == "false" and
+  $env.AUTH_TOKEN_PATH == ($container.volumeMounts[0].mountPath + "/" + $pod.volumes[0].projected.sources[0].serviceAccountToken.path) and
+  $container.volumeMounts[0].readOnly == true and
+  $pod.volumes[0].projected.defaultMode == 288 and
+  $service.spec.selector == $deployment.spec.selector.matchLabels and
+  $ingress.spec.rules[0].http.paths == [{
+    "path": "/jwks", "pathType": "Exact",
+    "backend": {"service": {"name": $service.metadata.name, "port": {"name": "jwks"}}}
+  }] and
+  $monitor.spec.selector.matchLabels == $deployment.spec.selector.matchLabels and
+  $monitor.spec.podMetricsEndpoints[0].port == "metrics" and
+  $binding.roleRef.name == $role.metadata.name and
+  $binding.subjects == [{"kind": "ServiceAccount", "name": $pod.serviceAccountName, "namespace": "nais-system"}] and
+  any($role.rules[]; .resources == ["oauthclients"] and (.verbs | index("watch")) != null) and
+  any($role.rules[]; .resources == ["oauthclients"] and (.verbs | index("delete")) != null) and
+  any($role.rules[]; .resources == ["configmaps"] and (.verbs | index("create")) != null) and
+  any($role.rules[]; .resources == ["configmaps"] and (.verbs | index("delete")) != null) and
+  any($role.rules[]; .resources == ["configmaps"] and (.verbs | index("watch")) != null) and
+  all($role.rules[]; (.resources | index("secrets")) == null)
+' >/dev/null
+
+helm template custom "$chart" --namespace custom \
+  --api-versions monitoring.coreos.com/v1 \
+  --set fullnameOverride=custom-operator \
+  --set serviceAccount.create=false --set serviceAccount.name=existing \
+  --set ingress.enabled=false --set podMonitor.enabled=false \
+  --set networkPolicy.enabled=false --set fqdnNetworkPolicy.enabled=false \
+  --api-versions networking.gke.io/v1alpha3 \
+  --set config.clusterName=custom-cluster --set config.stsBaseUrl=https://sts.example.com \
+  --set config.logLevel=debug --set config.maxConcurrentReconciles=5 \
+  --set-string authToken.audience=true --set authToken.expirationSeconds=7200 \
+  --set image.repository=example.com/operator --set image.tag=v1 | yq -o=json | jq -s -e '
+  [.[] | select(.kind == "Deployment")][0] as $deployment |
+  $deployment.spec.template.spec as $pod |
+  ($pod.containers[0].env | map({key: .name, value: .value}) | from_entries) as $env |
+  all(.[]; .kind != "Ingress" and .kind != "PodMonitor" and .kind != "ServiceAccount" and .kind != "NetworkPolicy" and .kind != "FQDNNetworkPolicy") and
+  $deployment.metadata.name == "custom-operator" and
+  $pod.serviceAccountName == "existing" and
+  $pod.containers[0].image == "example.com/operator:v1" and
+  $env.CLUSTER_NAME == "custom-cluster" and
+  $env.STS_BASE_URL == "https://sts.example.com" and
+  $env.LOG_LEVEL == "debug" and
+  $env.MAX_CONCURRENT_RECONCILES == "5" and
+  $pod.volumes[0].projected.sources[0].serviceAccountToken.audience == "true" and
+  $pod.volumes[0].projected.sources[0].serviceAccountToken.expirationSeconds == 7200 and
+  [.[] | select(.kind == "ClusterRoleBinding")][0].subjects == [
+    {"kind": "ServiceAccount", "name": "existing", "namespace": "custom"}
+  ]
+' >/dev/null
+
+helm template sts-operator "$chart" | yq -o=json | jq -s -e '
+  all(.[]; .kind != "PodMonitor" and .kind != "FQDNNetworkPolicy")
+' >/dev/null
+
+for setting in config.clusterName config.stsBaseUrl authToken.audience ingress.host; do
+  if helm template sts-operator "$chart" --set-string "$setting=" >/dev/null 2>&1; then
+    printf 'Expected validation failure for empty %s\n' "$setting" >&2
+    exit 1
+  fi
+done
+
+# Default egress is limited to DNS pods; empty API CIDRs must not allow all IPs.
+helm template sts-operator "$chart" | yq -o=json | jq -s -e '
+  [.[] | select(.kind == "NetworkPolicy")][0] as $policy |
+  [.[] | select(.kind == "Deployment")][0] as $deployment |
+  $policy.spec.podSelector.matchLabels == $deployment.spec.selector.matchLabels and
+  $policy.spec.policyTypes == ["Egress"] and
+  ($policy.spec | has("ingress") | not) and
+  $policy.spec.egress == [{
+    "to": [
+      {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+       "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}},
+      {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+       "podSelector": {"matchLabels": {"k8s-app": "node-local-dns"}}}
+    ],
+    "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]
+  }]
+' >/dev/null
+
+helm template sts-operator "$chart" \
+  --set-json 'networkPolicy.apiServerCidrs=["192.0.2.1/32","192.0.2.2/32"]' \
+  --set-json 'networkPolicy.dnsCidrs=["192.0.2.53/32"]' \
+  --set-json 'networkPolicy.egress=[{"to":[{"ipBlock":{"cidr":"192.0.2.3/32"}}],"ports":[{"protocol":"TCP","port":6443}]}]' \
+  | yq -o=json | jq -s -e '
+  [.[] | select(.kind == "NetworkPolicy")][0].spec.egress as $rules |
+  ($rules | length) == 3 and
+  $rules[0] == {
+    "to": [{"ipBlock": {"cidr": "192.0.2.1/32"}}, {"ipBlock": {"cidr": "192.0.2.2/32"}}],
+    "ports": [{"protocol": "TCP", "port": 443}]
+  } and
+  $rules[1].to[2] == {"ipBlock": {"cidr": "192.0.2.53/32"}} and
+  $rules[1].ports == [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}] and
+  $rules[2] == {
+    "to": [{"ipBlock": {"cidr": "192.0.2.3/32"}}],
+    "ports": [{"protocol": "TCP", "port": 6443}]
+  }
+' >/dev/null
+
+# Derive the FQDN and port from the STS URL, not from a separate value.
+for endpoint in https://sts.example.com http://sts.example.com https://sts.example.com:8443; do
+  port=443
+  case "$endpoint" in
+    http://*) port=80 ;;
+    *:8443) port=8443 ;;
+  esac
+  helm template sts-operator "$chart" --api-versions networking.gke.io/v1alpha3 \
+    --set-string "config.stsBaseUrl=$endpoint" | yq -o=json | jq -s -e --argjson port "$port" '
+    [.[] | select(.kind == "FQDNNetworkPolicy")][0] as $policy |
+    [.[] | select(.kind == "Deployment")][0] as $deployment |
+    $policy.spec.podSelector.matchLabels == $deployment.spec.selector.matchLabels and
+    $policy.spec.policyTypes == ["Egress"] and
+    $policy.spec.egress == [{
+      "to": [{"fqdns": ["sts.example.com"]}],
+      "ports": [{"protocol": "TCP", "port": $port}]
+    }]
+  ' >/dev/null
+done
+
+# Fasit values must target existing chart values.
+while IFS= read -r key; do
+  yq -o=json "$chart/values.yaml" | jq -e --arg key "$key" 'getpath($key | split(".")) != null' >/dev/null ||
+    { printf 'Feature.yaml key %s missing from values.yaml\n' "$key" >&2; exit 1; }
+done < <(yq -r '.values | keys | .[]' "$chart/Feature.yaml")
+
+# Fasit reads Feature.yaml from the packaged chart.
+package_dir=$(mktemp -d)
+trap 'rm -rf "$package_dir"' EXIT
+helm package "$chart" --destination "$package_dir" >/dev/null
+tar -tzf "$package_dir"/sts-operator-*.tgz | grep -qx 'sts-operator/Feature.yaml'
+
+printf 'CRD and operator render tests passed\n'

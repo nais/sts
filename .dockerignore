@@ -1,0 +1,11 @@
+# Used by builds with the repository root as context (sts-operator).
+.git
+**/*.kubeconfig
+**/.env
+**/.idea
+**/.local
+**/.mise-tasks
+**/README.md
+**/bin
+**/mise.toml
+charts

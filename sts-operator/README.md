@@ -1,12 +1,12 @@
 # sts-operator
 
-Kubernetes operator for STS OAuth2 client registrations. The custom resource is `STSClient` (`nais.io/v1`).
+Kubernetes operator for STS OAuth2 client registrations. The custom resource is `OAuthClient` (`nais.io/v1`).
 
 ## API
 
 ```yaml
 apiVersion: nais.io/v1
-kind: STSClient
+kind: OAuthClient
 metadata:
   name: workload-b
   namespace: team-b
@@ -20,9 +20,9 @@ spec:
 
 An ACL lists teams and workloads allowed to access the client, with optional workload roles.
 
-- [API types](api/nais.io/v1/sts_types.go)
-- [CRD manifest](config/crd/bases/nais.io_stsclients.yaml)
-- [Example resources](config/examples/sts-client-sample.yaml)
+- [API types](api/nais.io/v1/oauthclient_types.go)
+- [CRD manifest](config/crd/bases/nais.io_oauthclients.yaml)
+- [Example resources](config/examples/oauth-client-sample.yaml)
 
 ## Migration status
 
@@ -59,8 +59,37 @@ The registration client generates an in-memory signing key for software statemen
 - `STS_TOKEN_ENDPOINT`
 
 Private signing keys must never appear in application ConfigMaps.
-STSClient resources use finalizer `sts-operator.nais.io/finalizer`.
-Metrics use the `sts_client_` prefix.
+OAuthClient resources use finalizer `sts-operator.nais.io/finalizer`.
+Metrics use the `oauth_client_` prefix.
+
+## Deployment
+
+Install the [sts-operator Helm chart](../charts/sts-operator/README.md), which
+includes the [CRD chart](../charts/sts-operator-crds/README.md) as a local
+dependency, cluster-wide RBAC and a public JWKS endpoint.
+
+On pushes to `main`, `.github/workflows/operator.yaml` builds and signs changed
+operator images, publishes the chart, then deploys to `ci-nais` (waiting for
+completion) and `dev-nais`. Chart-only changes reuse the latest operator image.
+Changes to `sts-authserver/api` also rebuild the operator because it uses that
+module locally.
+
+Image, chart, change-detection and deployment workflows are shared with the
+authserver. Publishing uses the existing `gh-sts` Google service account.
+Operator image releases use the `sts-operator-` tag prefix and do not replace
+the repository's latest authserver release. The prefix is stripped when setting
+the chart's image tag. CI versions the operator chart and its CRD dependency
+together.
+
+The operator Dockerfile uses the repository root as its build context:
+
+```shell
+docker build -f sts-operator/Dockerfile .
+```
+
+It needs the root context because `go.mod` replaces `github.com/nais/sts/api`
+with `../sts-authserver/api`. The root `.dockerignore` keeps local files, `.git`
+and charts out of that context.
 
 ## Development
 
@@ -69,6 +98,13 @@ Use [mise](https://mise.jdx.dev/) for the configured tools and generation tasks:
 ```shell
 mise run generate
 ```
+
+Generation runs in order: API deepcopy methods, CRD manifests, then
+`generate:chart-crds`, which copies the generated manifests into
+`charts/sts-operator-crds/templates/`, adds Helm's retention annotation, and
+rebuilds the operator chart's local dependency bundle.
+Change API types in `api/nais.io/v1/oauthclient_types.go`; do not edit generated
+CRDs or the chart copy by hand.
 
 The API is a separate Go module under `api/`, referenced locally by the operator's `go.mod`.
 
@@ -102,7 +138,7 @@ Apply and inspect sample clients from `sts-operator/`:
 
 ```shell
 mise run k3d:sample
-kubectl --kubeconfig=.local/kubeconfig -n sts-demo get stsclients,configmaps
+kubectl --kubeconfig=.local/kubeconfig -n sts-demo get oauthclients,configmaps
 ```
 
 Delete only the development cluster when finished:

@@ -1,0 +1,6 @@
+dependencies:
+- name: sts-operator-crds
+  repository: file://../sts-operator-crds
+  version: 0.1.0
+digest: sha256:f85a1f67e43289dfac1679f4b0ad313c2bee9fec4cb2a2f49890629fe7997ed3
+generated: "2026-10-26T14:07:57.013518+01:00"
