@@ -11,7 +11,7 @@
 apiVersion: networking.gke.io/v1alpha3
 kind: FQDNNetworkPolicy
 metadata:
-  name: {{ include "sts-operator.fullname" . }}
+  name: {{ include "sts-operator.fullname" . }}-fqdn
   labels:
     {{- include "sts-operator.labels" . | nindent 4 }}
 spec:
