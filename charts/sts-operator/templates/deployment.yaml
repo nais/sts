@@ -46,8 +46,6 @@ spec:
               value: {{ .Values.config.logLevel | quote }}
             - name: MAX_CONCURRENT_RECONCILES
               value: {{ .Values.config.maxConcurrentReconciles | quote }}
-            - name: LEADER_ELECTION
-              value: "false"
             - name: PROBE_ADDR
               value: ":8180"
             - name: METRICS_ADDR

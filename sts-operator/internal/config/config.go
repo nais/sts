@@ -14,7 +14,6 @@ type Config struct {
 	// request tokens for that ServiceAccount from the apiserver instead of reading AuthTokenPath.
 	LocalServiceAccount     string `env:"LOCAL_SERVICE_ACCOUNT"`
 	ClusterName             string `env:"CLUSTER_NAME,required"`
-	LeaderElection          bool   `env:"LEADER_ELECTION,default=false"`
 	LogLevel                string `env:"LOG_LEVEL,default=info"`
 	MaxConcurrentReconciles int    `env:"MAX_CONCURRENT_RECONCILES,default=20"`
 	ProbeAddr               string `env:"PROBE_ADDR,default=:8180"`

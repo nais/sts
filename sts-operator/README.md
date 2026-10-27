@@ -43,7 +43,6 @@ For local development, k3d supplies Kubernetes while both Go services run on you
 | `METRICS_ADDR` | Metrics bind address (default `:8181`). |
 | `PROBE_ADDR` | Health probe bind address (default `:8180`). |
 | `JWKS_ADDR` | Public signing-key bind address (default `:8182`). |
-| `LEADER_ELECTION` | Enable leader election (default `false`). |
 | `LOG_LEVEL` | Log level (default `info`). |
 
 By default, STS authentication uses the bearer token read from `AUTH_TOKEN_PATH`.

@@ -76,8 +76,6 @@ func Run(cfg *config.Config, log *slog.Logger, opts ...Option) error {
 		HealthProbeBindAddress: cfg.ProbeAddr,
 		LivenessEndpointName:   "/healthz",
 		ReadinessEndpointName:  "/readyz",
-		LeaderElection:         cfg.LeaderElection,
-		LeaderElectionID:       "sts.nais.io",
 	})
 	if err != nil {
 		return fmt.Errorf("create manager: %w", err)
@@ -109,8 +107,7 @@ func Run(cfg *config.Config, log *slog.Logger, opts ...Option) error {
 			WriteTimeout:      15 * time.Second,
 			IdleTimeout:       60 * time.Second,
 		},
-		OnlyServeWhenLeader: cfg.LeaderElection,
-		ShutdownTimeout:     new(30 * time.Second),
+		ShutdownTimeout: new(30 * time.Second),
 	}); err != nil {
 		return fmt.Errorf("add public jwks server: %w", err)
 	}

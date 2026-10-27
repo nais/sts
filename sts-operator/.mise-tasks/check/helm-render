@@ -45,7 +45,6 @@ helm template sts-operator "$chart" --namespace nais-system \
   $deployment.spec.replicas == 1 and
   $deployment.spec.strategy.type == "Recreate" and
   $pod.automountServiceAccountToken == true and
-  $env.LEADER_ELECTION == "false" and
   $env.AUTH_TOKEN_PATH == ($container.volumeMounts[0].mountPath + "/" + $pod.volumes[0].projected.sources[0].serviceAccountToken.path) and
   $container.volumeMounts[0].readOnly == true and
   $pod.volumes[0].projected.defaultMode == 288 and
