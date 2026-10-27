@@ -38,7 +38,7 @@ const (
 	// tests prove the operator stores the registration response.
 	clientID         = "sts-env:default:app1"
 	finalizerName    = "sts-operator.nais.io/finalizer"
-	configMapName    = "sts-" + appName
+	configMapName    = "custom.app-config"
 	reconcileTimeout = 10 * time.Second
 	pollInterval     = 100 * time.Millisecond
 )
@@ -150,6 +150,7 @@ func TestOAuthClientReconciler(t *testing.T) {
 
 	stsClient := &stsv1.OAuthClient{
 		Name: appName, Namespace: namespace,
+		Spec: stsv1.OAuthClientSpec{ConfigMapName: configMapName},
 	}
 	require.NoError(t, k8sClient.Create(ctx, stsClient))
 	key := client.ObjectKeyFromObject(stsClient)
@@ -187,6 +188,8 @@ func TestOAuthClientReconciler(t *testing.T) {
 			configmap.STSTokenEndpointKey: stsURL + "/token",
 		}, cm.Data)
 		assert.True(t, metav1.IsControlledBy(&cm, stsClient), "config map should be controlled by OAuthClient")
+		var legacy corev1.ConfigMap
+		assert.True(t, apierrors.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "sts-" + appName}, &legacy)))
 	}) {
 		t.FailNow()
 	}

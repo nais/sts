@@ -91,6 +91,17 @@ spec:
                   x-kubernetes-list-map-keys:
                     - team
                   x-kubernetes-list-type: map
+                configMapName:
+                  description: ConfigMapName is the immutable name of the application ConfigMap in this namespace.
+                  maxLength: 253
+                  minLength: 1
+                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                  type: string
+                  x-kubernetes-validations:
+                    - message: configMapName is immutable
+                      rule: self == oldSelf
+              required:
+                - configMapName
               type: object
             status:
               description: OAuthClientStatus defines the observed state of OAuthClient.
@@ -178,6 +189,8 @@ spec:
                   format: date-time
                   type: string
               type: object
+          required:
+            - spec
           type: object
       served: true
       storage: true

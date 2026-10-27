@@ -11,6 +11,7 @@ metadata:
   name: workload-b
   namespace: team-b
 spec:
+  configMapName: sts-workload-b
   acl:
     - team: team-a
       workloads:
@@ -26,7 +27,20 @@ An ACL lists teams and workloads allowed to access the client, with optional wor
 
 ## Migration status
 
-The operator creates application configuration in a ConfigMap named `sts-<workload>`.
+The operator creates application configuration in the same namespace, in the
+ConfigMap named by the required `spec.configMapName`. The name must be a valid
+DNS subdomain (1–253 lowercase letters, digits, hyphens or dots, with each
+dot-separated part starting and ending with a letter or digit).
+The field is immutable. To change the name, delete and recreate the OAuthClient;
+Kubernetes garbage-collects the previous ConfigMap through its controller owner
+reference.
+
+This is a breaking change for existing OAuthClient manifests: upgrade the CRD,
+then add `spec.configMapName: sts-<name>` to each existing resource before
+deploying the new operator to preserve the existing ConfigMap. Complete this
+migration before deleting any existing OAuthClient, so its finalizer can run.
+The operator does not overwrite a ConfigMap controlled by another resource or
+an existing ConfigMap without its managed-by label.
 
 The operator uses the shared STS registration client at `/v1/registration/client` and includes ACL roles in its signed software statement.
 For local development, k3d supplies Kubernetes while both Go services run on your machine.

@@ -26,7 +26,7 @@ type OAuthClient struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   OAuthClientSpec   `json:"spec,omitempty"`
+	Spec   OAuthClientSpec   `json:"spec"`
 	Status OAuthClientStatus `json:"status,omitempty"`
 }
 
@@ -40,6 +40,13 @@ type OAuthClientList struct {
 }
 
 type OAuthClientSpec struct {
+	// ConfigMapName is the immutable name of the application ConfigMap in this namespace.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="configMapName is immutable"
+	ConfigMapName string `json:"configMapName"`
+
 	// AccessControlList grants consumers access to this client, grouped by team.
 	// +listType=map
 	// +listMapKey=team

@@ -166,8 +166,7 @@ func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Reques
 
 	log.Info(fmt.Sprintf("registered %q with STS", clientID))
 
-	// TODO: set name properly, get from CRD
-	cmName := "sts-" + req.Name
+	cmName := stsClient.Spec.ConfigMapName
 	configMap, err := configmap.CreateConfigMapSpec(cmName, req.Namespace, configmap.ConfigMapData{
 		AppName:  req.Name,
 		ClientID: clientID,

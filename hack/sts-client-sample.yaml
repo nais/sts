@@ -3,6 +3,8 @@ kind: OAuthClient
 metadata:
   name: workload1
   namespace: tommy
+spec:
+  configMapName: sts-workload1
 ---
 apiVersion: nais.io/v1
 kind: OAuthClient
@@ -10,6 +12,7 @@ metadata:
   name: workload2
   namespace: trong
 spec:
+  configMapName: sts-workload2
   acl:
     - team: tommy
       workloads:

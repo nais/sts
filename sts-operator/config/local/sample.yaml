@@ -21,6 +21,7 @@ metadata:
   name: smoke-client
   namespace: sts-demo
 spec:
+  configMapName: sts-smoke-client
   acl:
     - team: sts-demo
       workloads:
@@ -33,4 +34,5 @@ metadata:
   name: consumer
   namespace: sts-demo
 spec:
+  configMapName: sts-consumer
   acl: []
