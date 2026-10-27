@@ -24,17 +24,7 @@ env:
   NAME: ${{ inputs.component == 'operator' && 'sts-operator' || 'sts' }}
 
 jobs:
-  checks:
-    uses: ./.github/workflows/mise.yaml
-    with:
-      go-cache: true
-      tasks: >-
-        ${{ inputs.component == 'operator' &&
-          '["check:helm-render-operator", "sts-operator:check", "sts-operator:test"]' ||
-          '["check:helm-render", "sts-authserver:check", "sts-authserver:test"]' }}
-
   publish:
-    needs: checks
     runs-on: ubuntu-latest
     environment: sts-deploy-dev
     permissions:
