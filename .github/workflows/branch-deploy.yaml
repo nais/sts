@@ -1,0 +1,54 @@
+name: branch-deploy
+
+on:
+  push:
+    branches: ['deploy/*']
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    if: github.event.deleted == false
+    runs-on: ubuntu-latest
+    outputs:
+      components: ${{ steps.changes.outputs.components }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select changed components
+        id: changes
+        run: |
+          # Compare the whole branch with main, so new and force-pushed branches work.
+          base=$(git merge-base HEAD origin/main)
+          changed() { ! git diff --quiet "$base" HEAD -- "$@"; }
+          components=()
+          if [[ -f charts/sts-authserver/Chart.yaml ]] && changed sts-authserver charts/sts-authserver; then
+            components+=(authserver)
+          fi
+          if [[ -f charts/sts-operator/Chart.yaml ]] &&
+            changed sts-operator sts-authserver/api charts/sts-operator charts/sts-operator-crds; then
+            components+=(operator)
+          fi
+          json=$(jq -cn '$ARGS.positional' --args "${components[@]}")
+          echo "Selected: $json"
+          echo "components=$json" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: changes
+    if: needs.changes.outputs.components != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        component: ${{ fromJSON(needs.changes.outputs.components) }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: ./.github/workflows/branch-deploy-component.yaml
+    with:
+      component: ${{ matrix.component }}
+    secrets:
+      NAIS_IO_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
