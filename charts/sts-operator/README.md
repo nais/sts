@@ -105,9 +105,9 @@ networkPolicy:
 allow it.** The chart does not allow arbitrary destinations on TCP `443`.
 Use `networkPolicy.egress` for additional destinations or nonstandard API ports.
 
-The separate FQDN policy derives the STS hostname and TCP port from
-`config.stsBaseUrl` (HTTPS defaults to `443`, HTTP to `80`; explicit ports are
-honored). If the GKE FQDNNetworkPolicy API is unavailable or disabled, provide an
+The separate FQDN policy derives the STS hostname from `config.stsBaseUrl` and
+allows TCP `443` only, regardless of the URL's scheme or explicit port.
+If the GKE FQDNNetworkPolicy API is unavailable or disabled, provide an
 STS allowance through `networkPolicy.egress` or another policy, or disable
 `networkPolicy.enabled` for local development.
 

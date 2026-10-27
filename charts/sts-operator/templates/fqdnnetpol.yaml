@@ -1,13 +1,5 @@
 {{- if and .Values.fqdnNetworkPolicy.enabled (.Capabilities.APIVersions.Has "networking.gke.io/v1alpha3") }}
-{{- $url := urlParse (required "config.stsBaseUrl is required" .Values.config.stsBaseUrl) }}
-{{- if or (not (has $url.scheme (list "http" "https"))) (empty $url.host) }}
-{{- fail "config.stsBaseUrl must be an HTTP(S) URL with a DNS hostname" }}
-{{- end }}
-{{- $hostParts := splitList ":" $url.host }}
-{{- $port := ternary 443 80 (eq $url.scheme "https") }}
-{{- if eq (len $hostParts) 2 }}
-{{- $port = index $hostParts 1 | int }}
-{{- end }}
+{{- $url := required "config.stsBaseUrl is required" .Values.config.stsBaseUrl }}
 apiVersion: networking.gke.io/v1alpha3
 kind: FQDNNetworkPolicy
 metadata:
@@ -23,8 +15,8 @@ spec:
   egress:
     - to:
         - fqdns:
-            - {{ first $hostParts | quote }}
+            - {{ (urlParse $url).hostname | quote }}
       ports:
         - protocol: TCP
-          port: {{ $port }}
+          port: 443
 {{- end }}

@@ -142,25 +142,18 @@ helm template sts-operator "$chart" \
   }
 ' >/dev/null
 
-# Derive the FQDN and port from the STS URL, not from a separate value.
-for endpoint in https://sts.example.com http://sts.example.com https://sts.example.com:8443; do
-  port=443
-  case "$endpoint" in
-    http://*) port=80 ;;
-    *:8443) port=8443 ;;
-  esac
-  helm template sts-operator "$chart" --api-versions networking.gke.io/v1alpha3 \
-    --set-string "config.stsBaseUrl=$endpoint" | yq -o=json | jq -s -e --argjson port "$port" '
-    [.[] | select(.kind == "FQDNNetworkPolicy")][0] as $policy |
-    [.[] | select(.kind == "Deployment")][0] as $deployment |
-    $policy.spec.podSelector.matchLabels == $deployment.spec.selector.matchLabels and
-    $policy.spec.policyTypes == ["Egress"] and
-    $policy.spec.egress == [{
-      "to": [{"fqdns": ["sts.example.com"]}],
-      "ports": [{"protocol": "TCP", "port": $port}]
-    }]
-  ' >/dev/null
-done
+# FQDN policy extracts the hostname from config.stsBaseUrl and always allows TCP 443.
+helm template sts-operator "$chart" --api-versions networking.gke.io/v1alpha3 \
+  --set-string config.stsBaseUrl=https://sts.custom.example.com:8443 | yq -o=json | jq -s -e '
+  [.[] | select(.kind == "FQDNNetworkPolicy")][0] as $policy |
+  [.[] | select(.kind == "Deployment")][0] as $deployment |
+  $policy.spec.podSelector.matchLabels == $deployment.spec.selector.matchLabels and
+  $policy.spec.policyTypes == ["Egress"] and
+  $policy.spec.egress == [{
+    "to": [{"fqdns": ["sts.custom.example.com"]}],
+    "ports": [{"protocol": "TCP", "port": 443}]
+  }]
+' >/dev/null
 
 # Fasit values must target existing chart values.
 while IFS= read -r key; do
