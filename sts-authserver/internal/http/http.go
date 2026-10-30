@@ -26,6 +26,7 @@ func WriteError(w nethttp.ResponseWriter, r *nethttp.Request, e errs.Error) {
 	if e.Internal() {
 		level = slog.LevelError
 	}
+
 	slog.LogAttrs(r.Context(), level, "request error", e.LogAttrs()...)
 
 	w.Header().Set("Content-Type", MediaTypeJSON)

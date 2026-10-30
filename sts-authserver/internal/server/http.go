@@ -33,6 +33,8 @@ func stsApi(
 	}
 
 	router := chi.NewRouter()
+	router.Use(requestLogging)
+
 	httpMetrics := otelchimetric.NewBaseConfig(
 		"nais-sts",
 		otelchimetric.WithMeterProvider(provider.MeterProvider()),

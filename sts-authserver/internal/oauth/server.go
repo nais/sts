@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 
@@ -130,6 +131,26 @@ func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenReq
 	if err != nil {
 		return nil, err
 	}
+
+	attrs := []slog.Attr{
+		slog.String("grant_type", string(result.GrantType)),
+		slog.String("client_id", result.Client.ID),
+		slog.String("target_type", result.Target.GetType()),
+		slog.String("target", result.Target.GetValue()),
+		slog.Int("role_count", len(result.Roles)),
+	}
+
+	if result.SubjectTokenClaims != nil {
+		subjectIssuer := result.SubjectTokenClaims.Issuer
+		attrs = append(attrs, slog.String("subject_token_issuer", subjectIssuer))
+
+		if idpName, ok := a.SubjectTokenIssuers[TokenIssuer(subjectIssuer)]; ok {
+			attrs = append(attrs, slog.String("idp_name", idpName))
+		}
+	}
+
+	slog.LogAttrs(ctx, slog.LevelInfo, "token issued", attrs...)
+
 	return response, nil
 }
 
