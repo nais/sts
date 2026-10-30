@@ -41,7 +41,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 	if cfg.LogFormat == "json" {
 		handler = slog.NewJSONHandler(os.Stderr, options)
 	}
-	slog.SetDefault(slog.New(traceHandler{handler}))
+	slog.SetDefault(slog.New(contextHandler{handler}))
 	slog.Info("configuration loaded",
 		"bind_address", cfg.BindAddress,
 		"internal_bind_address", cfg.InternalBindAddress,
@@ -165,6 +165,7 @@ func httpServer(handler http.Handler) *http.Server {
 
 func internalRouter(registry *prometheus.Registry, pool *pgxpool.Pool) http.Handler {
 	router := chi.NewRouter()
+	router.Use(requestLogging)
 	router.HandleFunc(healthEndpoint, healthHandler)
 	router.HandleFunc(readinessEndpoint, readinessHandler(pool))
 	router.Get("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP)
