@@ -47,54 +47,43 @@ func TestNew_LocalServiceAccountSkipsTokenFile(t *testing.T) {
 }
 
 func TestNew_SyncInterval(t *testing.T) {
-	// Token file is missing, so use a local service account to skip the token check.
-	setSyncIntervalEnv := func(t *testing.T, value string) {
-		t.Helper()
-		setRequiredEnv(t)
-		t.Setenv("LOCAL_SERVICE_ACCOUNT", "ns/sa")
-		if value == "" {
-			unsetSyncInterval(t)
-			return
-		}
-		t.Setenv("SYNC_INTERVAL", value)
+	tests := []struct {
+		name      string
+		value     string // empty leaves SYNC_INTERVAL unset so the default applies
+		want      time.Duration
+		wantErr   bool
+		errSubstr string
+	}{
+		{name: "defaults to one minute", want: time.Minute},
+		{name: "accepts custom duration", value: "7m30s", want: 7*time.Minute + 30*time.Second},
+		{name: "rejects zero", value: "0s", wantErr: true, errSubstr: "SYNC_INTERVAL must be greater than 0"},
+		{name: "rejects negative", value: "-1m", wantErr: true, errSubstr: "SYNC_INTERVAL must be greater than 0"},
+		{name: "rejects malformed duration", value: "soon", wantErr: true},
 	}
-
-	t.Run("defaults to one minute", func(t *testing.T) {
-		setSyncIntervalEnv(t, "")
-		cfg, err := New(context.Background())
-		if err != nil {
-			t.Fatalf("New: %v", err)
-		}
-		if cfg.SyncInterval != time.Minute {
-			t.Errorf("SyncInterval = %s, want 1m0s", cfg.SyncInterval)
-		}
-	})
-
-	t.Run("accepts custom duration", func(t *testing.T) {
-		setSyncIntervalEnv(t, "7m30s")
-		cfg, err := New(context.Background())
-		if err != nil {
-			t.Fatalf("New: %v", err)
-		}
-		if cfg.SyncInterval != 7*time.Minute+30*time.Second {
-			t.Errorf("SyncInterval = %s, want 7m30s", cfg.SyncInterval)
-		}
-	})
-
-	for _, value := range []string{"0s", "-1m"} {
-		t.Run("rejects non-positive "+value, func(t *testing.T) {
-			setSyncIntervalEnv(t, value)
-			_, err := New(context.Background())
-			if err == nil || !strings.Contains(err.Error(), "SYNC_INTERVAL must be greater than 0") {
-				t.Fatalf("New error = %v, want SYNC_INTERVAL validation error", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			// Token file is missing, so use a local service account to skip the token check.
+			t.Setenv("LOCAL_SERVICE_ACCOUNT", "ns/sa")
+			if tt.value != "" {
+				t.Setenv("SYNC_INTERVAL", tt.value)
+			}
+			cfg, err := New(context.Background())
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				if tt.errSubstr != "" && !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Fatalf("New error = %v, want substring %q", err, tt.errSubstr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if cfg.SyncInterval != tt.want {
+				t.Errorf("SyncInterval = %s, want %s", cfg.SyncInterval, tt.want)
 			}
 		})
 	}
-
-	t.Run("rejects malformed duration", func(t *testing.T) {
-		setSyncIntervalEnv(t, "soon")
-		if _, err := New(context.Background()); err == nil {
-			t.Fatal("expected error for malformed SYNC_INTERVAL")
-		}
-	})
 }

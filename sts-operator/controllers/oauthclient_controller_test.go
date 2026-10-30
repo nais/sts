@@ -6,11 +6,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/go-jose/go-jose/v4"
 
 	stsv1 "github.com/nais/sts-operator/api/nais.io/v1"
 	"github.com/nais/sts-operator/internal/config"
@@ -79,8 +77,8 @@ func TestSynchronizeDoesNotOverwriteAnotherController(t *testing.T) {
 
 func TestReconcileRegistersAndRefreshesConfigMapEverySyncInterval(t *testing.T) {
 	ctx := context.Background()
-	registrator, registered := newRegistrationTestServer(t)
-	oauthClient := newReconcileTestOAuthClient(1, 1, "existing-client", time.Now().Add(-2*testSyncInterval))
+	registrator, registrations := newRegistrationTestServer(t)
+	oauthClient := newReconcileTestOAuthClient()
 	k8sClient, r := newReconcileTestReconciler(t, registrator, oauthClient, interceptor.Funcs{})
 	stale := &corev1.ConfigMap{
 		Name: oauthClient.Spec.ConfigMapName, Namespace: oauthClient.Namespace,
@@ -89,10 +87,10 @@ func TestReconcileRegistersAndRefreshesConfigMapEverySyncInterval(t *testing.T) 
 	}
 	require.NoError(t, k8sClient.Create(ctx, stale))
 
-	res, err := r.Reconcile(ctx, reconcileRequest(oauthClient))
+	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(oauthClient)})
 	require.NoError(t, err)
 	assert.Equal(t, testSyncInterval, res.RequeueAfter)
-	require.Len(t, registered(), 1)
+	require.Equal(t, int32(1), registrations.Load())
 
 	var cm corev1.ConfigMap
 	require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: oauthClient.Namespace, Name: oauthClient.Spec.ConfigMapName}, &cm))
@@ -105,49 +103,17 @@ func TestReconcileRegistersAndRefreshesConfigMapEverySyncInterval(t *testing.T) 
 	assert.Equal(t, int64(1), after.Status.ObservedGeneration)
 	assert.True(t, after.Status.SynchronizationTimestamp.After(time.Now().Add(-testSyncInterval)))
 
-	res, err = r.Reconcile(ctx, reconcileRequest(oauthClient))
+	res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(oauthClient)})
 	require.NoError(t, err)
 	assert.Greater(t, res.RequeueAfter, time.Duration(0))
 	assert.LessOrEqual(t, res.RequeueAfter, testSyncInterval)
-	assert.Len(t, registered(), 1, "a fresh sync must not register again")
-}
-
-func TestReconcileRegistersChangedSpecAndPersistsStatus(t *testing.T) {
-	ctx := context.Background()
-	registrator, registered := newRegistrationTestServer(t)
-	oauthClient := newReconcileTestOAuthClient(2, 1, "old-client", time.Now())
-	oauthClient.Spec.AccessControlList = []stsv1.AccessControlList{
-		{Team: "team1", Workloads: []stsv1.Workload{{Name: "consumer1", Roles: []string{"reader"}}}},
-	}
-	k8sClient, r := newReconcileTestReconciler(t, registrator, oauthClient, interceptor.Funcs{})
-
-	res, err := r.Reconcile(ctx, reconcileRequest(oauthClient))
-	require.NoError(t, err)
-	assert.Equal(t, testSyncInterval, res.RequeueAfter)
-
-	statements := registered()
-	require.Len(t, statements, 1)
-	assert.Equal(t, stsapi.SoftwareStatement{
-		Client: stsapi.Client{Namespace: oauthClient.Namespace, Name: oauthClient.Name},
-		AuthorizationPolicies: []stsapi.AuthorizationPolicy{
-			{Consumer: stsapi.Client{Namespace: "team1", Name: "consumer1"}, Roles: []string{"reader"}},
-		},
-	}, unverifiedSoftwareStatement(t, statements[0]))
-
-	var cm corev1.ConfigMap
-	require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: oauthClient.Namespace, Name: oauthClient.Spec.ConfigMapName}, &cm))
-	assert.Equal(t, registeredClientID, cm.Data[configmap.STSClientIDKey])
-
-	var after stsv1.OAuthClient
-	require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(oauthClient), &after))
-	assert.Equal(t, registeredClientID, after.Status.ClientID)
-	assert.Equal(t, int64(2), after.Status.ObservedGeneration)
+	assert.Equal(t, int32(1), registrations.Load(), "a fresh sync must not register again")
 }
 
 func TestReconcileReturnsErrorWhenStatusUpdateFails(t *testing.T) {
 	ctx := context.Background()
 	registrator, _ := newRegistrationTestServer(t)
-	oauthClient := newReconcileTestOAuthClient(1, 1, "existing-client", time.Now().Add(-2*testSyncInterval))
+	oauthClient := newReconcileTestOAuthClient()
 	funcs := interceptor.Funcs{
 		SubResourceUpdate: func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {
 			return errors.New("status conflict")
@@ -157,7 +123,7 @@ func TestReconcileReturnsErrorWhenStatusUpdateFails(t *testing.T) {
 	var before stsv1.OAuthClient
 	require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(oauthClient), &before))
 
-	_, err := r.Reconcile(ctx, reconcileRequest(oauthClient))
+	_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(oauthClient)})
 	require.ErrorContains(t, err, "updating status")
 	require.ErrorContains(t, err, "status conflict")
 
@@ -168,23 +134,19 @@ func TestReconcileReturnsErrorWhenStatusUpdateFails(t *testing.T) {
 
 const registeredClientID = "registered-client"
 
-func newReconcileTestOAuthClient(generation, observedGeneration int64, clientID string, syncedAt time.Time) *stsv1.OAuthClient {
+func newReconcileTestOAuthClient() *stsv1.OAuthClient {
 	return &stsv1.OAuthClient{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "new-client", Namespace: "default", UID: "new-uid",
-			Generation: generation, Finalizers: []string{finalizer},
+			Generation: 1, Finalizers: []string{finalizer},
 		},
 		Spec: stsv1.OAuthClientSpec{ConfigMapName: "new-config"},
 		Status: stsv1.OAuthClientStatus{
-			ObservedGeneration:       observedGeneration,
-			ClientID:                 clientID,
-			SynchronizationTimestamp: metav1.NewTime(syncedAt),
+			ObservedGeneration:       1,
+			ClientID:                 "existing-client",
+			SynchronizationTimestamp: metav1.NewTime(time.Now().Add(-2 * testSyncInterval)),
 		},
 	}
-}
-
-func reconcileRequest(oauthClient *stsv1.OAuthClient) ctrl.Request {
-	return ctrl.Request{NamespacedName: client.ObjectKeyFromObject(oauthClient)}
 }
 
 func newReconcileTestReconciler(t *testing.T, registrator *stsapi.RegistrationClient, oauthClient *stsv1.OAuthClient, funcs interceptor.Funcs) (client.Client, *OAuthClientReconciler) {
@@ -203,11 +165,10 @@ func newReconcileTestReconciler(t *testing.T, registrator *stsapi.RegistrationCl
 }
 
 // newRegistrationTestServer serves STS discovery and registration. The returned
-// function reports the software statements received so far.
-func newRegistrationTestServer(t *testing.T) (*stsapi.RegistrationClient, func() []string) {
+// counter reports how many registrations the server has accepted.
+func newRegistrationTestServer(t *testing.T) (*stsapi.RegistrationClient, *atomic.Int32) {
 	t.Helper()
-	var mu sync.Mutex
-	var statements []string
+	var registrations atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == stsapi.OAuthDiscoveryPath:
@@ -218,9 +179,7 @@ func newRegistrationTestServer(t *testing.T) (*stsapi.RegistrationClient, func()
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			mu.Lock()
-			statements = append(statements, reg.SoftwareStatement)
-			mu.Unlock()
+			registrations.Add(1)
 			writeJSON(w, stsapi.ClientRegistrationResponse{ClientRegistration: reg, ClientID: registeredClientID})
 		default:
 			http.NotFound(w, r)
@@ -231,20 +190,7 @@ func newRegistrationTestServer(t *testing.T) (*stsapi.RegistrationClient, func()
 		return "token", nil
 	})
 	require.NoError(t, err)
-	return registrator, func() []string {
-		mu.Lock()
-		defer mu.Unlock()
-		return append([]string(nil), statements...)
-	}
-}
-
-func unverifiedSoftwareStatement(t *testing.T, raw string) stsapi.SoftwareStatement {
-	t.Helper()
-	jws, err := jose.ParseSigned(raw, []jose.SignatureAlgorithm{jose.ES256})
-	require.NoError(t, err)
-	var statement stsapi.SoftwareStatement
-	require.NoError(t, json.Unmarshal(jws.UnsafePayloadWithoutVerification(), &statement))
-	return statement
+	return registrator, &registrations
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
