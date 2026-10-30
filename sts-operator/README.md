@@ -54,6 +54,7 @@ For local development, k3d supplies Kubernetes while both Go services run on you
 | `AUTH_TOKEN_PATH` | Bearer token file (default `/var/run/secrets/nais.io/sts/token`). |
 | `LOCAL_SERVICE_ACCOUNT` | Local debugging only: request bearer tokens for `namespace/name` through the current kubeconfig instead of reading a file. |
 | `MAX_CONCURRENT_RECONCILES` | Maximum concurrent reconciles (default `20`). |
+| `SYNC_INTERVAL` | Registration and ConfigMap refresh interval as a positive Go duration, e.g. `30s` or `2m` (default `1m`). |
 | `METRICS_ADDR` | Metrics bind address (default `:8181`). |
 | `PROBE_ADDR` | Health probe bind address (default `:8180`). |
 | `JWKS_ADDR` | Public signing-key bind address (default `:8182`). |
@@ -62,6 +63,10 @@ For local development, k3d supplies Kubernetes while both Go services run on you
 By default, STS authentication uses the bearer token read from `AUTH_TOKEN_PATH`.
 With `LOCAL_SERVICE_ACCOUNT` set, the registrator callback requests a fresh Kubernetes token for each registration or deletion, with audience `nais` and a one-hour lifetime.
 The registration client generates an in-memory signing key for software statements and exposes its public key at `/jwks`.
+
+The operator re-registers clients with STS and refreshes application ConfigMaps
+every `SYNC_INTERVAL`, even when the spec is unchanged. Spec changes trigger an
+immediate sync.
 
 ### Application ConfigMap keys
 

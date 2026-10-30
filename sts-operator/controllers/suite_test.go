@@ -119,6 +119,7 @@ func TestOAuthClientReconciler(t *testing.T) {
 		ClusterName:             "local",
 		MaxConcurrentReconciles: 1,
 		STSBaseURL:              stsURL,
+		SyncInterval:            time.Hour,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -148,12 +149,12 @@ func TestOAuthClientReconciler(t *testing.T) {
 	k8sClient, err := client.New(restCfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
 
-	stsClient := &stsv1.OAuthClient{
+	oauthClient := &stsv1.OAuthClient{
 		Name: appName, Namespace: namespace,
 		Spec: stsv1.OAuthClientSpec{ConfigMapName: configMapName},
 	}
-	require.NoError(t, k8sClient.Create(ctx, stsClient))
-	key := client.ObjectKeyFromObject(stsClient)
+	require.NoError(t, k8sClient.Create(ctx, oauthClient))
+	key := client.ObjectKeyFromObject(oauthClient)
 
 	if !t.Run("creation registers client and creates config map", func(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
@@ -166,7 +167,7 @@ func TestOAuthClientReconciler(t *testing.T) {
 			assert.False(c, obj.Status.SynchronizationTimestamp.IsZero())
 			assert.Contains(c, obj.Finalizers, finalizerName)
 		}, reconcileTimeout, pollInterval)
-		require.NoError(t, k8sClient.Get(ctx, key, stsClient))
+		require.NoError(t, k8sClient.Get(ctx, key, oauthClient))
 
 		require.Len(t, registrations, 1)
 		assert.Equal(t, stsapi.SoftwareStatement{
@@ -187,7 +188,7 @@ func TestOAuthClientReconciler(t *testing.T) {
 			configmap.STSJwksURIKey:       stsURL + "/jwks",
 			configmap.STSTokenEndpointKey: stsURL + "/token",
 		}, cm.Data)
-		assert.True(t, metav1.IsControlledBy(&cm, stsClient), "config map should be controlled by OAuthClient")
+		assert.True(t, metav1.IsControlledBy(&cm, oauthClient), "config map should be controlled by OAuthClient")
 		var legacy corev1.ConfigMap
 		assert.True(t, apierrors.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "sts-" + appName}, &legacy)))
 	}) {
@@ -214,9 +215,9 @@ func TestOAuthClientReconciler(t *testing.T) {
 	if !t.Run("spec change re-registers client and keeps config map", func(t *testing.T) {
 		var before corev1.ConfigMap
 		require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &before))
-		previousGeneration := stsClient.Generation
+		previousGeneration := oauthClient.Generation
 
-		stsClient.Spec.AccessControlList = []stsv1.AccessControlList{
+		oauthClient.Spec.AccessControlList = []stsv1.AccessControlList{
 			{
 				Team: "team1",
 				Workloads: []stsv1.Workload{
@@ -227,15 +228,15 @@ func TestOAuthClientReconciler(t *testing.T) {
 			},
 			{Team: "team2", Workloads: []stsv1.Workload{{Name: "consumer1"}}},
 		}
-		require.NoError(t, k8sClient.Update(ctx, stsClient))
-		require.Greater(t, stsClient.Generation, previousGeneration)
+		require.NoError(t, k8sClient.Update(ctx, oauthClient))
+		require.Greater(t, oauthClient.Generation, previousGeneration)
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			var obj stsv1.OAuthClient
 			if !assert.NoError(c, k8sClient.Get(ctx, key, &obj)) {
 				return
 			}
-			assert.Equal(c, stsClient.Generation, obj.Status.ObservedGeneration)
+			assert.Equal(c, oauthClient.Generation, obj.Status.ObservedGeneration)
 		}, reconcileTimeout, pollInterval)
 
 		require.Len(t, registrations, 1)
@@ -256,7 +257,7 @@ func TestOAuthClientReconciler(t *testing.T) {
 	}
 
 	t.Run("deletion deregisters client and removes OAuthClient", func(t *testing.T) {
-		require.NoError(t, k8sClient.Delete(ctx, stsClient))
+		require.NoError(t, k8sClient.Delete(ctx, oauthClient))
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			var obj stsv1.OAuthClient

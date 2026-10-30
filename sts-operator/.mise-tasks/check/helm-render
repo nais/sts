@@ -46,6 +46,7 @@ helm template sts-operator "$chart" --namespace nais-system \
   $deployment.spec.strategy.type == "Recreate" and
   $pod.automountServiceAccountToken == true and
   $env.AUTH_TOKEN_PATH == ($container.volumeMounts[0].mountPath + "/" + $pod.volumes[0].projected.sources[0].serviceAccountToken.path) and
+  $env.SYNC_INTERVAL == "1m" and
   $container.volumeMounts[0].readOnly == true and
   $pod.volumes[0].projected.defaultMode == 288 and
   $service.spec.selector == $deployment.spec.selector.matchLabels and
@@ -74,6 +75,7 @@ helm template custom "$chart" --namespace custom \
   --api-versions networking.gke.io/v1alpha3 \
   --set config.clusterName=custom-cluster --set config.stsBaseUrl=https://sts.example.com \
   --set config.logLevel=debug --set config.maxConcurrentReconciles=5 \
+  --set config.syncInterval=2m30s \
   --set-string authToken.audience=true --set authToken.expirationSeconds=7200 \
   --set image.repository=example.com/operator --set image.tag=v1 | yq -o=json | jq -s -e '
   [.[] | select(.kind == "Deployment")][0] as $deployment |
@@ -87,6 +89,7 @@ helm template custom "$chart" --namespace custom \
   $env.STS_BASE_URL == "https://sts.example.com" and
   $env.LOG_LEVEL == "debug" and
   $env.MAX_CONCURRENT_RECONCILES == "5" and
+  $env.SYNC_INTERVAL == "2m30s" and
   $pod.volumes[0].projected.sources[0].serviceAccountToken.audience == "true" and
   $pod.volumes[0].projected.sources[0].serviceAccountToken.expirationSeconds == 7200 and
   [.[] | select(.kind == "ClusterRoleBinding")][0].subjects == [

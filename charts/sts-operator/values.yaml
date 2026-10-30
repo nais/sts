@@ -3,6 +3,7 @@ config:
   stsBaseUrl: https://sts.environment.tenant.cloud.nais.io
   logLevel: info
   maxConcurrentReconciles: 20
+  syncInterval: 1m
 
 # Must match the authserver's authorizationServer.expectedAudience.
 authToken:

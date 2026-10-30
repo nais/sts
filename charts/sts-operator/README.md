@@ -58,6 +58,7 @@ See [values.yaml](values.yaml) for all defaults. Main settings:
 | `config.stsBaseUrl` | STS issuer URL; replace the example value. |
 | `config.logLevel` | Operator log level. |
 | `config.maxConcurrentReconciles` | Concurrent reconciles (default `20`). |
+| `config.syncInterval` | Registration and ConfigMap refresh interval; positive Go duration (default `1m`). Sets `SYNC_INTERVAL`. |
 | `authToken.audience` | Audience for the STS bearer token. |
 | `authToken.expirationSeconds` | Projected token lifetime (default `3600`). |
 | `serviceAccount.create` | Create an account, or use an existing account when false. |

@@ -15,7 +15,6 @@ func init() {
 // +genclient
 // +kubebuilder:printcolumn:name="Created",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:printcolumn:name="Synced",type="date",JSONPath=".status.synchronizationTimestamp"
-// +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.synchronizationState"
 // +kubebuilder:printcolumn:name="Client ID",type="string",JSONPath=".status.clientID",priority=1
 // +kubebuilder:printcolumn:name="Secret",type="string",JSONPath=".status.synchronizationSecretName",priority=1
 // +kubebuilder:object:root=true

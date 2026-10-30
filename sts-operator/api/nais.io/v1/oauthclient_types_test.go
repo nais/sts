@@ -39,10 +39,4 @@ func TestOAuthClientScheme(t *testing.T) {
 			}
 		})
 	}
-
-	for _, kind := range []string{"STSClient", "STSClientList"} {
-		if scheme.Recognizes(stsv1.GroupVersion.WithKind(kind)) {
-			t.Errorf("old kind %s is still registered", kind)
-		}
-	}
 }

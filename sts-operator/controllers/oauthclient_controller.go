@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	stsv1 "github.com/nais/sts-operator/api/nais.io/v1"
 	"github.com/nais/sts-operator/internal/config"
@@ -78,20 +79,20 @@ func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	ctx = ctrl.LoggerInto(ctx, log)
 	defer stsmetrics.OAuthClientsProcessedCount.Inc()
 
-	var stsClient stsv1.OAuthClient
-	err := r.Get(ctx, req.NamespacedName, &stsClient)
+	var oauthClient stsv1.OAuthClient
+	err := r.Get(ctx, req.NamespacedName, &oauthClient)
 	if err != nil {
 		// we ignore not found errors as cleanup should already be handled by the finalizer
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// object is marked for deletion
-	if !stsClient.DeletionTimestamp.IsZero() {
-		clientID := stsClient.Status.ClientID
+	if !oauthClient.DeletionTimestamp.IsZero() {
+		clientID := oauthClient.Status.ClientID
 		// Registration may have succeeded before its status update failed. It is ok if the client is not removed from STS
 		// in this edge case, as the OAuthClient will be re-registered on the next reconciliation.
 		if clientID != "" {
-			if err := r.finalize(ctx, clientID, &stsClient); err != nil {
+			if err := r.finalize(ctx, clientID, &oauthClient); err != nil {
 				stsmetrics.OAuthClientsProcessingFailedCount.Inc()
 				return ctrl.Result{}, fmt.Errorf("finalize: %w", err)
 			}
@@ -99,8 +100,8 @@ func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	if !controllerutil.ContainsFinalizer(&stsClient, finalizer) {
-		if err := r.updateOAuthClient(ctx, stsClient, func(existing *stsv1.OAuthClient) error {
+	if !controllerutil.ContainsFinalizer(&oauthClient, finalizer) {
+		if err := r.updateOAuthClient(ctx, oauthClient, func(existing *stsv1.OAuthClient) error {
 			controllerutil.AddFinalizer(existing, finalizer)
 			return r.Update(ctx, existing)
 		}); err != nil {
@@ -109,56 +110,44 @@ func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	if stsClient.GetGeneration() == stsClient.Status.ObservedGeneration {
+	specUnchanged := oauthClient.GetGeneration() == oauthClient.Status.ObservedGeneration
+	remaining := time.Until(oauthClient.Status.SynchronizationTimestamp.Add(r.Config.SyncInterval))
+
+	if specUnchanged && remaining > 0 {
 		log.V(4).WithValues(
-			".metadata.generation", stsClient.GetGeneration(),
-			".status.observedGeneration", stsClient.Status.ObservedGeneration,
-		).Info("generation is unchanged; skipping reconciliation")
-		return ctrl.Result{}, nil
+			".metadata.generation", oauthClient.GetGeneration(),
+			".status.observedGeneration", oauthClient.Status.ObservedGeneration,
+			"remaining", remaining,
+		).Info("skipping reconciliation")
+		return ctrl.Result{RequeueAfter: remaining}, nil
 	}
 
-	// update status subresource at the end of reconciliation, regardless of success or failure
-	defer func() {
-		stsClient.Status.SynchronizationTimestamp = metav1.Now()
-
-		if err := r.updateOAuthClient(ctx, stsClient, func(existing *stsv1.OAuthClient) error {
-			existing.Status = stsClient.Status
-			return r.Status().Update(ctx, existing)
-		}); err != nil {
-			log.Error(err, "failed to update status subresource")
-			return
-		}
-	}()
-
-	err = r.prepare(ctx, req, stsClient)
-	if err != nil {
-		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
-		return ctrl.Result{}, fmt.Errorf("prepare: %w", err)
-	}
-
-	clientID, err := r.synchronize(ctx, req, stsClient)
+	clientID, err := r.synchronize(ctx, req, oauthClient)
 	if err != nil {
 		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
 		return ctrl.Result{}, fmt.Errorf("synchronize: %w", err)
 	}
 
-	stsClient.Status.ObservedGeneration = stsClient.GetGeneration()
-	stsClient.Status.ClientID = clientID
+	oauthClient.Status.SynchronizationTimestamp = metav1.Now()
+	oauthClient.Status.ObservedGeneration = oauthClient.GetGeneration()
+	oauthClient.Status.ClientID = clientID
+
+	if err := r.updateOAuthClient(ctx, oauthClient, func(existing *stsv1.OAuthClient) error {
+		existing.Status = oauthClient.Status
+		return r.Status().Update(ctx, existing)
+	}); err != nil {
+		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
+		return ctrl.Result{}, fmt.Errorf("updating status: %w", err)
+	}
 
 	log.Info("successfully reconciled")
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: r.Config.SyncInterval}, nil
 }
 
-// TODO: determine if need to resync config map etc
-func (r *OAuthClientReconciler) prepare(ctx context.Context, _ ctrl.Request, _ stsv1.OAuthClient) error {
-	_ = ctrl.LoggerFrom(ctx).WithValues("subsystem", "prepare")
-	return nil
-}
-
-func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Request, stsClient stsv1.OAuthClient) (string, error) {
+func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Request, oauthClient stsv1.OAuthClient) (string, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("subsystem", "synchronize")
 
-	registration, err := r.Register(ctx, makeSoftwareStatement(stsClient))
+	registration, err := r.Register(ctx, makeSoftwareStatement(oauthClient))
 	if err != nil {
 		return "", fmt.Errorf("registering client with STS: %w", err)
 	}
@@ -166,7 +155,7 @@ func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Reques
 
 	log.Info(fmt.Sprintf("registered %q with STS", clientID))
 
-	cmName := stsClient.Spec.ConfigMapName
+	cmName := oauthClient.Spec.ConfigMapName
 	configMap, err := configmap.CreateConfigMapSpec(cmName, req.Namespace, configmap.ConfigMapData{
 		AppName:  req.Name,
 		ClientID: clientID,
@@ -185,19 +174,21 @@ func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Reques
 		target.SetLabels(configMap.GetLabels())
 		target.Data = configMap.Data
 
-		return ctrl.SetControllerReference(&stsClient, target, r.Scheme)
+		return ctrl.SetControllerReference(&oauthClient, target, r.Scheme)
 	})
 	if err != nil {
 		return "", fmt.Errorf("creating or updating config map %s: %w", cmName, err)
 	}
 
-	log.Info(fmt.Sprintf("config map %q %s", cmName, res))
+	if res != controllerutil.OperationResultNone {
+		log.Info(fmt.Sprintf("config map %q %s", cmName, res))
+	}
 	return clientID, nil
 }
 
 // finalize purges relevant resources from external systems (i.e. the STS instances)
-func (r *OAuthClientReconciler) finalize(ctx context.Context, clientId string, stsClient *stsv1.OAuthClient) error {
-	if !controllerutil.ContainsFinalizer(stsClient, finalizer) {
+func (r *OAuthClientReconciler) finalize(ctx context.Context, clientId string, oauthClient *stsv1.OAuthClient) error {
+	if !controllerutil.ContainsFinalizer(oauthClient, finalizer) {
 		return nil
 	}
 
@@ -208,8 +199,8 @@ func (r *OAuthClientReconciler) finalize(ctx context.Context, clientId string, s
 	}
 	log.Info(fmt.Sprintf("deleted %q from STS", clientId))
 
-	controllerutil.RemoveFinalizer(stsClient, finalizer)
-	if err := r.Update(ctx, stsClient); err != nil {
+	controllerutil.RemoveFinalizer(oauthClient, finalizer)
+	if err := r.Update(ctx, oauthClient); err != nil {
 		return fmt.Errorf("removing finalizer: %w", err)
 	}
 
@@ -217,9 +208,9 @@ func (r *OAuthClientReconciler) finalize(ctx context.Context, clientId string, s
 	return nil
 }
 
-func (r *OAuthClientReconciler) updateOAuthClient(ctx context.Context, stsClient stsv1.OAuthClient, updateFunc func(existing *stsv1.OAuthClient) error) error {
+func (r *OAuthClientReconciler) updateOAuthClient(ctx context.Context, oauthClient stsv1.OAuthClient, updateFunc func(existing *stsv1.OAuthClient) error) error {
 	existing := &stsv1.OAuthClient{}
-	err := r.Get(ctx, client.ObjectKey{Namespace: stsClient.GetNamespace(), Name: stsClient.GetName()}, existing)
+	err := r.Get(ctx, client.ObjectKey{Namespace: oauthClient.GetNamespace(), Name: oauthClient.GetName()}, existing)
 	if err != nil {
 		return fmt.Errorf("get newest version of OAuthClient: %s", err)
 	}
