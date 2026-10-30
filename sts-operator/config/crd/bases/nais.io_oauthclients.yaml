@@ -21,9 +21,6 @@ spec:
     - jsonPath: .status.synchronizationTimestamp
       name: Synced
       type: date
-    - jsonPath: .status.synchronizationState
-      name: State
-      type: string
     - jsonPath: .status.clientID
       name: Client ID
       priority: 1
