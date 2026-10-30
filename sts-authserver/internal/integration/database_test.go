@@ -314,7 +314,6 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 	nilConsumer := oauth.NewClientID("environment", "namespace", "nil-consumer")
 	emptyConsumer := oauth.NewClientID("environment", "namespace", "empty-consumer")
 	missingClient := oauth.NewClientID("environment", "namespace", "missing")
-	otherClient := oauth.NewClientID("other-environment", "namespace", "workload")
 
 	run := func(name string, test func(*testing.T)) {
 		t.Run(name, func(t *testing.T) {
@@ -383,53 +382,101 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		}
 	})
 
-	run("rejects immutable identity changes", func(t *testing.T) {
-		client := testClient("old-scope")
-		policies := []oauth.AuthorizationPolicy{{Owner: oauth.ClientID(client.ID), Consumer: consumer, Roles: oauth.Roles{"old-role"}}}
+	run("updates issuer without changing scopes", func(t *testing.T) {
+		client := testClient("scope")
+		policies := []oauth.AuthorizationPolicy{{Owner: oauth.ClientID(client.ID), Consumer: consumer, Roles: oauth.Roles{"reader"}}}
 		require.NoError(t, clients.Save(t.Context(), client, policies, client.Issuer))
 
-		for name, test := range map[string]struct {
-			mutate  func(*oauth.Client)
-			wantErr error
-		}{
-			"environment": {func(client *oauth.Client) { client.Environment = "new-environment" }, oauth.ErrImmutableFieldsChanged},
-			"namespace":   {func(client *oauth.Client) { client.Namespace = "new-namespace" }, oauth.ErrImmutableFieldsChanged},
-			"workload":    {func(client *oauth.Client) { client.Name = "new-workload" }, oauth.ErrImmutableFieldsChanged},
-			"issuer":      {func(client *oauth.Client) { client.Issuer = "https://new-issuer.example" }, oauth.ErrRegistrationUnauthorized},
-		} {
-			t.Run(name, func(t *testing.T) {
-				replacement := testClient("new-scope")
-				test.mutate(replacement)
-				require.ErrorIs(t, clients.Save(t.Context(), replacement, nil, client.Issuer), test.wantErr)
-			})
-		}
+		client.Issuer = "https://new-issuer.example"
+		require.NoError(t, clients.Save(t.Context(), client, policies, client.Issuer))
 
-		queries := sqlgen.New(pool)
 		stored, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.NoError(t, err)
 		require.Equal(t, client.Issuer, stored.Issuer)
-		require.Equal(t, client.AllowedScopes, stored.AllowedScopes)
-		storedPolicies, err := queries.ListAuthorizationPolicies(t.Context())
-		require.NoError(t, err)
-		require.Equal(t, []sqlgen.AuthorizationPolicy{
-			{OwnerClientID: client.ID, ConsumerClientID: string(consumer), Roles: []string{"old-role"}},
-		}, storedPolicies)
+		assertStoredRegistration(t, queries, client.ID, client.AllowedScopes, []sqlgen.AuthorizationPolicy{
+			{OwnerClientID: client.ID, ConsumerClientID: string(consumer), Roles: []string{"reader"}},
+		})
 	})
 
-	run("rejects workload collision", func(t *testing.T) {
-		client := testClient("scope")
-		require.NoError(t, clients.Save(t.Context(), client, nil, client.Issuer))
-
-		colliding := testClient("other-scope")
-		colliding.ID = string(otherClient)
-		require.ErrorIs(t, clients.Save(t.Context(), colliding, nil, client.Issuer), oauth.ErrRegistrationConflict)
-
-		queries := sqlgen.New(pool)
-		stored, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
+	run("notifies only when registration changes", func(t *testing.T) {
+		// A fresh connection avoids notifications queued on reused pool connections.
+		listener, err := pgx.ConnectConfig(t.Context(), pool.Config().ConnConfig.Copy())
 		require.NoError(t, err)
-		require.Equal(t, client.AllowedScopes, stored.AllowedScopes)
-		_, err = queries.GetClientByIDForUpdate(t.Context(), colliding.ID)
-		require.ErrorIs(t, err, pgx.ErrNoRows)
+		defer listener.Close(context.Background())
+		_, err = listener.Exec(t.Context(), "LISTEN sts_cache_changed")
+		require.NoError(t, err)
+
+		client := testClient()
+		client.AllowedScopes = []string{} // Matches HTTP registration.
+		var policies []oauth.AuthorizationPolicy
+		steps := []struct {
+			name   string
+			change func()
+			want   int
+		}{
+			{name: "initial registration", want: 1},
+			{name: "identical registration without policies"},
+			{name: "adds policies", want: 1, change: func() {
+				policies = []oauth.AuthorizationPolicy{
+					{Consumer: consumer, Roles: oauth.Roles{"reader"}},
+					{Consumer: newConsumer, Roles: oauth.Roles{"writer"}},
+				}
+			}},
+			{name: "identical registration with policies"},
+			{name: "reorders policies", change: func() {
+				policies[0], policies[1] = policies[1], policies[0]
+			}},
+			{name: "changes roles", want: 1, change: func() {
+				policies[0].Roles = oauth.Roles{"admin"}
+			}},
+			{name: "changes scopes", want: 1, change: func() {
+				client.AllowedScopes = []string{"scope"}
+			}},
+			{name: "changes issuer", want: 1, change: func() {
+				client.Issuer = "https://new-issuer.example"
+			}},
+			{name: "removes one policy", want: 1, change: func() {
+				policies = policies[:1]
+			}},
+			{name: "identical registration after changes"},
+			{name: "removes all policies", want: 1, change: func() {
+				policies = nil
+			}},
+			{name: "identical registration after removing policies"},
+		}
+		for _, step := range steps {
+			// These steps intentionally build on the preceding registration.
+			if step.change != nil {
+				step.change()
+			}
+			before, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
+			if step.name != "initial registration" {
+				require.NoError(t, err)
+			}
+			require.NoError(t, clients.Save(t.Context(), client, policies, client.Issuer), step.name)
+
+			// This marker commits after Save. Reading through it checks for absent
+			// or duplicate notifications without relying on a timeout for silence.
+			_, err = listener.Exec(t.Context(), "SELECT pg_notify('sts_cache_changed', 'barrier')")
+			require.NoError(t, err)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			count := 0
+			for {
+				notification, err := listener.WaitForNotification(ctx)
+				require.NoError(t, err, step.name)
+				if notification.Payload == "barrier" {
+					break
+				}
+				count++
+			}
+			cancel()
+			require.Equal(t, step.want, count, step.name)
+			if step.want == 0 {
+				after, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
+				require.NoError(t, err)
+				require.Equal(t, before.UpdatedAt, after.UpdatedAt, step.name)
+			}
+		}
 	})
 
 	run("rejects issuer outside authority", func(t *testing.T) {

@@ -27,6 +27,22 @@ func (q *Queries) DeleteClient(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteOrphanedAuthorizationPolicies = `-- name: DeleteOrphanedAuthorizationPolicies :exec
+DELETE FROM authorization_policies
+WHERE owner_client_id = $1
+AND consumer_client_id = ANY($2::TEXT[])
+`
+
+type DeleteOrphanedAuthorizationPoliciesParams struct {
+	OwnerClientID string
+	OrphanedIds   []string
+}
+
+func (q *Queries) DeleteOrphanedAuthorizationPolicies(ctx context.Context, arg DeleteOrphanedAuthorizationPoliciesParams) error {
+	_, err := q.db.Exec(ctx, deleteOrphanedAuthorizationPolicies, arg.OwnerClientID, arg.OrphanedIds)
+	return err
+}
+
 const getAuthorizationPolicy = `-- name: GetAuthorizationPolicy :one
 SELECT
 	owner_client_id, consumer_client_id, roles
@@ -138,6 +154,38 @@ func (q *Queries) ListAuthorizationPolicies(ctx context.Context) ([]Authorizatio
 	return items, nil
 }
 
+const listAuthorizationPoliciesByOwner = `-- name: ListAuthorizationPoliciesByOwner :many
+SELECT
+    owner_client_id, consumer_client_id, roles
+FROM
+    authorization_policies
+WHERE
+    owner_client_id = $1
+ORDER BY
+    owner_client_id,
+    consumer_client_id
+`
+
+func (q *Queries) ListAuthorizationPoliciesByOwner(ctx context.Context, ownerClientID string) ([]AuthorizationPolicy, error) {
+	rows, err := q.db.Query(ctx, listAuthorizationPoliciesByOwner, ownerClientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuthorizationPolicy{}
+	for rows.Next() {
+		var i AuthorizationPolicy
+		if err := rows.Scan(&i.OwnerClientID, &i.ConsumerClientID, &i.Roles); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listClients = `-- name: ListClients :many
 SELECT
 	id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at
@@ -190,6 +238,8 @@ ON CONFLICT (
 	consumer_client_id)
 	DO UPDATE SET
 		roles = EXCLUDED.roles
+	WHERE
+		authorization_policies.roles IS DISTINCT FROM EXCLUDED.roles
 `
 
 type UpsertAuthorizationPolicyParams struct {
@@ -222,12 +272,15 @@ ON CONFLICT (
 	id)
 	DO UPDATE SET
 		allowed_scopes = EXCLUDED.allowed_scopes,
+		issuer = EXCLUDED.issuer,
 		updated_at = NOW()
 	WHERE
 		clients.environment = EXCLUDED.environment
 		AND clients.namespace = EXCLUDED.namespace
 		AND clients.name = EXCLUDED.name
-		AND clients.issuer = EXCLUDED.issuer
+		AND (
+			clients.allowed_scopes IS DISTINCT FROM EXCLUDED.allowed_scopes
+			OR clients.issuer IS DISTINCT FROM EXCLUDED.issuer)
 	RETURNING
 		id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at
 `

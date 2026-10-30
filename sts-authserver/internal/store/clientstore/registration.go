@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
-	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/oauth"
@@ -26,34 +26,49 @@ func (s *Store) Save(ctx context.Context, client *oauth.Client, policies []oauth
 			Issuer:        client.Issuer,
 			AllowedScopes: client.AllowedScopes,
 		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			existing, getErr := queries.GetClientByIDForUpdate(ctx, client.ID)
-			if getErr != nil {
-				return fmt.Errorf("get existing client: %w", getErr)
-			}
-			if existing.Issuer != authoritativeIssuer {
-				return errRegistrationUnauthorized(client.ID, existing.Issuer, authoritativeIssuer)
-			}
-			return fmt.Errorf("%w: client %q", oauth.ErrImmutableFieldsChanged, client.ID)
-		}
-		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgerrcode.UniqueViolation {
-			return fmt.Errorf("%w: %s: %v", oauth.ErrRegistrationConflict, clientKeyFromRow(client.Client), err)
-		}
-		if err != nil {
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("upsert client: %w", err)
 		}
-		if err := queries.DeleteAuthorizationPolicies(ctx, client.ID); err != nil {
+
+		existing, err := queries.ListAuthorizationPoliciesByOwner(ctx, client.ID)
+		if err != nil {
+			return fmt.Errorf("list existing authorization policies: %w", err)
+		}
+		orphaned := map[string]bool{}
+		for _, p := range existing {
+			if !slices.ContainsFunc(policies, func(policy oauth.AuthorizationPolicy) bool {
+				return policy.Consumer == oauth.ClientID(p.ConsumerClientID)
+			}) {
+				orphaned[p.ConsumerClientID] = true
+			}
+		}
+		orphanedIds := slices.Collect(maps.Keys(orphaned))
+
+		if err := queries.DeleteOrphanedAuthorizationPolicies(ctx, sqlgen.DeleteOrphanedAuthorizationPoliciesParams{
+			OwnerClientID: client.ID,
+			OrphanedIds:   orphanedIds,
+		}); err != nil {
 			return fmt.Errorf("delete authorization policies: %w", err)
 		}
 
+		params := make([]sqlgen.BatchUpsertAuthorizationPolicyParams, 0)
 		for _, policy := range policies {
-			if err := queries.UpsertAuthorizationPolicy(ctx, sqlgen.UpsertAuthorizationPolicyParams{
+			params = append(params, sqlgen.BatchUpsertAuthorizationPolicyParams{
 				OwnerClientID:    client.ID,
 				ConsumerClientID: string(policy.Consumer),
 				Roles:            policy.Roles,
-			}); err != nil {
-				return fmt.Errorf("upsert authorization policy: %w", err)
+			})
+		}
+
+		var batchErr error
+		queries.BatchUpsertAuthorizationPolicy(ctx, params).Exec(func(num int, err error) {
+			if err != nil {
+				batchErr = errors.Join(batchErr, err)
 			}
+		})
+
+		if batchErr != nil {
+			return fmt.Errorf("upsert authorization policy: %w", batchErr)
 		}
 		return nil
 	})

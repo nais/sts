@@ -55,12 +55,12 @@ $$;
 
 CREATE OR REPLACE TRIGGER authorization_policies_cache_changed
 	AFTER INSERT OR UPDATE OR DELETE ON authorization_policies
-	FOR EACH STATEMENT
+	FOR EACH ROW
 	EXECUTE FUNCTION notify_sts_cache_changed();
 
 CREATE OR REPLACE TRIGGER clients_cache_changed
 	AFTER INSERT OR UPDATE OR DELETE ON clients
-	FOR EACH STATEMENT
+	FOR EACH ROW
 	EXECUTE FUNCTION notify_sts_cache_changed();
 
 -- +goose StatementEnd
