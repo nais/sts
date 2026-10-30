@@ -3,6 +3,7 @@ package registration
 import (
 	"context"
 	"errors"
+	"log/slog"
 	nethttp "net/http"
 	"strings"
 
@@ -59,10 +60,17 @@ func (a *Api) PostEndpoint() nethttp.HandlerFunc {
 			return err
 		}
 
+		slog.InfoContext(r.Context(), "client registered",
+			slog.String("client_id", string(clientID)),
+			slog.String("registrator_issuer", registrator.AuthIssuer),
+			slog.Int("policy_count", len(ss.AuthorizationPolicies)),
+		)
+
 		http.WriteJSON(w, r, &api.ClientRegistrationResponse{
 			ClientRegistration: *registration,
 			ClientID:           string(clientID),
 		})
+
 		return nil
 	})
 }
@@ -87,7 +95,13 @@ func (a *Api) DeleteEndpoint() nethttp.HandlerFunc {
 			return err
 		}
 
+		slog.InfoContext(r.Context(), "client deleted",
+			slog.String("client_id", string(clientID)),
+			slog.String("registrator_issuer", registrator.AuthIssuer),
+		)
+
 		w.WriteHeader(nethttp.StatusNoContent)
+
 		return nil
 	})
 }
@@ -112,7 +126,8 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 		Namespace:     s.Client.Namespace,
 		Name:          s.Client.Name,
 		Issuer:        registrator.AuthIssuer,
-		AllowedScopes: []string{}}, policies, registrator.AuthIssuer)
+		AllowedScopes: []string{},
+	}, policies, registrator.AuthIssuer)
 	switch {
 	case err == nil:
 		return clientID, nil

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"reflect"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/nais/sts/internal/errs"
 )
 
@@ -26,7 +27,13 @@ func WriteError(w nethttp.ResponseWriter, r *nethttp.Request, e errs.Error) {
 	if e.Internal() {
 		level = slog.LevelError
 	}
-	slog.LogAttrs(r.Context(), level, "request error", e.LogAttrs()...)
+
+	attrs := append(e.LogAttrs(), slog.String("method", r.Method))
+	if route := chi.RouteContext(r.Context()); route != nil && route.RoutePattern() != "" {
+		attrs = append(attrs, slog.String("route", route.RoutePattern()))
+	}
+
+	slog.LogAttrs(r.Context(), level, "request error", attrs...)
 
 	w.Header().Set("Content-Type", MediaTypeJSON)
 	w.WriteHeader(resp.Status)

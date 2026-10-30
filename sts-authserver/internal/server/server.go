@@ -41,7 +41,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 	if cfg.LogFormat == "json" {
 		handler = slog.NewJSONHandler(os.Stderr, options)
 	}
-	slog.SetDefault(slog.New(handler))
+	slog.SetDefault(slog.New(traceHandler{handler}))
 	slog.Info("configuration loaded",
 		"bind_address", cfg.BindAddress,
 		"internal_bind_address", cfg.InternalBindAddress,
