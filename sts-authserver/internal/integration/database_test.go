@@ -402,7 +402,9 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		// A fresh connection avoids notifications queued on reused pool connections.
 		listener, err := pgx.ConnectConfig(t.Context(), pool.Config().ConnConfig.Copy())
 		require.NoError(t, err)
-		defer listener.Close(context.Background())
+		defer func(listener *pgx.Conn, ctx context.Context) {
+			_ = listener.Close(ctx)
+		}(listener, context.Background())
 		_, err = listener.Exec(t.Context(), "LISTEN sts_cache_changed")
 		require.NoError(t, err)
 
