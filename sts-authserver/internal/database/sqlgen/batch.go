@@ -16,20 +16,20 @@ var (
 
 const batchUpsertAuthorizationPolicy = `-- name: BatchUpsertAuthorizationPolicy :batchexec
 INSERT INTO authorization_policies(
-    owner_client_id,
-    consumer_client_id,
-    roles)
+	owner_client_id,
+	consumer_client_id,
+	roles)
 VALUES (
-           $1,
-           $2,
-           $3::TEXT[])
-    ON CONFLICT (
+	$1,
+	$2,
+	$3::TEXT[])
+ON CONFLICT (
 	owner_client_id,
 	consumer_client_id)
 	DO UPDATE SET
-    roles = EXCLUDED.roles
-       WHERE
-               authorization_policies.roles IS DISTINCT FROM EXCLUDED.roles
+		roles = EXCLUDED.roles
+	WHERE
+		authorization_policies.roles IS DISTINCT FROM EXCLUDED.roles
 `
 
 type BatchUpsertAuthorizationPolicyBatchResults struct {

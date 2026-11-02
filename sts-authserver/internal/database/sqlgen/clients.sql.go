@@ -30,7 +30,7 @@ func (q *Queries) DeleteClient(ctx context.Context, id string) error {
 const deleteOrphanedAuthorizationPolicies = `-- name: DeleteOrphanedAuthorizationPolicies :exec
 DELETE FROM authorization_policies
 WHERE owner_client_id = $1
-AND consumer_client_id = ANY($2::TEXT[])
+	AND consumer_client_id = ANY ($2::TEXT[])
 `
 
 type DeleteOrphanedAuthorizationPoliciesParams struct {
@@ -156,14 +156,14 @@ func (q *Queries) ListAuthorizationPolicies(ctx context.Context) ([]Authorizatio
 
 const listAuthorizationPoliciesByOwner = `-- name: ListAuthorizationPoliciesByOwner :many
 SELECT
-    owner_client_id, consumer_client_id, roles
+	owner_client_id, consumer_client_id, roles
 FROM
-    authorization_policies
+	authorization_policies
 WHERE
-    owner_client_id = $1
+	owner_client_id = $1
 ORDER BY
-    owner_client_id,
-    consumer_client_id
+	owner_client_id,
+	consumer_client_id
 `
 
 func (q *Queries) ListAuthorizationPoliciesByOwner(ctx context.Context, ownerClientID string) ([]AuthorizationPolicy, error) {
