@@ -40,7 +40,9 @@ jobs:
           "check:ratchet",
           "check:release-scripts",
           "check:helm-lint",
-          "sts-authserver:check:helm-render"
+          "sts-authserver:check:helm-render",
+          "ci:fmt sts-authserver:fmt",
+          "ci:generate sts-authserver:generate"
         ]
 
   image:

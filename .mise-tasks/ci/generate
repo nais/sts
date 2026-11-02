@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#MISE description="Ensure generated files are up to date (optional generation task)"
+set -euo pipefail
+
+task="${1:-generate}"
+mise run "$task"
+
+untracked=$(git ls-files --others --exclude-standard)
+if ! git diff --exit-code --name-only || [[ -n "$untracked" ]]; then
+  if [[ -n "$untracked" ]]; then
+    printf '%s\n' "$untracked" >&2
+  fi
+  echo "Run 'mise run $task' locally, then commit the changes." >&2
+  exit 1
+fi

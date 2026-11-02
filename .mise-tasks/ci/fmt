@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="Ensure formatting is up to date (optional formatting task)"
+set -euo pipefail
+
+task="${1:-fmt}"
+mise run "$task"
+
+if ! git diff --exit-code --name-only; then
+  echo "Run 'mise run $task' locally, then commit the changes." >&2
+  exit 1
+fi
