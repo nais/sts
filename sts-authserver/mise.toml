@@ -2,6 +2,6 @@
 includes = [".mise-tasks"]
 
 [tools]
-"go:github.com/sqlc-dev/sqlc/cmd/sqlc" = "1.31.1"
+"aqua:sqlc-dev/sqlc" = "1.31.1"
 "aqua:pgplex/pgschema" = "1.13.1"
 "http:pgformatter" = { version = "5.9", url = "https://github.com/darold/pgFormatter/archive/refs/tags/v{version}.tar.gz", strip_components = "1", version_list_url = "https://api.github.com/repos/darold/pgFormatter/releases", version_json_path = ".[].tag_name" }
