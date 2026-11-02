@@ -39,11 +39,13 @@ func loadFile(path string) (Config, error) {
 	defer ioconvenience.CloseWithLog(file, slog.Default())
 
 	cfg := defaultConfig()
+
 	decoder := yaml.NewDecoder(file)
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&cfg); err != nil {
 		return Config{}, fmt.Errorf("decode config file: %w", err)
 	}
+
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		if err == nil {
@@ -51,9 +53,11 @@ func loadFile(path string) (Config, error) {
 		}
 		return Config{}, fmt.Errorf("decode config file: %w", err)
 	}
+
 	if databaseURL := os.Getenv("DATABASE_URL"); databaseURL != "" {
 		cfg.DatabaseURL = databaseURL
 	}
+
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
 	}

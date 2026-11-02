@@ -83,9 +83,12 @@ func (s *Store) Delete(ctx context.Context, clientID oauth.ClientID, authoritati
 		if err != nil {
 			return fmt.Errorf("get client: %w", err)
 		}
+
+		// TODO: we now allow "takeovers" in Save - do we still need this check here?
 		if client.Issuer != authoritativeIssuer {
 			return errRegistrationUnauthorized(string(clientID), client.Issuer, authoritativeIssuer)
 		}
+
 		if err := queries.DeleteClient(ctx, string(clientID)); err != nil {
 			return fmt.Errorf("delete client: %w", err)
 		}

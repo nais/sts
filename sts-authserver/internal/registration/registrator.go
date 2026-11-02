@@ -98,6 +98,7 @@ func (r *Registrator) VerifySoftwareStatement(ctx context.Context, softwareState
 	return ss, nil
 }
 
+// TODO: this is maybe generic enough to be in the http package
 func bearerToken(r *http.Request) (token string, ok bool) {
 	auth := r.Header.Get("Authorization")
 	if auth == "" {

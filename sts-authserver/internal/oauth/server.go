@@ -65,7 +65,6 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		// TODO: revisit this func, can it be moved to verifier? look at the whole client verifier stuff
 		return ValidateClientAuthClaims(claims, a.ExpectedAudience, a.MaxClientAuthTokenLifetime)
 	})
-
 	finishStep(err)
 	if err != nil {
 		return nil, errs.InvalidClient(err, "client assertion is invalid")
@@ -173,6 +172,7 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 	if err != nil {
 		return nil, fmt.Errorf("get signer: %w", err)
 	}
+
 	finishStep = a.Metrics.StartTokenStep(ctx, "sign_token")
 	signed, err := accessToken.Sign(signer)
 	finishStep(err)

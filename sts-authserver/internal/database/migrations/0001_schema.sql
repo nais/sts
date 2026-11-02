@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS clients(
 	CONSTRAINT clients_name_namespace_issuer_key UNIQUE (NAME, namespace, issuer)
 );
 
+-- TODO: should policies be its own table or a part of the client itself? e.g. what do we do with wildcard policies?
 CREATE TABLE IF NOT EXISTS authorization_policies(
 	owner_client_id TEXT,
 	consumer_client_id TEXT,

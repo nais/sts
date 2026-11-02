@@ -39,12 +39,16 @@ func (s SoftwareStatement) validate() error {
 
 		roles := make(map[string]struct{}, len(policy.Roles))
 		for j, role := range policy.Roles {
+			// TODO: we could move role validation out to CRDs?
 			if len(role) > maxRoleLength {
 				return fmt.Errorf("authorization policy %d role %d is too long", i, j)
 			}
+
 			if err := oauth.Name(role).Validate(); err != nil {
 				return fmt.Errorf("authorization policy %d role %d is invalid", i, j)
 			}
+
+			// TODO: we could automatically de-duplicate roles instead of erroring
 			if _, ok := roles[role]; ok {
 				return fmt.Errorf("authorization policy %d role %q is duplicated", i, role)
 			}

@@ -19,6 +19,7 @@ func requestLogging(next http.Handler) http.Handler {
 	})
 }
 
+// TODO: rename to something more appropriate?
 type contextHandler struct {
 	slog.Handler
 }

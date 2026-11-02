@@ -118,6 +118,7 @@ func (c *ClientAuthCredentials) GetClientAuthCredentials() *ClientAuthCredential
 	return c
 }
 
+// TODO: should we move request and response out to separate files?
 type ClientCredentialsRequest struct {
 	ClientAuthCredentials
 	Scope []string

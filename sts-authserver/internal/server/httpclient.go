@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// TODO: is this only necessary for local k3d? perhaps also for service discovery or in-cluster?
 // newHTTPClient returns the client used for upstream OAuth and JWKS requests.
 // A nonempty additionalCAFile adds its PEM certificates to the system roots;
 // verification stays enabled.
@@ -38,7 +39,7 @@ func newHTTPClient(additionalCAFile string) (*http.Client, error) {
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{
-		MinVersion: tls.VersionTLS12,
+		MinVersion: tls.VersionTLS12, // TODO: why tls 1.2? why not 1.3? why hard code at all?
 		RootCAs:    roots,
 	}
 	client.Transport = transport

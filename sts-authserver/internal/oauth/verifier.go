@@ -11,6 +11,8 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
+// TODO: should we restructure or split this file somehow?
+
 type TokenVerifier struct {
 	issuer       TokenIssuer
 	keyset       oidc.KeySet
@@ -171,6 +173,7 @@ func externalTokenVerifier(ctx context.Context, httpClient *http.Client, issuer 
 	return NewTokenVerifier(issuer, rp.NewRemoteKeySet(httpClient, metadata.JwksURI), algorithms...)
 }
 
+// TODO: should this be grouped together with isSupportedSigningAlgorithm as its own type?
 func asymmetricAlgorithms(advertised []string) []string {
 	algorithms := make([]string, 0, len(advertised))
 	for _, algorithm := range advertised {

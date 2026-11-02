@@ -35,12 +35,17 @@ const (
 )
 
 func Run(ctx context.Context, cfg config.Config) error {
-	options := &slog.HandlerOptions{Level: cfg.LogLevel}
+	options := &slog.HandlerOptions{
+		Level: cfg.LogLevel,
+	}
+
 	var handler slog.Handler = slog.NewTextHandler(os.Stderr, options)
 	if cfg.LogFormat == "json" {
 		handler = slog.NewJSONHandler(os.Stderr, options)
 	}
-	slog.SetDefault(slog.New(contextHandler{handler}))
+	handler = contextHandler{handler}
+
+	slog.SetDefault(slog.New(handler))
 	slog.Info("configuration loaded",
 		"bind_address", cfg.BindAddress,
 		"internal_bind_address", cfg.InternalBindAddress,
@@ -123,6 +128,7 @@ func startServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// TODO: improve this. seems a bit excessive with 6 goroutines
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error { return serve(publicServer, publicListener) })
 	group.Go(func() error { return serve(internalServer, internalListener) })
@@ -164,6 +170,7 @@ func httpServer(handler http.Handler) *http.Server {
 	}
 }
 
+// TODO: inline or move to http.go together with stsApi router?
 func internalRouter(registry *prometheus.Registry, pool *pgxpool.Pool) http.Handler {
 	router := chi.NewRouter()
 	router.Use(requestLogging)
@@ -173,10 +180,12 @@ func internalRouter(registry *prometheus.Registry, pool *pgxpool.Pool) http.Hand
 	return router
 }
 
+// TODO: inline or move to http.go together with stsApi router?
 func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
+// TODO: inline or move to http.go together with stsApi router?
 func readinessHandler(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Fail fast, so an exhausted pool does not block the probe until its own timeout.
