@@ -17,7 +17,6 @@ type TokenVerifier struct {
 	issuer       TokenIssuer
 	keyset       oidc.KeySet
 	requiredAlgs []string
-	verifyFn     VerifyFn
 }
 
 func NewTokenVerifier(issuer TokenIssuer, keyset oidc.KeySet, requiredAlgs ...string) (*TokenVerifier, error) {
