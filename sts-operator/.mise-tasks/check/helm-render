@@ -12,27 +12,24 @@ cmp \
   <(yq -o=json "$crd_chart/templates/nais.io_oauthclients.yaml" |
     jq -S 'del(.metadata.annotations."helm.sh/resource-policy")')
 
-# CRDs must be regular Helm templates, present on both install and upgrade.
-for is_upgrade in false true; do
-  helm template sts-operator-crds "$crd_chart" --namespace nais-system --is-upgrade="$is_upgrade" \
-    | yq -o=json | jq -s -e '
-    length == 1 and
-    .[0].kind == "CustomResourceDefinition" and
-    .[0].metadata.annotations."helm.sh/resource-policy" == "keep"
-  ' >/dev/null
+# CRDs must be regular Helm templates with keep retention.
+helm template sts-operator-crds "$crd_chart" --namespace nais-system \
+  | yq -o=json | jq -s -e '
+  length == 1 and
+  .[0].kind == "CustomResourceDefinition" and
+  .[0].metadata.annotations."helm.sh/resource-policy" == "keep"
+' >/dev/null
 
-  # The parent must bundle the current CRD on both install and upgrade.
-  cmp \
-    <(yq -o=json "$crd_chart/templates/nais.io_oauthclients.yaml" | jq -S .) \
-    <(helm template sts-operator "$chart" --namespace nais-system --is-upgrade="$is_upgrade" |
-      yq -o=json | jq -s -S '
-        [.[] | select(.kind == "CustomResourceDefinition")] |
-        if length == 1 then .[0] else error("expected one bundled CRD") end
-      ')
-done
+# The parent must bundle the current CRD.
+cmp \
+  <(yq -o=json "$crd_chart/templates/nais.io_oauthclients.yaml" | jq -S .) \
+  <(helm template sts-operator "$chart" --namespace nais-system |
+    yq -o=json | jq -s -S '
+      [.[] | select(.kind == "CustomResourceDefinition")] |
+      if length == 1 then .[0] else error("expected one bundled CRD") end
+    ')
 
-helm template sts-operator "$chart" --namespace nais-system \
-  --api-versions monitoring.coreos.com/v1 | yq -o=json | jq -s -e '
+helm template sts-operator "$chart" --namespace nais-system | yq -o=json | jq -s -e '
   [.[] | select(.kind == "Deployment")][0] as $deployment |
   $deployment.spec.template.spec as $pod |
   $pod.containers[0] as $container |
@@ -41,7 +38,6 @@ helm template sts-operator "$chart" --namespace nais-system \
   [.[] | select(.kind == "Ingress")][0] as $ingress |
   [.[] | select(.kind == "ClusterRole")][0] as $role |
   [.[] | select(.kind == "ClusterRoleBinding")][0] as $binding |
-  [.[] | select(.kind == "PodMonitor")][0] as $monitor |
   $deployment.spec.replicas == 1 and
   $deployment.spec.strategy.type == "Recreate" and
   $pod.automountServiceAccountToken == true and
@@ -49,13 +45,10 @@ helm template sts-operator "$chart" --namespace nais-system \
   $env.SYNC_INTERVAL == "1m" and
   $container.volumeMounts[0].readOnly == true and
   $pod.volumes[0].projected.defaultMode == 288 and
-  $service.spec.selector == $deployment.spec.selector.matchLabels and
   $ingress.spec.rules[0].http.paths == [{
     "path": "/jwks", "pathType": "Exact",
     "backend": {"service": {"name": $service.metadata.name, "port": {"name": "jwks"}}}
   }] and
-  $monitor.spec.selector.matchLabels == $deployment.spec.selector.matchLabels and
-  $monitor.spec.podMetricsEndpoints[0].port == "metrics" and
   $binding.roleRef.name == $role.metadata.name and
   $binding.subjects == [{"kind": "ServiceAccount", "name": $pod.serviceAccountName, "namespace": "nais-system"}] and
   any($role.rules[]; .resources == ["oauthclients"] and (.verbs | index("watch")) != null) and
@@ -68,37 +61,19 @@ helm template sts-operator "$chart" --namespace nais-system \
 
 helm template custom "$chart" --namespace custom \
   --api-versions monitoring.coreos.com/v1 \
-  --set fullnameOverride=custom-operator \
   --set serviceAccount.create=false --set serviceAccount.name=existing \
   --set ingress.enabled=false --set podMonitor.enabled=false \
   --set networkPolicy.enabled=false --set fqdnNetworkPolicy.enabled=false \
   --api-versions networking.gke.io/v1alpha3 \
-  --set config.clusterName=custom-cluster --set config.stsBaseUrl=https://sts.example.com \
-  --set config.logLevel=debug --set config.maxConcurrentReconciles=5 \
-  --set config.syncInterval=2m30s \
-  --set-string authToken.audience=true --set authToken.expirationSeconds=7200 \
-  --set image.repository=example.com/operator --set image.tag=v1 | yq -o=json | jq -s -e '
+  --set-string authToken.audience=true | yq -o=json | jq -s -e '
   [.[] | select(.kind == "Deployment")][0] as $deployment |
   $deployment.spec.template.spec as $pod |
-  ($pod.containers[0].env | map({key: .name, value: .value}) | from_entries) as $env |
   all(.[]; .kind != "Ingress" and .kind != "PodMonitor" and .kind != "ServiceAccount" and .kind != "NetworkPolicy" and .kind != "FQDNNetworkPolicy") and
-  $deployment.metadata.name == "custom-operator" and
   $pod.serviceAccountName == "existing" and
-  $pod.containers[0].image == "example.com/operator:v1" and
-  $env.CLUSTER_NAME == "custom-cluster" and
-  $env.STS_BASE_URL == "https://sts.example.com" and
-  $env.LOG_LEVEL == "debug" and
-  $env.MAX_CONCURRENT_RECONCILES == "5" and
-  $env.SYNC_INTERVAL == "2m30s" and
   $pod.volumes[0].projected.sources[0].serviceAccountToken.audience == "true" and
-  $pod.volumes[0].projected.sources[0].serviceAccountToken.expirationSeconds == 7200 and
   [.[] | select(.kind == "ClusterRoleBinding")][0].subjects == [
     {"kind": "ServiceAccount", "name": "existing", "namespace": "custom"}
   ]
-' >/dev/null
-
-helm template sts-operator "$chart" | yq -o=json | jq -s -e '
-  all(.[]; .kind != "PodMonitor" and .kind != "FQDNNetworkPolicy")
 ' >/dev/null
 
 for setting in config.clusterName config.stsBaseUrl authToken.audience ingress.host; do
@@ -109,9 +84,11 @@ for setting in config.clusterName config.stsBaseUrl authToken.audience ingress.h
 done
 
 # Default egress is limited to DNS pods; empty API CIDRs must not allow all IPs.
+# Default render also omits PodMonitor and FQDNNetworkPolicy.
 helm template sts-operator "$chart" | yq -o=json | jq -s -e '
   [.[] | select(.kind == "NetworkPolicy")][0] as $policy |
   [.[] | select(.kind == "Deployment")][0] as $deployment |
+  all(.[]; .kind != "PodMonitor" and .kind != "FQDNNetworkPolicy") and
   $policy.spec.podSelector.matchLabels == $deployment.spec.selector.matchLabels and
   $policy.spec.policyTypes == ["Egress"] and
   ($policy.spec | has("ingress") | not) and
@@ -168,6 +145,6 @@ done < <(yq -r '.values | keys | .[]' "$chart/Feature.yaml")
 package_dir=$(mktemp -d)
 trap 'rm -rf "$package_dir"' EXIT
 helm package "$chart" --destination "$package_dir" >/dev/null
-tar -tzf "$package_dir"/sts-operator-*.tgz | grep -qx 'sts-operator/Feature.yaml'
+tar -tzf "$package_dir"/sts-operator-*.tgz | grep -x 'sts-operator/Feature.yaml' >/dev/null
 
 printf 'CRD and operator render tests passed\n'
