@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/cache"
 	"github.com/nais/sts/internal/database"
@@ -75,7 +74,8 @@ func (s *Store) Close() {
 	s.listener.Close()
 }
 
-func (s *Store) Get(ctx context.Context, claims *oauth.AccessTokenClaims) (*oauth.Client, error) {
+// TODO: add integration/performance test for non existing clients, check that nothing locks up
+func (s *Store) Get(_ context.Context, claims *oauth.AccessTokenClaims) (*oauth.Client, error) {
 	// TODO: should we move the KubernetesClaims type here, i.e. to the store package?
 	workload, err := claims.Kubernetes()
 	if err != nil {
@@ -89,14 +89,16 @@ func (s *Store) Get(ctx context.Context, claims *oauth.AccessTokenClaims) (*oaut
 	}
 	row, ok := snapshot.clients[key]
 	if !ok {
-		// TODO: see comment in AuthorizeTarget, should we do a db call on cache miss or just handle it to be eventually consistent?
-		return s.getClientFromPostgres(ctx, key)
+		// TODO: do we need this, or can we just wait a minute
+		s.snapshot.Trigger()
+		return nil, fmt.Errorf("%w: %s", oauth.ErrClientNotFound, key)
 	}
 	row.AllowedScopes = slices.Clone(row.AllowedScopes)
 	return toClient(row), nil
 }
 
-func (s *Store) AuthorizeTarget(ctx context.Context, consumer oauth.ClientID, target oauth.Target) (oauth.Roles, error) {
+// TODO: add integration/performance test for non existing clients, check that nothing locks up
+func (s *Store) AuthorizeTarget(_ context.Context, consumer oauth.ClientID, target oauth.Target) (oauth.Roles, error) {
 	snapshot, ok := s.snapshot.Current()
 	if !ok {
 		return nil, errors.New("client cache is not initialized")
@@ -104,9 +106,9 @@ func (s *Store) AuthorizeTarget(ctx context.Context, consumer oauth.ClientID, ta
 	key := policyKey{owner: target.GetValue(), consumer: string(consumer)}
 	roles, ok := snapshot.policies[key]
 	if !ok {
-		// TODO: should the unauthorized err be handled here? i.e. a bit weird that it is hidden in the db call?
-		// TODO: should we discuss if we want to do a db call on cache miss or just handle it to be eventually consistent?
-		return s.getPolicyFromPostgres(ctx, key)
+		// TODO: do we need this, or can we just wait a minute
+		s.snapshot.Trigger()
+		return nil, fmt.Errorf("%w: %s", oauth.ErrTargetUnauthorized, key)
 	}
 	return slices.Clone(roles), nil
 }
@@ -122,39 +124,4 @@ func (s *Store) initialize(ctx context.Context) error {
 		return fmt.Errorf("load initial client cache snapshot: %w", err)
 	}
 	return nil
-}
-
-func (s *Store) getClientFromPostgres(ctx context.Context, key clientKey) (*oauth.Client, error) {
-	row, err := s.queries.GetClient(ctx, sqlgen.GetClientParams{
-		Issuer:    key.issuer,
-		Namespace: key.namespace,
-		Name:      key.name,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("%w: %s", oauth.ErrClientNotFound, key)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read client after cache miss: %w", err)
-	}
-
-	// A missed notification may have caused this fallback. Refresh the complete
-	// snapshot so later requests can use the cache again.
-	s.snapshot.Trigger()
-	return toClient(row), nil
-}
-
-func (s *Store) getPolicyFromPostgres(ctx context.Context, key policyKey) (oauth.Roles, error) {
-	row, err := s.queries.GetAuthorizationPolicy(ctx, sqlgen.GetAuthorizationPolicyParams{
-		OwnerClientID:    key.owner,
-		ConsumerClientID: key.consumer,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("%w: %s", oauth.ErrTargetUnauthorized, key)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read authorization policy after cache miss: %w", err)
-	}
-
-	s.snapshot.Trigger()
-	return row.Roles, nil
 }

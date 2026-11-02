@@ -49,14 +49,14 @@ ORDER BY
 
 -- name: ListAuthorizationPoliciesByOwner :many
 SELECT
-    *
+	*
 FROM
-    authorization_policies
+	authorization_policies
 WHERE
-    owner_client_id = @owner_client_id
+	owner_client_id = @owner_client_id
 ORDER BY
-    owner_client_id,
-    consumer_client_id;
+	owner_client_id,
+	consumer_client_id;
 
 -- name: UpsertClient :one
 INSERT INTO clients(
@@ -96,24 +96,24 @@ WHERE owner_client_id = @owner_client_id;
 -- name: DeleteOrphanedAuthorizationPolicies :exec
 DELETE FROM authorization_policies
 WHERE owner_client_id = @owner_client_id
-AND consumer_client_id = ANY(@orphaned_ids::TEXT[]);
+	AND consumer_client_id = ANY (@orphaned_ids::TEXT[]);
 
 -- name: BatchUpsertAuthorizationPolicy :batchexec
 INSERT INTO authorization_policies(
-    owner_client_id,
-    consumer_client_id,
-    roles)
+	owner_client_id,
+	consumer_client_id,
+	roles)
 VALUES (
-           @owner_client_id,
-           @consumer_client_id,
-           @roles::TEXT[])
-    ON CONFLICT (
+	@owner_client_id,
+	@consumer_client_id,
+	@roles::TEXT[])
+ON CONFLICT (
 	owner_client_id,
 	consumer_client_id)
 	DO UPDATE SET
-    roles = EXCLUDED.roles
-       WHERE
-               authorization_policies.roles IS DISTINCT FROM EXCLUDED.roles;
+		roles = EXCLUDED.roles
+	WHERE
+		authorization_policies.roles IS DISTINCT FROM EXCLUDED.roles;
 
 -- name: UpsertAuthorizationPolicy :exec
 INSERT INTO authorization_policies(

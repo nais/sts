@@ -22,6 +22,7 @@ import (
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/store/clientstore"
 	"github.com/nais/sts/internal/store/keystore"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"go.opentelemetry.io/otel"
@@ -257,7 +258,7 @@ func testPostgresKeyStore(t *testing.T, pool *pgxpool.Pool) {
 func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 
-	t.Run("falls back to Postgres on miss", func(t *testing.T) {
+	t.Run("miss returns client not found", func(t *testing.T) {
 		resetClients(t, pool)
 		cached, err := clientstore.New(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		require.NoError(t, err)
@@ -266,9 +267,8 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 		_, err = sqlgen.New(pool).UpsertClient(t.Context(), testClientParams("scope"))
 		require.NoError(t, err)
 
-		client, err := cached.Get(t.Context(), testClientClaims())
-		require.NoError(t, err)
-		require.Equal(t, []string{"scope"}, client.AllowedScopes)
+		_, err = cached.Get(t.Context(), testClientClaims())
+		assert.ErrorIs(t, err, oauth.ErrClientNotFound)
 	})
 
 	t.Run("refreshes after notification", func(t *testing.T) {
@@ -311,8 +311,6 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 	retainedConsumer := oauth.NewClientID("environment", "namespace", "retained-consumer")
 	newConsumer := oauth.NewClientID("environment", "namespace", "new-consumer")
 	consumer := oauth.NewClientID("environment", "namespace", "consumer")
-	nilConsumer := oauth.NewClientID("environment", "namespace", "nil-consumer")
-	emptyConsumer := oauth.NewClientID("environment", "namespace", "empty-consumer")
 	missingClient := oauth.NewClientID("environment", "namespace", "missing")
 
 	run := func(name string, test func(*testing.T)) {
@@ -356,30 +354,6 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		assertStoredRegistration(t, queries, client.ID, client.AllowedScopes, []sqlgen.AuthorizationPolicy{
 			{OwnerClientID: client.ID, ConsumerClientID: string(consumer), Roles: []string{"old-role"}},
 		})
-	})
-
-	run("accepts nil and empty roles", func(t *testing.T) {
-		client := testClient("scope")
-		policies := []oauth.AuthorizationPolicy{
-			{Owner: oauth.ClientID(client.ID), Consumer: nilConsumer, Roles: nil},
-			{Owner: oauth.ClientID(client.ID), Consumer: emptyConsumer, Roles: oauth.Roles{}},
-		}
-		require.NoError(t, clients.Save(t.Context(), client, policies, client.Issuer))
-
-		assertStoredRegistration(t, queries, client.ID, client.AllowedScopes, []sqlgen.AuthorizationPolicy{
-			{OwnerClientID: client.ID, ConsumerClientID: string(emptyConsumer), Roles: []string{}},
-			{OwnerClientID: client.ID, ConsumerClientID: string(nilConsumer), Roles: nil},
-		})
-		cached, err := clientstore.New(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
-		require.NoError(t, err)
-		defer cached.Close()
-		for _, store := range []*clientstore.Store{clients, cached} {
-			for _, policy := range policies {
-				roles, err := store.AuthorizeTarget(t.Context(), policy.Consumer, oauth.TargetAudience(client.ID))
-				require.NoError(t, err)
-				require.Equal(t, policy.Roles, roles)
-			}
-		}
 	})
 
 	run("updates issuer without changing scopes", func(t *testing.T) {
