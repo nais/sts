@@ -76,6 +76,7 @@ func (s *Store) Close() {
 }
 
 func (s *Store) Get(ctx context.Context, claims *oauth.AccessTokenClaims) (*oauth.Client, error) {
+	// TODO: should we move the KubernetesClaims type here, i.e. to the store package?
 	workload, err := claims.Kubernetes()
 	if err != nil {
 		return nil, err
@@ -88,6 +89,7 @@ func (s *Store) Get(ctx context.Context, claims *oauth.AccessTokenClaims) (*oaut
 	}
 	row, ok := snapshot.clients[key]
 	if !ok {
+		// TODO: see comment in AuthorizeTarget, should we do a db call on cache miss or just handle it to be eventually consistent?
 		return s.getClientFromPostgres(ctx, key)
 	}
 	row.AllowedScopes = slices.Clone(row.AllowedScopes)
@@ -102,6 +104,8 @@ func (s *Store) AuthorizeTarget(ctx context.Context, consumer oauth.ClientID, ta
 	key := policyKey{owner: target.GetValue(), consumer: string(consumer)}
 	roles, ok := snapshot.policies[key]
 	if !ok {
+		// TODO: should the unauthorized err be handled here? i.e. a bit weird that it is hidden in the db call?
+		// TODO: should we discuss if we want to do a db call on cache miss or just handle it to be eventually consistent?
 		return s.getPolicyFromPostgres(ctx, key)
 	}
 	return slices.Clone(roles), nil

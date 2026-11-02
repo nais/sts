@@ -32,7 +32,6 @@ const (
 
 const (
 	clientCacheRefreshInterval = time.Minute
-	signingKeyCacheTTL         = time.Minute
 )
 
 func Run(ctx context.Context, cfg config.Config) error {
@@ -69,6 +68,8 @@ func Run(ctx context.Context, cfg config.Config) error {
 	return startServer(ctx, cfg, pool, metricsProvider)
 }
 
+// TODO: Do we need all this wiring code, can it be simplified? e.g. do we need to create listeners for each server, or can we just pass the bind address to http.Server?
+// TODO: what about all the go routines, and graceful shutdown?
 func startServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, provider *stsmetrics.Provider) error {
 	publicListener, err := net.Listen("tcp", cfg.BindAddress)
 	if err != nil {

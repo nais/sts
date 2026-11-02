@@ -31,6 +31,9 @@ func generateSigningKeys() (*signingKeys, error) {
 	return &signingKeys{previous: previous, current: current, next: next}, nil
 }
 
+// TODO: any better way to do this? the anonymous struct is there just to have the name in ther err?
+// TODO: also do we really need all the validation here? i.e. should we just trust the db to have valid keys on insert?
+// TODO: maybe the validation should just be a test for the rotate function?
 func signingKeysFromRow(row sqlgen.RotatableSigningKey) (*signingKeys, error) {
 	var keys signingKeys
 	for _, field := range []struct {

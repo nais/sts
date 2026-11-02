@@ -67,6 +67,7 @@ func (r *Registrators) Authenticate(request *http.Request) (*Registrator, error)
 	if !ok {
 		return nil, errors.New("missing bearer token")
 	}
+	// TODO: see comment in AuthorizeRequest
 	claims, err := r.clientAuthVerifier.Verify(request.Context(), token, func(claims *oauth.AccessTokenClaims) error {
 		return oauth.ValidateClientAuthClaims(claims, r.expectedAudience, r.maxTokenLifetime)
 	})
@@ -74,6 +75,7 @@ func (r *Registrators) Authenticate(request *http.Request) (*Registrator, error)
 		return nil, err
 	}
 
+	// TODO: create a func for this? or not?
 	registrator := r.byIdentity[registratorIdentity{issuer: claims.Issuer, subject: claims.Subject}]
 	if registrator == nil {
 		return nil, fmt.Errorf("could not find registrator for issuer %q and subject %q", claims.Issuer, claims.Subject)

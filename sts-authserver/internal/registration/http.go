@@ -106,6 +106,7 @@ func (a *Api) DeleteEndpoint() nethttp.HandlerFunc {
 	})
 }
 
+// TODO: add integration tests for ErrRegistrationUnauthorized error
 // SaveRegistration stores the client in the registrator's environment and
 // returns its client ID. Each policy authorizes the consumer namespace and name
 // in every configured environment, including consumers not registered yet.
@@ -128,18 +129,14 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 		Issuer:        registrator.AuthIssuer,
 		AllowedScopes: []string{},
 	}, policies, registrator.AuthIssuer)
-	switch {
-	case err == nil:
-		return clientID, nil
-	case errors.Is(err, oauth.ErrRegistrationUnauthorized):
-		return "", errs.UnauthorizedClient(err, "registrator is not authorized for client")
-	case errors.Is(err, oauth.ErrImmutableFieldsChanged):
-		return "", errs.InvalidClientMetadata(err, "registration conflicts with existing client: immutable fields cannot change")
-	case errors.Is(err, oauth.ErrRegistrationConflict):
-		return "", errs.InvalidClientMetadata(err, "workload is already registered to another client")
-	default:
+	if err != nil {
+		if errors.Is(err, oauth.ErrRegistrationUnauthorized) {
+			return "", errs.UnauthorizedClient(err, "registrator is not authorized for client")
+		}
 		return "", err
 	}
+
+	return clientID, nil
 }
 
 func decodeClientRegistration(w nethttp.ResponseWriter, r *nethttp.Request) (*api.ClientRegistration, error) {

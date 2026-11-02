@@ -26,6 +26,7 @@ func (s SoftwareStatement) validate() error {
 	}
 
 	policies := make(map[api.Client]struct{}, len(s.AuthorizationPolicies))
+	// TODO: do we really need all this validation?
 	for i, policy := range s.AuthorizationPolicies {
 		if err := validateClient(policy.Consumer); err != nil {
 			return fmt.Errorf("authorization policy %d consumer: %w", i, err)

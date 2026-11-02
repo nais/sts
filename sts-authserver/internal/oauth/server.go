@@ -61,7 +61,11 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	}
 
 	finishStep := a.Metrics.StartTokenStep(ctx, "verify_client_assertion")
-	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion, a.verifyClientAuthClaims)
+	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion, func(claims *AccessTokenClaims) error {
+		// TODO: revisit this func, can it be moved to verifier? look at the whole client verifier stuff
+		return ValidateClientAuthClaims(claims, a.ExpectedAudience, a.MaxClientAuthTokenLifetime)
+	})
+
 	finishStep(err)
 	if err != nil {
 		return nil, errs.InvalidClient(err, "client assertion is invalid")
@@ -83,6 +87,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	}
 
 	var claims *AccessTokenClaims
+	// TODO: move verify subject token to a func on request, by passing in verifier? noop on client credentials, verify on token exchange
 	if request.GrantType() == oidc.GrantTypeTokenExchange {
 		te, ok := request.(*TokenExchangeRequest)
 		if !ok {
@@ -90,6 +95,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		}
 		finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
 		claims, err = a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken, func(claims *AccessTokenClaims) error {
+			// TODO: revisit this func, can it be moved to verifier? look at the whole internal verifier stuff
 			return a.verifySTSIssuedSubjectTokenClaims(claims, client.ID)
 		})
 		finishStep(err)
@@ -140,6 +146,7 @@ func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenReq
 		slog.Int("role_count", len(result.Roles)),
 	}
 
+	// TODO: maybe return the attrs from the result?
 	if result.SubjectTokenClaims != nil {
 		subjectIssuer := result.SubjectTokenClaims.Issuer
 		attrs = append(attrs, slog.String("subject_token_issuer", subjectIssuer))
@@ -182,10 +189,6 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 		ret.IssuedTokenType = oidc.AccessTokenType
 	}
 	return ret, nil
-}
-
-func (a *AuthorizationServer) verifyClientAuthClaims(claims *AccessTokenClaims) error {
-	return ValidateClientAuthClaims(claims, a.ExpectedAudience, a.MaxClientAuthTokenLifetime)
 }
 
 func (a *AuthorizationServer) verifySTSIssuedSubjectTokenClaims(claims *AccessTokenClaims, clientID string) error {
