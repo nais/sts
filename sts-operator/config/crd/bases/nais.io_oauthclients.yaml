@@ -71,6 +71,8 @@ spec:
                             description: Roles are added to tokens issued to the consumer
                               for this client.
                             items:
+                              maxLength: 255
+                              pattern: ^[a-z](?:[a-z0-9_./-]*[a-z0-9])?$
                               type: string
                             type: array
                             x-kubernetes-list-type: set

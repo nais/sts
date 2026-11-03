@@ -8,10 +8,7 @@ import (
 	"github.com/nais/sts/internal/oauth"
 )
 
-const (
-	maxSoftwareStatementLength = 32 << 10
-	maxRoleLength              = 255
-)
+const maxSoftwareStatementLength = 32 << 10
 
 type SoftwareStatement struct {
 	api.SoftwareStatement
@@ -25,34 +22,9 @@ func (s SoftwareStatement) validate() error {
 		return fmt.Errorf("client: %w", err)
 	}
 
-	policies := make(map[api.Client]struct{}, len(s.AuthorizationPolicies))
-	// TODO: do we really need all this validation?
 	for i, policy := range s.AuthorizationPolicies {
 		if err := validateClient(policy.Consumer); err != nil {
 			return fmt.Errorf("authorization policy %d consumer: %w", i, err)
-		}
-		key := policy.Consumer
-		if _, ok := policies[key]; ok {
-			return fmt.Errorf("authorization policy %d is duplicated", i)
-		}
-		policies[key] = struct{}{}
-
-		roles := make(map[string]struct{}, len(policy.Roles))
-		for j, role := range policy.Roles {
-			// TODO: we could move role validation out to CRDs?
-			if len(role) > maxRoleLength {
-				return fmt.Errorf("authorization policy %d role %d is too long", i, j)
-			}
-
-			if err := oauth.Name(role).Validate(); err != nil {
-				return fmt.Errorf("authorization policy %d role %d is invalid", i, j)
-			}
-
-			// TODO: we could automatically de-duplicate roles instead of erroring
-			if _, ok := roles[role]; ok {
-				return fmt.Errorf("authorization policy %d role %q is duplicated", i, role)
-			}
-			roles[role] = struct{}{}
 		}
 	}
 	return nil

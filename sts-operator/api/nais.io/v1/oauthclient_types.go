@@ -67,8 +67,12 @@ type Workload struct {
 	// Roles are added to tokens issued to the consumer for this client.
 	// +listType=set
 	// +optional
-	Roles []string `json:"roles,omitempty"`
+	Roles []Role `json:"roles,omitempty"`
 }
+
+// +kubebuilder:validation:MaxLength=255
+// +kubebuilder:validation:Pattern=`^[a-z](?:[a-z0-9_./-]*[a-z0-9])?$`
+type Role = string
 
 // OAuthClientStatus defines the observed state of OAuthClient.
 type OAuthClientStatus struct {

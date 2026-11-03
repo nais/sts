@@ -140,7 +140,7 @@ func (in *Workload) DeepCopyInto(out *Workload) {
 	*out = *in
 	if in.Roles != nil {
 		in, out := &in.Roles, &out.Roles
-		*out = make([]string, len(*in))
+		*out = make([]Role, len(*in))
 		copy(*out, *in)
 	}
 }

@@ -1,7 +1,6 @@
 package registration
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/nais/sts/api"
@@ -36,33 +35,11 @@ func TestSoftwareStatementValidate(t *testing.T) {
 			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Consumer.Namespace = "Team-b" },
 			wantErr: "consumer",
 		},
-		"duplicate policy": {
-			mutate: func(s *SoftwareStatement) {
-				duplicate := s.AuthorizationPolicies[0]
-				duplicate.Roles = []string{"other"}
-				s.AuthorizationPolicies = append(s.AuthorizationPolicies, duplicate)
-			},
-			wantErr: "duplicated",
-		},
 		"nil roles": {
 			mutate: func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = nil },
 		},
 		"empty roles": {
 			mutate: func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = []string{} },
-		},
-		"invalid role": {
-			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = []string{"team:reader"} },
-			wantErr: "role 0 is invalid",
-		},
-		"role too long": {
-			mutate: func(s *SoftwareStatement) {
-				s.AuthorizationPolicies[0].Roles = []string{strings.Repeat("a", maxRoleLength+1)}
-			},
-			wantErr: "role 0 is too long",
-		},
-		"duplicate role": {
-			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = []string{"reader", "reader"} },
-			wantErr: "role \"reader\" is duplicated",
 		},
 	}
 
