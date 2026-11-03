@@ -20,9 +20,10 @@ import (
 )
 
 const (
-	healthEndpoint    = "/healthz"
-	readinessEndpoint = "/readyz"
-	readinessTimeout  = 2 * time.Second
+	healthEndpoint      = "/healthz"
+	readinessEndpoint   = "/readyz"
+	readinessTimeout    = 2 * time.Second
+	instrumentationName = "nais-sts"
 )
 
 func stsApi(
@@ -32,29 +33,30 @@ func stsApi(
 	keyStore oauth.KeyStore,
 	provider *stsmetrics.Provider,
 ) (http.Handler, error) {
-	httpClient, err := newHTTPClient(cfg.AdditionalCAFile)
-	if err != nil {
-		return nil, fmt.Errorf("create upstream HTTP client: %w", err)
-	}
-
-	router := chi.NewRouter()
-	router.Use(RequestLogging)
+	r := chi.NewRouter()
 
 	httpMetrics := otelchimetric.NewBaseConfig(
-		"nais-sts",
+		instrumentationName,
 		otelchimetric.WithMeterProvider(provider.MeterProvider()),
 	)
-	router.Use(
+	r.Use(
 		otelchimetric.NewServerActiveRequests(httpMetrics),
 		otelchimetric.NewServerRequestDuration(httpMetrics),
 		otelchimetric.NewServerRequestBodySize(httpMetrics),
 		otelchimetric.NewServerResponseBodySize(httpMetrics),
 	)
-	router.Use(otelchi.Middleware(
-		"nais-sts",
-		otelchi.WithChiRoutes(router),
+	// TODO: set up a tracer provider and propagator; without them these spans
+	// are no-ops and logs never get trace_id/span_id.
+	r.Use(otelchi.Middleware(
+		instrumentationName,
+		otelchi.WithChiRoutes(r),
 		otelchi.WithRequestMethodInSpanName(true),
 	))
+
+	httpClient, err := newHTTPClient(cfg.AdditionalCAFile)
+	if err != nil {
+		return nil, fmt.Errorf("create upstream HTTP client: %w", err)
+	}
 
 	authServer, err := oauth.NewAuthorizationServer(ctx, httpClient, cfg.AuthorizationServerConfig, clientStore, keyStore, provider.Metrics())
 	if err != nil {
@@ -65,30 +67,31 @@ func stsApi(
 		return nil, fmt.Errorf("initialize client registration handler: %w", err)
 	}
 
-	router.Get(api.OAuthDiscoveryPath, authServer.DiscoveryEndpoint())
-	router.Post(api.TokenPath, authServer.TokenEndpoint())
-	router.Get(api.JWKSPath, authServer.JwksEndpoint())
-	router.Post(api.RegistrationPath, registrationApi.PostEndpoint())
-	router.Delete(fmt.Sprintf("%s/{id}", api.RegistrationPath), registrationApi.DeleteEndpoint())
-	return router, nil
+	r.Get(api.OAuthDiscoveryPath, authServer.DiscoveryEndpoint())
+	r.Post(api.TokenPath, authServer.TokenEndpoint())
+	r.Get(api.JWKSPath, authServer.JwksEndpoint())
+	r.Post(api.RegistrationPath, registrationApi.PostEndpoint())
+	r.Delete(fmt.Sprintf("%s/{id}", api.RegistrationPath), registrationApi.DeleteEndpoint())
+	return r, nil
 }
 
 func internalApi(registry *prometheus.Registry, pool *pgxpool.Pool) http.Handler {
-	router := chi.NewRouter()
-	router.Use(RequestLogging)
-	router.HandleFunc(healthEndpoint, func(w http.ResponseWriter, r *http.Request) {
+	r := chi.NewRouter()
+	r.HandleFunc(healthEndpoint, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
-	router.HandleFunc(readinessEndpoint, func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc(readinessEndpoint, func(w http.ResponseWriter, r *http.Request) {
 		// Fail fast, so an exhausted pool does not block the probe until its own timeout.
 		ctx, cancel := context.WithTimeout(r.Context(), readinessTimeout)
 		defer cancel()
+
 		if err := pool.Ping(ctx); err != nil {
 			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
 			return
 		}
+
 		_, _ = w.Write([]byte("ok"))
 	})
-	router.Get("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP)
-	return router
+	r.Get("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP)
+	return r
 }

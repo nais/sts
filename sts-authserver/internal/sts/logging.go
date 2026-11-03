@@ -3,15 +3,12 @@ package sts
 import (
 	"context"
 	"log/slog"
-	"net/http"
 	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nais/sts/internal/config"
 	"go.opentelemetry.io/otel/trace"
 )
-
-type requestMethodKey struct{}
 
 func setupLogger(cfg config.Config) {
 	options := &slog.HandlerOptions{
@@ -34,14 +31,6 @@ func setupLogger(cfg config.Config) {
 	)
 }
 
-func RequestLogging(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := context.WithValue(r.Context(), requestMethodKey{}, r.Method)
-
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
 type contextHandler struct {
 	slog.Handler
 }
@@ -55,12 +44,12 @@ func (h contextHandler) Handle(ctx context.Context, record slog.Record) error {
 		)
 	}
 
-	if method, ok := ctx.Value(requestMethodKey{}).(string); ok {
-		record.AddAttrs(slog.String("method", method))
+	// chi fills in the method and pattern while routing, so read them at log time.
+	if route := chi.RouteContext(ctx); route != nil && route.RouteMethod != "" {
+		record.AddAttrs(slog.String("method", route.RouteMethod))
 
-		// chi resolves the route after middleware entry, so read it at log time.
-		if route := chi.RouteContext(ctx); route != nil && route.RoutePattern() != "" {
-			record.AddAttrs(slog.String("route", route.RoutePattern()))
+		if pattern := route.RoutePattern(); pattern != "" {
+			record.AddAttrs(slog.String("route", pattern))
 		}
 	}
 
