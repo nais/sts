@@ -82,6 +82,13 @@ func ReadForm(w nethttp.ResponseWriter, r *nethttp.Request) (url.Values, error) 
 		}
 		return nil, errs.InvalidRequest(err, "error parsing form")
 	}
+
+	for key, values := range r.PostForm {
+		if len(values) > 1 {
+			return nil, errs.InvalidRequest(nil, "repeated parameter: %s", key)
+		}
+	}
+
 	return r.PostForm, nil
 }
 

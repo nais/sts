@@ -98,8 +98,6 @@ func parseClientAuthCredentials(form url.Values) ClientAuthCredentials {
 }
 
 func parseClientCredentialsRequest(form url.Values) *ClientCredentialsRequest {
-	// TODO: consider rejecting repeated parameters, as RFC 6749 section 3.1 requires.
-	//  form.Get uses the first value and ignores the rest.
 	return &ClientCredentialsRequest{
 		ClientAuthCredentials: parseClientAuthCredentials(form),
 		Scope:                 strings.Fields(form.Get("scope")),
@@ -107,8 +105,6 @@ func parseClientCredentialsRequest(form url.Values) *ClientCredentialsRequest {
 }
 
 func parseTokenExchangeRequest(form url.Values) *TokenExchangeRequest {
-	// TODO: consider rejecting repeated parameters, as RFC 6749 section 3.1 requires.
-	//  form.Get uses the first value and ignores the rest.
 	return &TokenExchangeRequest{
 		ClientAuthCredentials: parseClientAuthCredentials(form),
 		SubjectToken:          form.Get("subject_token"),
