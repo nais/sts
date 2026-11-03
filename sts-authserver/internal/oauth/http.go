@@ -11,8 +11,6 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-// TODO: these are very tied to the things in server.go? fine to leave here or should they be grouped?
-
 func (a *AuthorizationServer) DiscoveryEndpoint() nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		cfg := a.AuthorizationServerConfig
