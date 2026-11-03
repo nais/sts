@@ -6,11 +6,14 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/config"
 	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/registration"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/riandyrn/otelchi"
 	otelchimetric "github.com/riandyrn/otelchi/metric"
 )
@@ -66,4 +69,24 @@ func stsApi(
 	router.Post(api.RegistrationPath, registrationApi.PostEndpoint())
 	router.Delete(fmt.Sprintf("%s/{id}", api.RegistrationPath), registrationApi.DeleteEndpoint())
 	return router, nil
+}
+
+func internalApi(registry *prometheus.Registry, pool *pgxpool.Pool) http.Handler {
+	router := chi.NewRouter()
+	router.Use(requestLogging)
+	router.HandleFunc(healthEndpoint, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	})
+	router.HandleFunc(readinessEndpoint, func(w http.ResponseWriter, r *http.Request) {
+		// Fail fast, so an exhausted pool does not block the probe until its own timeout.
+		ctx, cancel := context.WithTimeout(r.Context(), readinessTimeout)
+		defer cancel()
+		if err := pool.Ping(ctx); err != nil {
+			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	})
+	router.Get("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP)
+	return router
 }

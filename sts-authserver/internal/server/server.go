@@ -20,8 +20,6 @@ import (
 	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/nais/sts/internal/store/clientstore"
 	"github.com/nais/sts/internal/store/keystore"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -111,7 +109,7 @@ func startServer(ctx context.Context, cfg config.Config, pool *pgxpool.Pool, pro
 	router.Mount("/", api)
 
 	publicServer := httpServer(router)
-	internalServer := httpServer(internalRouter(provider.Registry(), pool))
+	internalServer := httpServer(internalApi(provider.Registry(), pool))
 
 	slog.Info("servers listening",
 		"public_port", publicListener.Addr().(*net.TCPAddr).Port,
@@ -167,34 +165,5 @@ func httpServer(handler http.Handler) *http.Server {
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
-	}
-}
-
-// TODO: inline or move to http.go together with stsApi router?
-func internalRouter(registry *prometheus.Registry, pool *pgxpool.Pool) http.Handler {
-	router := chi.NewRouter()
-	router.Use(requestLogging)
-	router.HandleFunc(healthEndpoint, healthHandler)
-	router.HandleFunc(readinessEndpoint, readinessHandler(pool))
-	router.Get("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP)
-	return router
-}
-
-// TODO: inline or move to http.go together with stsApi router?
-func healthHandler(w http.ResponseWriter, _ *http.Request) {
-	_, _ = w.Write([]byte("ok"))
-}
-
-// TODO: inline or move to http.go together with stsApi router?
-func readinessHandler(pool *pgxpool.Pool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Fail fast, so an exhausted pool does not block the probe until its own timeout.
-		ctx, cancel := context.WithTimeout(r.Context(), readinessTimeout)
-		defer cancel()
-		if err := pool.Ping(ctx); err != nil {
-			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		healthHandler(w, r)
 	}
 }
