@@ -8,12 +8,12 @@ import (
 	"net"
 )
 
-func CloseWithLog(r io.Closer, log *slog.Logger) {
+func Close(r io.Closer) {
 	if err := r.Close(); err != nil {
 		if errors.Is(err, net.ErrClosed) {
 			return
 		}
-		log.With("err", err).Warn("unable to close resource")
+		slog.Default().With("err", err).Warn("unable to close resource")
 	}
 }
 

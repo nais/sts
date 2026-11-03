@@ -295,6 +295,6 @@ func getFreePort(t testing.TB) int {
 	if err != nil {
 		t.Fatalf("failed to listen on TCP address: %v", err)
 	}
-	defer ioconvenience.CloseWithLog(l, slog.Default())
+	defer ioconvenience.Close(l)
 	return l.Addr().(*net.TCPAddr).Port
 }

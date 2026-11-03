@@ -142,7 +142,7 @@ func migrate(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) error {
 	defer cancel()
 
 	db := stdlib.OpenDBFromPool(pool)
-	defer ioconvenience.CloseWithLog(db, log)
+	defer ioconvenience.Close(db)
 
 	migrationFS, err := fs.Sub(migrations, "migrations")
 	if err != nil {
@@ -162,7 +162,7 @@ func migrate(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create migration provider: %w", err)
 	}
-	defer ioconvenience.CloseWithLog(provider, log)
+	defer ioconvenience.Close(provider)
 
 	if _, err := provider.Up(ctx); err != nil {
 		return fmt.Errorf("migrate database: %w", err)

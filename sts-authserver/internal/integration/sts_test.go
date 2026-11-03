@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"maps"
 	"mime"
 	"net/http"
@@ -785,7 +784,7 @@ func getSubjectTokenFromIssuer(t testing.TB, oauthServer testServer, issuer stri
 
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	defer ioconvenience.CloseWithLog(resp.Body, slog.Default())
+	defer ioconvenience.Close(resp.Body)
 
 	location, err := resp.Location()
 	require.NoError(t, err)
@@ -862,7 +861,7 @@ func registrationRequest[T any](t testing.TB, req *http.Request) (int, *T) {
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer ioconvenience.CloseWithLog(resp.Body, slog.Default())
+	defer ioconvenience.Close(resp.Body)
 
 	if resp.StatusCode == http.StatusNoContent {
 		body, err := io.ReadAll(resp.Body)
@@ -893,7 +892,7 @@ func post[T any](t testing.TB, endpoint string, form url.Values) *T {
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err, "HTTP request")
-	defer ioconvenience.CloseWithLog(resp.Body, slog.Default())
+	defer ioconvenience.Close(resp.Body)
 
 	ret := new(T)
 	if _, wantError := any(ret).(*errs.ErrorResponse); !wantError {

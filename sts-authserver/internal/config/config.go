@@ -36,7 +36,7 @@ func loadFile(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("open config file: %w", err)
 	}
-	defer ioconvenience.CloseWithLog(file, slog.Default())
+	defer ioconvenience.Close(file)
 
 	cfg := defaultConfig()
 
