@@ -182,9 +182,14 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 	}
 
 	ctx := t.Context()
-	go func() {
-		_ = stsserver.Run(ctx, cfg)
-	}()
+	done := make(chan error, 1)
+	go func() { done <- stsserver.Run(ctx, cfg) }()
+	// t.Context is cancelled before cleanups run, so this waits for shutdown.
+	t.Cleanup(func() {
+		if err := <-done; err != nil {
+			t.Errorf("sts run: %v", err)
+		}
+	})
 
 	deadline := time.Now().Add(10 * time.Second)
 	ready := false

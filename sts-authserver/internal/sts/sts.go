@@ -2,15 +2,14 @@ package sts
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/ioconvenience"
@@ -22,96 +21,63 @@ import (
 
 const (
 	clientCacheRefreshInterval = time.Minute
+	shutdownTimeout            = 5 * time.Second
 )
 
-type STS struct {
-	pool            *pgxpool.Pool
-	clientStore     *clientstore.Store
-	keyStore        *keystore.Store
-	server          *http.Server
-	internalServer  *http.Server
-	metricsProvider *stsmetrics.Provider
-}
-
+// Run serves the STS until ctx is cancelled or SIGINT/SIGTERM arrives.
 func Run(ctx context.Context, cfg config.Config) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	setupLogger(cfg)
 
-	sts, err := New(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("create STS: %w", err)
-	}
-	defer ioconvenience.CloseWithLog(sts, slog.Default())
-
-	return sts.Run(ctx)
-}
-
-func New(ctx context.Context, cfg config.Config) (*STS, error) {
-	// TODO: use default metrics provider so we dont have to pass it around everywhere
 	metricsProvider, err := stsmetrics.NewProvider()
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer ioconvenience.CloseFunc(context.Background(), metricsProvider.Shutdown)
 
 	pool, err := database.NewPool(ctx, cfg.DatabaseURL, slog.Default(), metricsProvider.Meter())
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer pool.Close()
 
 	clientStore, err := clientstore.New(ctx, pool, clientCacheRefreshInterval)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer clientStore.Close()
 
 	keyStore, err := keystore.New(ctx, pool, cfg.AuthorizationServerConfig.TokenExpiry)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	api, err := stsApi(ctx, cfg, clientStore, keyStore, metricsProvider)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("set up api router: %w", err)
 	}
 
-	return &STS{
-		pool:            pool,
-		clientStore:     clientStore,
-		keyStore:        keyStore,
-		server:          httpServer(cfg.BindAddress, api),
-		internalServer:  httpServer(cfg.InternalBindAddress, internalApi(metricsProvider.Registry(), pool)),
-		metricsProvider: metricsProvider,
-	}, nil
-}
+	server := httpServer(cfg.BindAddress, api)
+	internalServer := httpServer(cfg.InternalBindAddress, internalApi(metricsProvider.Registry(), pool))
 
-func (sts *STS) Run(ctx context.Context) error {
-	slog.Info("starting servers",
-		"public_address", sts.server.Addr,
-		"internal_address", sts.internalServer.Addr,
-	)
-
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.Go(func() error {
-		sts.clientStore.Run(groupCtx)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		clientStore.Run(gctx)
 		return nil
 	})
-	group.Go(func() error { return sts.keyStore.Run(groupCtx) })
-	group.Go(func() error { return serve(sts.server) })
-	group.Go(func() error { return serve(sts.internalServer) })
-	group.Go(func() error {
-		<-groupCtx.Done()
-		return shutdown(sts.server)
-	})
-	group.Go(func() error {
-		<-groupCtx.Done()
-		return shutdown(sts.internalServer)
-	})
-	return group.Wait()
-}
+	g.Go(func() error { return keyStore.Run(gctx) })
+	g.Go(func() error { return serve(server) })
+	g.Go(func() error { return serve(internalServer) })
+	g.Go(func() error {
+		<-gctx.Done()
 
-func (sts *STS) Close() error {
-	sts.clientStore.Close()
-	sts.pool.Close()
-	return nil
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+
+		return errors.Join(server.Shutdown(shutdownCtx), internalServer.Shutdown(shutdownCtx))
+	})
+
+	return g.Wait()
 }

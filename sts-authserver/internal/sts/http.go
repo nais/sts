@@ -1,7 +1,6 @@
 package sts
 
 import (
-	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -10,17 +9,6 @@ import (
 	"os"
 	"time"
 )
-
-const shutdownTimeout = 5 * time.Second
-
-func shutdown(server *http.Server) error {
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("shut down server: %w", err)
-	}
-	return nil
-}
 
 func serve(server *http.Server) error {
 	err := server.ListenAndServe()
