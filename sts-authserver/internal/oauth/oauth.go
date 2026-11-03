@@ -137,26 +137,7 @@ func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenReq
 		return nil, err
 	}
 
-	attrs := []slog.Attr{
-		slog.String("grant_type", string(result.GrantType)),
-		slog.String("client_id", result.Client.ID),
-		slog.String("target_type", result.Target.GetType()),
-		slog.String("target", result.Target.GetValue()),
-		slog.Int("role_count", len(result.Roles)),
-	}
-
-	// TODO: maybe return the attrs from the result?
-	if result.SubjectTokenClaims != nil {
-		subjectIssuer := result.SubjectTokenClaims.Issuer
-		attrs = append(attrs, slog.String("subject_token_issuer", subjectIssuer))
-
-		if idpName, ok := a.SubjectTokenIssuers[TokenIssuer(subjectIssuer)]; ok {
-			attrs = append(attrs, slog.String("idp_name", idpName))
-		}
-	}
-
-	slog.LogAttrs(ctx, slog.LevelInfo, "token issued", attrs...)
-
+	slog.LogAttrs(ctx, slog.LevelInfo, "token issued", a.logAttrs(result)...)
 	return response, nil
 }
 
@@ -214,4 +195,25 @@ func (a *AuthorizationServer) verifySTSIssuedSubjectTokenClaims(claims *AccessTo
 		return fmt.Errorf("subject token audience %q does not contain client_id %q", claims.Audience, clientID)
 	}
 	return nil
+}
+
+func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr {
+	attrs := []slog.Attr{
+		slog.String("grant_type", string(result.GrantType)),
+		slog.String("client_id", result.Client.ID),
+		slog.String("target_type", result.Target.GetType()),
+		slog.String("target", result.Target.GetValue()),
+		slog.Int("role_count", len(result.Roles)),
+	}
+
+	if result.SubjectTokenClaims != nil {
+		subjectIssuer := result.SubjectTokenClaims.Issuer
+		attrs = append(attrs, slog.String("subject_token_issuer", subjectIssuer))
+
+		if idpName, ok := a.SubjectTokenIssuers[TokenIssuer(subjectIssuer)]; ok {
+			attrs = append(attrs, slog.String("idp_name", idpName))
+		}
+	}
+
+	return attrs
 }
