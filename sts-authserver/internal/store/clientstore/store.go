@@ -30,7 +30,7 @@ type Store struct {
 	log             *slog.Logger
 }
 
-func New(ctx context.Context, pool *pgxpool.Pool, refreshInterval time.Duration, log *slog.Logger) (*Store, error) {
+func New(ctx context.Context, pool *pgxpool.Pool, refreshInterval time.Duration) (*Store, error) {
 	if refreshInterval <= 0 {
 		return nil, errors.New("snapshot refresh interval must be positive")
 	}
@@ -38,7 +38,7 @@ func New(ctx context.Context, pool *pgxpool.Pool, refreshInterval time.Duration,
 		pool:            pool,
 		queries:         sqlgen.New(pool),
 		refreshInterval: refreshInterval,
-		log:             log,
+		log:             slog.With(slog.Default(), "component", "clientstore"),
 	}
 	snapshot, err := cache.NewSnapshot(database.ReadOnlySnapshotLoader(pool, loadClientSnapshot))
 	if err != nil {
@@ -47,7 +47,7 @@ func New(ctx context.Context, pool *pgxpool.Pool, refreshInterval time.Duration,
 	store.snapshot = snapshot
 	store.listener = cache.NewPostgresListener(pool, clientCacheChannel, func(string) {
 		snapshot.Trigger()
-	}, log)
+	}, store.log)
 
 	if err := store.initialize(ctx); err != nil {
 		return nil, fmt.Errorf("initialize client store: %w", err)

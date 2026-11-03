@@ -260,7 +260,7 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 
 	t.Run("miss returns client not found", func(t *testing.T) {
 		resetClients(t, pool)
-		cached, err := clientstore.New(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		cached, err := clientstore.New(t.Context(), pool, time.Hour)
 		require.NoError(t, err)
 		defer cached.Close()
 
@@ -277,7 +277,7 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 		_, err := queries.UpsertClient(t.Context(), testClientParams("old-scope"))
 		require.NoError(t, err)
 
-		cached, err := clientstore.New(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		cached, err := clientstore.New(t.Context(), pool, time.Hour)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(t.Context())
@@ -303,7 +303,7 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 
-	clients, err := clientstore.New(t.Context(), pool, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	clients, err := clientstore.New(t.Context(), pool, time.Hour)
 	require.NoError(t, err)
 	defer clients.Close()
 	queries := sqlgen.New(pool)

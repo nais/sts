@@ -21,7 +21,7 @@ import (
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/jwk"
 	"github.com/nais/sts/internal/oauth"
-	stsserver "github.com/nais/sts/internal/server"
+	stsserver "github.com/nais/sts/internal/sts"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"

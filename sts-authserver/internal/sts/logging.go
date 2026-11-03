@@ -1,17 +1,40 @@
-package server
+package sts
 
 import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nais/sts/internal/config"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type requestMethodKey struct{}
 
-func requestLogging(next http.Handler) http.Handler {
+func setupLogger(cfg config.Config) {
+	options := &slog.HandlerOptions{
+		Level: cfg.LogLevel,
+	}
+
+	var handler slog.Handler = slog.NewTextHandler(os.Stderr, options)
+	if cfg.LogFormat == "json" {
+		handler = slog.NewJSONHandler(os.Stderr, options)
+	}
+	handler = contextHandler{handler}
+
+	slog.SetDefault(slog.New(handler))
+	slog.Info("configuration loaded",
+		"bind_address", cfg.BindAddress,
+		"internal_bind_address", cfg.InternalBindAddress,
+		"issuer", cfg.AuthorizationServerConfig.Issuer,
+		"log_level", cfg.LogLevel.String(),
+		"log_format", cfg.LogFormat,
+	)
+}
+
+func RequestLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.WithValue(r.Context(), requestMethodKey{}, r.Method)
 

@@ -1,9 +1,10 @@
-package server
+package sts
 
 import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,6 +22,7 @@ import (
 const (
 	healthEndpoint    = "/healthz"
 	readinessEndpoint = "/readyz"
+	readinessTimeout  = 2 * time.Second
 )
 
 func stsApi(
@@ -36,7 +38,7 @@ func stsApi(
 	}
 
 	router := chi.NewRouter()
-	router.Use(requestLogging)
+	router.Use(RequestLogging)
 
 	httpMetrics := otelchimetric.NewBaseConfig(
 		"nais-sts",
@@ -73,7 +75,7 @@ func stsApi(
 
 func internalApi(registry *prometheus.Registry, pool *pgxpool.Pool) http.Handler {
 	router := chi.NewRouter()
-	router.Use(requestLogging)
+	router.Use(RequestLogging)
 	router.HandleFunc(healthEndpoint, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})

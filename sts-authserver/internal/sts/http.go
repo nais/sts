@@ -1,13 +1,46 @@
-package server
+package sts
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"time"
 )
+
+const shutdownTimeout = 5 * time.Second
+
+func shutdown(server *http.Server) error {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shut down server: %w", err)
+	}
+	return nil
+}
+
+func serve(server *http.Server) error {
+	err := server.ListenAndServe()
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
+func httpServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 16, // 64KB
+	}
+}
 
 // TODO: is this only necessary for local k3d? perhaps also for service discovery or in-cluster?
 // newHTTPClient returns the client used for upstream OAuth and JWKS requests.

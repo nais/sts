@@ -1,4 +1,4 @@
-package server
+package sts
 
 import (
 	"encoding/pem"

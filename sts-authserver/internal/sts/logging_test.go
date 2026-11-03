@@ -1,4 +1,4 @@
-package server
+package sts
 
 import (
 	"bytes"
@@ -84,7 +84,7 @@ func TestRequestLogContext(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
 	router := chi.NewRouter()
-	router.Use(requestLogging)
+	router.Use(RequestLogging)
 	router.Post("/client/{id}", func(w http.ResponseWriter, r *http.Request) {
 		slog.InfoContext(r.Context(), "client registered", "client_id", "verified-client")
 		w.WriteHeader(http.StatusNoContent)
