@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nais/sts/api"
+	"github.com/nais/sts/internal/jwa"
 )
 
 type AuthorizationServerConfig struct {
@@ -40,7 +41,7 @@ func (c AuthorizationServerConfig) Validate() error {
 	if err := c.Environments.Validate(); err != nil {
 		return fmt.Errorf("environments: %w", err)
 	}
-	if err := ValidateSigningAlgorithms(c.ClientAuthSigningAlgorithms); err != nil {
+	if err := jwa.ValidateAlgorithms(c.ClientAuthSigningAlgorithms...); err != nil {
 		return fmt.Errorf("client auth signing algorithms: %w", err)
 	}
 	if c.ExpectedAudience == "" {
@@ -101,8 +102,8 @@ func (e Environments) Validate() error {
 		if err := validateSecureURL(env.Registrator.RegistratorJwksUri); err != nil {
 			return fmt.Errorf("environment %q registrator JWKS URI: %w", env.Name, err)
 		}
-		if !isSupportedSigningAlgorithm(env.Registrator.SigningAlg) {
-			return fmt.Errorf("environment %q registrator signing algorithm %q is unsupported", env.Name, env.Registrator.SigningAlg)
+		if err := jwa.ValidateAlgorithms(env.Registrator.SigningAlg); err != nil {
+			return fmt.Errorf("environment %q registrator signing algorithm %q is unsupported: %w", env.Name, env.Registrator.SigningAlg, err)
 		}
 	}
 	return nil
@@ -115,35 +116,6 @@ func (e Environments) ClientAuthIssuers() []TokenIssuer {
 		issuers[i] = env.ClientAuthIssuer
 	}
 	return issuers
-}
-
-// TODO: should this lie somewhere else?
-var supportedSigningAlgorithms = map[string]struct{}{
-	"RS256": {}, "RS384": {}, "RS512": {},
-	"PS256": {}, "PS384": {}, "PS512": {},
-	"ES256": {}, "ES384": {}, "ES512": {},
-}
-
-func ValidateSigningAlgorithms(algorithms []string) error {
-	if len(algorithms) == 0 {
-		return fmt.Errorf("must not be empty")
-	}
-	seen := make(map[string]struct{}, len(algorithms))
-	for _, algorithm := range algorithms {
-		if _, ok := supportedSigningAlgorithms[algorithm]; !ok {
-			return fmt.Errorf("unsupported signing algorithm %q", algorithm)
-		}
-		if _, ok := seen[algorithm]; ok {
-			return fmt.Errorf("duplicate signing algorithm %q", algorithm)
-		}
-		seen[algorithm] = struct{}{}
-	}
-	return nil
-}
-
-func isSupportedSigningAlgorithm(algorithm string) bool {
-	_, ok := supportedSigningAlgorithms[algorithm]
-	return ok
 }
 
 func validateSecureURL(value string) error {

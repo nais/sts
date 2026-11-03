@@ -122,7 +122,6 @@ func (e Error) LogAttrs() []slog.Attr {
 	return attrs
 }
 
-// TODO: should this be closer to WriteError? its the only consumer/user of this function
 // ToError converts any handler error into the Error that WriteError writes as the HTTP response.
 func ToError(err error) Error {
 	inner, ok := errors.AsType[Error](err)

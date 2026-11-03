@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/nais/sts/internal/jwa"
 	oauthclient "github.com/zitadel/oidc/v3/pkg/client"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -164,22 +165,11 @@ func externalTokenVerifier(ctx context.Context, httpClient *http.Client, issuer 
 
 	algorithms := allowedAlgorithms
 	if algorithms == nil {
-		algorithms = asymmetricAlgorithms(metadata.IDTokenSigningAlgValuesSupported)
+		algorithms = jwa.FilterSupportedAlgorithms(metadata.IDTokenSigningAlgValuesSupported)
 	}
 	if len(algorithms) == 0 {
 		return nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms: %v", metadata.IDTokenSigningAlgValuesSupported)
 	}
 
 	return NewTokenVerifier(issuer, rp.NewRemoteKeySet(httpClient, metadata.JwksURI), algorithms...)
-}
-
-// TODO: should this be grouped together with isSupportedSigningAlgorithm as its own type?
-func asymmetricAlgorithms(advertised []string) []string {
-	algorithms := make([]string, 0, len(advertised))
-	for _, algorithm := range advertised {
-		if isSupportedSigningAlgorithm(algorithm) {
-			algorithms = append(algorithms, algorithm)
-		}
-	}
-	return algorithms
 }
