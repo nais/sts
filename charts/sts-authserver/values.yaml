@@ -37,6 +37,9 @@ serviceAccount:
 
 podAnnotations: {}
 
+# Delay SIGTERM to allow endpoint removal to propagate.
+preStopSleepSeconds: 5
+
 podSecurityContext:
   fsGroup: 65532
   fsGroupChangePolicy: OnRootMismatch
