@@ -30,39 +30,53 @@ func httpServer(addr string, handler http.Handler) *http.Server {
 	}
 }
 
-// TODO: is this only necessary for local k3d? perhaps also for service discovery or in-cluster?
-// newHTTPClient returns the client used for upstream OAuth and JWKS requests.
-// A nonempty additionalCAFile adds its PEM certificates to the system roots;
-// verification stays enabled.
-func newHTTPClient(additionalCAFile string) (*http.Client, error) {
+type httpClientOption func(*http.Client) error
+
+// httpClient returns the client used for upstream OAuth and JWKS requests.
+func httpClient(opts ...httpClientOption) (*http.Client, error) {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
 			return fmt.Errorf("redirect to %q is not allowed", req.URL)
 		},
 	}
-	if additionalCAFile == "" {
-		return client, nil
+
+	for _, opt := range opts {
+		if err := opt(client); err != nil {
+			return nil, err
+		}
 	}
 
-	// #nosec G304 -- additionalCAFile is an operator-controlled config path, not request input.
-	caPEM, err := os.ReadFile(additionalCAFile)
-	if err != nil {
-		return nil, fmt.Errorf("read additional CA file: %w", err)
-	}
-	roots, err := x509.SystemCertPool()
-	if err != nil {
-		return nil, fmt.Errorf("load system certificate pool: %w", err)
-	}
-	if !roots.AppendCertsFromPEM(caPEM) {
-		return nil, fmt.Errorf("additional CA file %q contains no valid PEM certificates", additionalCAFile)
-	}
-
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{
-		MinVersion: tls.VersionTLS12, // TODO: why tls 1.2? why not 1.3? why hard code at all?
-		RootCAs:    roots,
-	}
-	client.Transport = transport
 	return client, nil
+}
+
+// withAdditionalCAFile adds the PEM certificates in path to the system roots;
+// verification stays enabled. It lets a host-run authserver trust the local
+// k3d CA, since macOS Go ignores SSL_CERT_FILE.
+func withAdditionalCAFile(path string) httpClientOption {
+	return func(client *http.Client) error {
+		// #nosec G304 -- path is an operator-controlled config path, not request input.
+		caPEM, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read additional CA file: %w", err)
+		}
+
+		roots, err := x509.SystemCertPool()
+		if err != nil {
+			return fmt.Errorf("load system certificate pool: %w", err)
+		}
+
+		if !roots.AppendCertsFromPEM(caPEM) {
+			return fmt.Errorf("additional CA file %q contains no valid PEM certificates", path)
+		}
+
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{
+			MinVersion: tls.VersionTLS13,
+			RootCAs:    roots,
+		}
+
+		client.Transport = transport
+		return nil
+	}
 }

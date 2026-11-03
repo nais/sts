@@ -53,16 +53,21 @@ func stsApi(
 		otelchi.WithRequestMethodInSpanName(true),
 	))
 
-	httpClient, err := newHTTPClient(cfg.AdditionalCAFile)
+	var opts []httpClientOption
+	if cfg.AdditionalCAFile != "" {
+		opts = append(opts, withAdditionalCAFile(cfg.AdditionalCAFile))
+	}
+
+	client, err := httpClient(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create upstream HTTP client: %w", err)
 	}
 
-	authServer, err := oauth.NewAuthorizationServer(ctx, httpClient, cfg.AuthorizationServerConfig, clientStore, keyStore, provider.Metrics())
+	authServer, err := oauth.NewAuthorizationServer(ctx, client, cfg.AuthorizationServerConfig, clientStore, keyStore, provider.Metrics())
 	if err != nil {
 		return nil, fmt.Errorf("initialize authorization server: %w", err)
 	}
-	registrationApi, err := registration.NewApi(ctx, httpClient, cfg.AuthorizationServerConfig, clientStore)
+	registrationApi, err := registration.NewApi(ctx, client, cfg.AuthorizationServerConfig, clientStore)
 	if err != nil {
 		return nil, fmt.Errorf("initialize client registration handler: %w", err)
 	}
