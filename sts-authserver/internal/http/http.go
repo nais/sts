@@ -10,6 +10,7 @@ import (
 	nethttp "net/http"
 	"net/url"
 	"reflect"
+	"strings"
 
 	"github.com/nais/sts/internal/errs"
 )
@@ -110,4 +111,22 @@ func ReadJSON[T any](w nethttp.ResponseWriter, r *nethttp.Request) (T, error) {
 		return obj, err
 	}
 	return obj, nil
+}
+
+func BearerToken(r *nethttp.Request) (token string, ok bool) {
+	auth := r.Header.Get("Authorization")
+	if auth == "" {
+		return "", false
+	}
+
+	const prefix = "Bearer "
+	if len(auth) < len(prefix) || !strings.EqualFold(auth[:len(prefix)], prefix) {
+		return "", false
+	}
+
+	token = auth[len(prefix):]
+	if len(token) == 0 {
+		return "", false
+	}
+	return token, true
 }

@@ -74,7 +74,6 @@ func (s *Store) Close() {
 	s.listener.Close()
 }
 
-// TODO: add integration/performance test for non existing clients, check that nothing locks up
 func (s *Store) Get(_ context.Context, claims *oauth.AccessTokenClaims) (*oauth.Client, error) {
 	// TODO: should we move the KubernetesClaims type here, i.e. to the store package?
 	workload, err := claims.Kubernetes()
@@ -87,17 +86,16 @@ func (s *Store) Get(_ context.Context, claims *oauth.AccessTokenClaims) (*oauth.
 	if !ok {
 		return nil, errors.New("client cache is not initialized")
 	}
+
 	row, ok := snapshot.clients[key]
 	if !ok {
-		// TODO: do we need this, or can we just wait a minute
-		s.snapshot.Trigger()
 		return nil, fmt.Errorf("%w: %s", oauth.ErrClientNotFound, key)
 	}
+
 	row.AllowedScopes = slices.Clone(row.AllowedScopes)
 	return toClient(row), nil
 }
 
-// TODO: add integration/performance test for non existing clients, check that nothing locks up
 func (s *Store) AuthorizeTarget(_ context.Context, consumer oauth.ClientID, target oauth.Target) (oauth.Roles, error) {
 	snapshot, ok := s.snapshot.Current()
 	if !ok {
@@ -106,8 +104,6 @@ func (s *Store) AuthorizeTarget(_ context.Context, consumer oauth.ClientID, targ
 	key := policyKey{owner: target.GetValue(), consumer: string(consumer)}
 	roles, ok := snapshot.policies[key]
 	if !ok {
-		// TODO: do we need this, or can we just wait a minute
-		s.snapshot.Trigger()
 		return nil, fmt.Errorf("%w: %s", oauth.ErrTargetUnauthorized, key)
 	}
 	return slices.Clone(roles), nil

@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"strings"
+	nethttp "net/http"
 	"time"
 
+	"github.com/nais/sts/internal/http"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -34,7 +34,7 @@ type Registrator struct {
 	KeySet       oidc.KeySet
 }
 
-func NewRegistrators(ctx context.Context, httpClient *http.Client, authServerCfg oauth.AuthorizationServerConfig) (*Registrators, error) {
+func NewRegistrators(ctx context.Context, httpClient *nethttp.Client, authServerCfg oauth.AuthorizationServerConfig) (*Registrators, error) {
 	environments := authServerCfg.Environments
 	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, environments.ClientAuthIssuers(), authServerCfg.ClientAuthSigningAlgorithms)
 	if err != nil {
@@ -62,8 +62,8 @@ func NewRegistrators(ctx context.Context, httpClient *http.Client, authServerCfg
 	}, nil
 }
 
-func (r *Registrators) Authenticate(request *http.Request) (*Registrator, error) {
-	token, ok := bearerToken(request)
+func (r *Registrators) Authenticate(request *nethttp.Request) (*Registrator, error) {
+	token, ok := http.BearerToken(request)
 	if !ok {
 		return nil, errors.New("missing bearer token")
 	}
@@ -75,12 +75,7 @@ func (r *Registrators) Authenticate(request *http.Request) (*Registrator, error)
 		return nil, err
 	}
 
-	// TODO: create a func for this? or not?
-	registrator := r.byIdentity[registratorIdentity{issuer: claims.Issuer, subject: claims.Subject}]
-	if registrator == nil {
-		return nil, fmt.Errorf("could not find registrator for issuer %q and subject %q", claims.Issuer, claims.Subject)
-	}
-	return registrator, nil
+	return r.getRegistrator(claims.Issuer, claims.Subject)
 }
 
 func (r *Registrator) VerifySoftwareStatement(ctx context.Context, softwareStatementString string) (*SoftwareStatement, error) {
@@ -98,21 +93,10 @@ func (r *Registrator) VerifySoftwareStatement(ctx context.Context, softwareState
 	return ss, nil
 }
 
-// TODO: this is maybe generic enough to be in the http package
-func bearerToken(r *http.Request) (token string, ok bool) {
-	auth := r.Header.Get("Authorization")
-	if auth == "" {
-		return "", false
+func (r *Registrators) getRegistrator(issuer, subject string) (*Registrator, error) {
+	registrator := r.byIdentity[registratorIdentity{issuer: issuer, subject: subject}]
+	if registrator == nil {
+		return nil, fmt.Errorf("could not find registrator for issuer %q and subject %q", issuer, subject)
 	}
-
-	const prefix = "Bearer "
-	if len(auth) < len(prefix) || !strings.EqualFold(auth[:len(prefix)], prefix) {
-		return "", false
-	}
-
-	token = auth[len(prefix):]
-	if len(token) == 0 {
-		return "", false
-	}
-	return token, true
+	return registrator, nil
 }

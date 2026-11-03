@@ -14,6 +14,7 @@ import (
 )
 
 func (s *Store) Save(ctx context.Context, client *oauth.Client, policies []oauth.AuthorizationPolicy, authoritativeIssuer string) error {
+	// TODO: should we allow "takeovers" (e.g. move a client from one issuer to another)
 	if client.Issuer != authoritativeIssuer {
 		return errRegistrationUnauthorized(client.ID, client.Issuer, authoritativeIssuer)
 	}
@@ -84,7 +85,6 @@ func (s *Store) Delete(ctx context.Context, clientID oauth.ClientID, authoritati
 			return fmt.Errorf("get client: %w", err)
 		}
 
-		// TODO: we now allow "takeovers" in Save - do we still need this check here?
 		if client.Issuer != authoritativeIssuer {
 			return errRegistrationUnauthorized(string(clientID), client.Issuer, authoritativeIssuer)
 		}
