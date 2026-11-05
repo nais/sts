@@ -13,7 +13,7 @@ import (
 )
 
 type TokenVerifier struct {
-	verifiers map[string]*verifier
+	verifiers map[string]verifier
 }
 
 type verifier struct {
@@ -23,67 +23,68 @@ type verifier struct {
 	claimsVerifier func(claims *oidc.AccessTokenClaims) error
 }
 
-// TODO: rename
-type issuerVerifier struct {
-	issuer         string
-	keySetFn       func(ctx context.Context, issuer string, client *http.Client) (oidc.KeySet, error)
-	requiredAlgs   []string
+type tokenVerifierConfig struct {
+	issuers        []verifier
+	httpClient     *http.Client
 	claimsVerifier func(claims *oidc.AccessTokenClaims) error
 }
 
-type verifierConfig struct {
-	issuers []issuerVerifier
-}
+type TokenVerifierOption func(*tokenVerifierConfig)
 
-func RemoteIssuer(issuer string) issuerVerifier {
-	return issuerVerifier{
-		issuer:   issuer,
-		keySetFn: discoverRemoteKeySet,
+func WithHttpClient(client *http.Client) TokenVerifierOption {
+	return func(cfg *tokenVerifierConfig) {
+		cfg.httpClient = client
 	}
 }
 
-func InternalIssuer(issuer string, keyset oidc.KeySet, requiredAlg string) issuerVerifier {
-	return issuerVerifier{
-		issuer:       issuer,
-		keySetFn:     func(_ context.Context, _ string, _ *http.Client) (oidc.KeySet, error) { return keyset, nil },
-		requiredAlgs: []string{requiredAlg},
+func WithIssuer(issuer string) TokenVerifierOption {
+	return func(cfg *tokenVerifierConfig) {
+		cfg.issuers = append(cfg.issuers, verifier{
+			issuer: issuer,
+		})
 	}
 }
 
-func (vc *verifierConfig) Add(v issuerVerifier) *verifierConfig {
-	vc.issuers = append(vc.issuers, v)
-	return vc
-}
-
-func Issuers(issuers ...string) *verifierConfig {
-	ivs := make([]issuerVerifier, 0)
-	for _, issuer := range issuers {
-		ivs = append(ivs, RemoteIssuer(issuer))
+func WithIssuerAndKeySet(issuer string, keySet oidc.KeySet, requiredAlgs ...string) TokenVerifierOption {
+	return func(cfg *tokenVerifierConfig) {
+		cfg.issuers = append(cfg.issuers, verifier{
+			issuer:       issuer,
+			keyset:       keySet,
+			requiredAlgs: requiredAlgs,
+		})
 	}
-	return &verifierConfig{issuers: ivs}
-}
-func yo(ctx context.Context) {
-	_, _ = NewTokenVerifier(ctx, Issuers("", "").Add(InternalIssuer("ss", nil, "")), http.Client{})
 }
 
-// TODO: maybe variadic verifierConfig? then merge all verifiers?
-func NewTokenVerifier(ctx context.Context, config *verifierConfig, client http.Client) (*TokenVerifier, error) {
-	if len(config.issuers) == 0 {
+func WithClaimsVerifier(claimsVerifier func(claims *oidc.AccessTokenClaims) error) TokenVerifierOption {
+	return func(cfg *tokenVerifierConfig) {
+		cfg.claimsVerifier = claimsVerifier
+	}
+}
+
+func NewTokenVerifier(ctx context.Context, opts ...TokenVerifierOption) (*TokenVerifier, error) {
+	cfg := &tokenVerifierConfig{
+		issuers:    []verifier{},
+		httpClient: http.DefaultClient,
+	}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	if len(cfg.issuers) == 0 {
 		return nil, fmt.Errorf("no issuers configured")
 	}
 
-	verifiers := make(map[string]*verifier)
-	for _, issuer := range config.issuers {
-		keyset, err := issuer.keySetFn(ctx, issuer.issuer, &client)
-		if err != nil {
-			return nil, fmt.Errorf("resolving key set for issuer %q: %w", issuer.issuer, err)
+	verifiers := make(map[string]verifier)
+	for _, issuer := range cfg.issuers {
+		if issuer.keyset == nil {
+			var err error
+			issuer.keyset, issuer.requiredAlgs, err = discoverRemoteKeySet(ctx, issuer.issuer, cfg.httpClient)
+			if err != nil {
+				return nil, fmt.Errorf("resolving key set for issuer %q: %w", issuer.issuer, err)
+			}
 		}
-		verifiers[issuer.issuer] = &verifier{
-			issuer:         issuer.issuer,
-			requiredAlgs:   issuer.requiredAlgs,
-			keyset:         keyset,
-			claimsVerifier: issuer.claimsVerifier,
-		}
+
+		issuer.claimsVerifier = cfg.claimsVerifier
+		verifiers[issuer.issuer] = issuer
 	}
 
 	return &TokenVerifier{
@@ -91,7 +92,7 @@ func NewTokenVerifier(ctx context.Context, config *verifierConfig, client http.C
 	}, nil
 }
 
-func (m *TokenVerifier) Verify(ctx context.Context, rawToken string) (*oidc.AccessTokenClaims, error) {
+func (m TokenVerifier) Verify(ctx context.Context, rawToken string) (*oidc.AccessTokenClaims, error) {
 	claims := new(oidc.AccessTokenClaims)
 	payload, err := oidc.ParseToken(rawToken, claims)
 	if err != nil {
@@ -111,7 +112,7 @@ func (m *TokenVerifier) Verify(ctx context.Context, rawToken string) (*oidc.Acce
 	return verifiedClaims, nil
 }
 
-func (v *verifier) Verify(ctx context.Context, rawToken string, payload []byte, claims *oidc.AccessTokenClaims) (*oidc.AccessTokenClaims, error) {
+func (v verifier) Verify(ctx context.Context, rawToken string, payload []byte, claims *oidc.AccessTokenClaims) (*oidc.AccessTokenClaims, error) {
 	const SkewTime = time.Minute
 
 	if claims.Issuer != v.issuer {
@@ -145,20 +146,20 @@ func (v *verifier) Verify(ctx context.Context, rawToken string, payload []byte, 
 	return claims, nil
 }
 
-func discoverRemoteKeySet(ctx context.Context, issuer string, client *http.Client) (oidc.KeySet, error) {
+func discoverRemoteKeySet(ctx context.Context, issuer string, client *http.Client) (oidc.KeySet, []string, error) {
 	metadata, err := oauthclient.Discover(ctx, issuer, client)
 	if err != nil {
-		return nil, fmt.Errorf("discover metadata from issuer %q: %w", issuer, err)
+		return nil, nil, fmt.Errorf("discover metadata from issuer %q: %w", issuer, err)
 	}
 
 	if metadata.Issuer != issuer {
-		return nil, fmt.Errorf("configured issuer does not match issuer in discovery document: got %q, want %q", metadata.Issuer, issuer)
+		return nil, nil, fmt.Errorf("configured issuer does not match issuer in discovery document: got %q, want %q", metadata.Issuer, issuer)
 	}
 
 	algorithms := jwa.FilterSupportedAlgorithms(metadata.IDTokenSigningAlgValuesSupported)
 	if len(algorithms) == 0 {
-		return nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms: %v", metadata.IDTokenSigningAlgValuesSupported)
+		return nil, nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms: %v", metadata.IDTokenSigningAlgValuesSupported)
 	}
 
-	return rp.NewRemoteKeySet(client, metadata.JwksURI), nil
+	return rp.NewRemoteKeySet(client, metadata.JwksURI), algorithms, nil
 }

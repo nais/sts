@@ -6,16 +6,27 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/nais/sts/internal/oauth/jwt"
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, issuers []TokenIssuer) (MultiIssuerTokenVerifier, error) {
-	clientAuthVerifiers, err := ExternalTokenVerifiers(ctx, httpClient, issuers...)
-	if err != nil {
-		return nil, fmt.Errorf("resolving client auth verifiers: %w", err)
+func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, issuers []TokenIssuer) (*jwt.TokenVerifier, error) {
+	opts := []jwt.TokenVerifierOption{
+		jwt.WithClaimsVerifier(func(claims *oidc.AccessTokenClaims) error {
+			return nil // TODO: fix
+		}),
+		jwt.WithHttpClient(httpClient),
 	}
-	return NewMultiIssuerTokenVerifier(clientAuthVerifiers...)
+
+	for _, issuer := range issuers {
+		opts = append(opts, jwt.WithIssuer(string(issuer)))
+	}
+
+	return jwt.NewTokenVerifier(ctx, opts...)
 }
 
+// TODO: lowercase or inline
 func ValidateClientAuthClaims(claims *AccessTokenClaims, expectedAudience string, maxLifetime time.Duration) error {
 	if len(claims.Audience) != 1 || claims.Audience[0] != expectedAudience {
 		return fmt.Errorf("audience %q is invalid, expected %q", claims.Audience, expectedAudience)
