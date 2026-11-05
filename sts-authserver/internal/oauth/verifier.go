@@ -14,57 +14,15 @@ import (
 
 // TODO: should we restructure or split this file somehow?
 
+type MultiIssuerTokenVerifier map[TokenIssuer]*TokenVerifier
+
 type TokenVerifier struct {
 	issuer       TokenIssuer
 	keyset       oidc.KeySet
 	requiredAlgs []string
 }
 
-func NewTokenVerifier(issuer TokenIssuer, keyset oidc.KeySet, requiredAlgs ...string) (*TokenVerifier, error) {
-	if issuer == "" {
-		return nil, fmt.Errorf("issuer must not be empty")
-	}
-	if keyset == nil {
-		return nil, fmt.Errorf("key set must not be nil")
-	}
-	if len(requiredAlgs) == 0 {
-		return nil, fmt.Errorf("required algorithms must not be empty")
-	}
-	return &TokenVerifier{
-		issuer:       issuer,
-		keyset:       keyset,
-		requiredAlgs: requiredAlgs,
-	}, nil
-}
-
-func (i *TokenVerifier) Verify(ctx context.Context, rawToken string, payload []byte, claims *AccessTokenClaims) (*AccessTokenClaims, error) {
-	const SkewTime = time.Minute
-
-	if claims.Issuer != string(i.issuer) {
-		return nil, oidc.ErrIssuerInvalid
-	}
-	if err := oidc.CheckSignature(ctx, rawToken, payload, claims, i.requiredAlgs, i.keyset); err != nil {
-		return nil, err
-	}
-	if err := oidc.CheckExpiration(claims, SkewTime); err != nil {
-		return nil, err
-	}
-	if err := oidc.CheckIssuedAt(claims, 0, SkewTime); err != nil {
-		return nil, err
-	}
-	if err := oidc.CheckSubject(claims); err != nil {
-		return nil, err
-	}
-	if !claims.NotBefore.AsTime().IsZero() {
-		nowWithOffset := time.Now().Add(SkewTime).Round(time.Second)
-		if claims.NotBefore.AsTime().After(nowWithOffset) {
-			return nil, fmt.Errorf("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
-		}
-	}
-	return claims, nil
-}
-
-type MultiIssuerTokenVerifier map[TokenIssuer]*TokenVerifier
+type VerifyFn func(claims *AccessTokenClaims) error
 
 func NewMultiIssuerTokenVerifier(verifiers ...*TokenVerifier) (MultiIssuerTokenVerifier, error) {
 	if len(verifiers) == 0 {
@@ -87,8 +45,6 @@ func (v MultiIssuerTokenVerifier) Add(i *TokenVerifier) error {
 	v[i.issuer] = i
 	return nil
 }
-
-type VerifyFn func(claims *AccessTokenClaims) error
 
 func (v MultiIssuerTokenVerifier) Verify(ctx context.Context, rawToken string, fns ...VerifyFn) (*AccessTokenClaims, error) {
 	claims := new(AccessTokenClaims)
@@ -147,6 +103,50 @@ func ExternalTokenVerifiers(ctx context.Context, httpClient *http.Client, issuer
 		result = append(result, ti)
 	}
 	return result, nil
+}
+
+func NewTokenVerifier(issuer TokenIssuer, keyset oidc.KeySet, requiredAlgs ...string) (*TokenVerifier, error) {
+	if issuer == "" {
+		return nil, fmt.Errorf("issuer must not be empty")
+	}
+	if keyset == nil {
+		return nil, fmt.Errorf("key set must not be nil")
+	}
+	if len(requiredAlgs) == 0 {
+		return nil, fmt.Errorf("required algorithms must not be empty")
+	}
+	return &TokenVerifier{
+		issuer:       issuer,
+		keyset:       keyset,
+		requiredAlgs: requiredAlgs,
+	}, nil
+}
+
+func (i *TokenVerifier) Verify(ctx context.Context, rawToken string, payload []byte, claims *AccessTokenClaims) (*AccessTokenClaims, error) {
+	const SkewTime = time.Minute
+
+	if claims.Issuer != string(i.issuer) {
+		return nil, oidc.ErrIssuerInvalid
+	}
+	if err := oidc.CheckSignature(ctx, rawToken, payload, claims, i.requiredAlgs, i.keyset); err != nil {
+		return nil, err
+	}
+	if err := oidc.CheckExpiration(claims, SkewTime); err != nil {
+		return nil, err
+	}
+	if err := oidc.CheckIssuedAt(claims, 0, SkewTime); err != nil {
+		return nil, err
+	}
+	if err := oidc.CheckSubject(claims); err != nil {
+		return nil, err
+	}
+	if !claims.NotBefore.AsTime().IsZero() {
+		nowWithOffset := time.Now().Add(SkewTime).Round(time.Second)
+		if claims.NotBefore.AsTime().After(nowWithOffset) {
+			return nil, fmt.Errorf("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
+		}
+	}
+	return claims, nil
 }
 
 func ExternalTokenVerifier(ctx context.Context, httpClient *http.Client, issuer TokenIssuer) (*TokenVerifier, error) {
