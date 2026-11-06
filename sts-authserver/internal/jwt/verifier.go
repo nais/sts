@@ -63,8 +63,14 @@ func WithClaimsVerifier(claimsVerifier func(claims *AccessTokenClaims) error) To
 
 func NewTokenVerifier(ctx context.Context, opts ...TokenVerifierOption) (*TokenVerifier, error) {
 	cfg := &tokenVerifierConfig{
-		issuers:    []verifier{},
-		httpClient: http.DefaultClient,
+		issuers: []verifier{},
+		// TODO: consider extracting sts.httpClient
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+			CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+				return fmt.Errorf("redirect to %q is not allowed", req.URL)
+			},
+		},
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -94,7 +100,7 @@ func NewTokenVerifier(ctx context.Context, opts ...TokenVerifierOption) (*TokenV
 
 type VerifyFn func(claims *AccessTokenClaims) error
 
-func (m TokenVerifier) Verify(ctx context.Context, rawToken string, verifyFn ...VerifyFn) (*AccessTokenClaims, error) {
+func (m *TokenVerifier) Verify(ctx context.Context, rawToken string, verifyFn ...VerifyFn) (*AccessTokenClaims, error) {
 	claims := new(AccessTokenClaims)
 	payload, err := oidc.ParseToken(rawToken, claims)
 	if err != nil {
