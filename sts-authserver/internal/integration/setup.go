@@ -20,6 +20,7 @@ import (
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/jwk"
+	"github.com/nais/sts/internal/jwt"
 	"github.com/nais/sts/internal/oauth"
 	stsserver "github.com/nais/sts/internal/sts"
 	"github.com/testcontainers/testcontainers-go"
@@ -155,7 +156,7 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 			Environments: oauth.Environments{
 				{
 					Name:             "env1",
-					ClientAuthIssuer: oauth.TokenIssuer(oauthServer.Endpoint("env1")),
+					ClientAuthIssuer: jwt.Issuer(oauthServer.Endpoint("env1")),
 					Registrator: oauth.RegistratorConfig{
 						Subject:            "system:serviceaccount:namespace1:registrator1",
 						RegistratorJwksUri: registratorServer.URL,
@@ -164,7 +165,7 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 				},
 				{
 					Name:             "env2",
-					ClientAuthIssuer: oauth.TokenIssuer(oauthServer.Endpoint("env2")),
+					ClientAuthIssuer: jwt.Issuer(oauthServer.Endpoint("env2")),
 					Registrator: oauth.RegistratorConfig{
 						Subject:            "system:serviceaccount:namespace1:registrator2",
 						RegistratorJwksUri: registratorServer.URL,
@@ -172,9 +173,9 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 					},
 				},
 			},
-			SubjectTokenIssuers: map[oauth.TokenIssuer]string{
-				oauth.TokenIssuer(oauthServer.Endpoint("subject1")): "name1",
-				oauth.TokenIssuer(oauthServer.Endpoint("subject2")): "name2",
+			SubjectTokenIssuers: map[jwt.Issuer]string{
+				jwt.Issuer(oauthServer.Endpoint("subject1")): "name1",
+				jwt.Issuer(oauthServer.Endpoint("subject2")): "name2",
 			},
 			TokenExpiry: fixtures.TokenExpiry,
 		},

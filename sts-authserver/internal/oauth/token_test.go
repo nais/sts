@@ -7,6 +7,7 @@ import (
 
 	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/jwk"
+	"github.com/nais/sts/internal/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -14,7 +15,7 @@ import (
 
 func TestAccessTokenClaimsUnmarshal(t *testing.T) {
 	data := []byte(`{"iss":"issuer","sub":"subject","aud":["audience"],"custom":{"number":9007199254740993,"items":[1,true]}}`)
-	claims := new(AccessTokenClaims)
+	claims := new(jwt.AccessTokenClaims)
 
 	require.NoError(t, json.Unmarshal(data, claims))
 	assert.Equal(t, "issuer", claims.Issuer)
@@ -35,7 +36,7 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 	result := &AuthorizationResult{
 		Target:    TargetAudience("audience"),
 		GrantType: oidc.GrantTypeTokenExchange,
-		SubjectTokenClaims: &AccessTokenClaims{
+		SubjectTokenClaims: &jwt.AccessTokenClaims{
 			Issuer: "sts-issuer", Subject: "source-subject",
 			Claims: source,
 		},
@@ -67,24 +68,24 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 
 func TestCreateAccessTokenIssuerRoles(t *testing.T) {
 	const stsIssuer api.STSIssuer = "https://sts.example"
-	const externalIssuer TokenIssuer = "https://idp.example"
+	const externalIssuer jwt.Issuer = "https://idp.example"
 
 	for _, test := range []struct {
 		name          string
-		subjectIssuer TokenIssuer
+		subjectIssuer jwt.Issuer
 		wantActor     bool
 		wantIDP       string
 		wantIDPName   string
 	}{
-		{name: "STS", subjectIssuer: TokenIssuer(stsIssuer), wantActor: true},
+		{name: "STS", subjectIssuer: jwt.Issuer(stsIssuer), wantActor: true},
 		{name: "external", subjectIssuer: externalIssuer, wantIDP: string(externalIssuer), wantIDPName: "idp"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			claims, err := CreateAccessToken(stsIssuer, map[TokenIssuer]string{externalIssuer: "idp"}, time.Hour, &AuthorizationResult{
+			claims, err := CreateAccessToken(stsIssuer, map[jwt.Issuer]string{externalIssuer: "idp"}, time.Hour, &AuthorizationResult{
 				Target:    TargetAudience("audience"),
 				GrantType: oidc.GrantTypeTokenExchange,
 				Client:    &Client{ID: "client"},
-				SubjectTokenClaims: &AccessTokenClaims{
+				SubjectTokenClaims: &jwt.AccessTokenClaims{
 					Issuer:  string(test.subjectIssuer),
 					Subject: "subject",
 					Claims: map[string]json.RawMessage{
@@ -117,7 +118,7 @@ func TestAccessTokenClaimsKubernetes(t *testing.T) {
 		"empty fields": {claims: map[string]json.RawMessage{"kubernetes.io": json.RawMessage(`{"namespace":"ns"}`)}, want: "kubernetes.io claim has no namespace or service account name"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := (&AccessTokenClaims{Claims: test.claims}).Kubernetes()
+			_, err := (&jwt.AccessTokenClaims{Claims: test.claims}).Kubernetes()
 			assert.ErrorContains(t, err, test.want)
 			if name == "malformed" {
 				assert.ErrorContains(t, err, "cannot unmarshal string")

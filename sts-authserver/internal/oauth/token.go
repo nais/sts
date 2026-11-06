@@ -2,14 +2,13 @@ package oauth
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"maps"
 	"time"
 	"uuid"
 
 	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/jwk"
+	"github.com/nais/sts/internal/jwt"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
@@ -45,7 +44,7 @@ func (s *STSTokenClaims) Sign(signer *jwk.Signer) (string, error) {
 	return signer.SignJWT(s.Claims)
 }
 
-func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[TokenIssuer]string, expiresIn time.Duration, result *AuthorizationResult) (*STSTokenClaims, error) {
+func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[jwt.Issuer]string, expiresIn time.Duration, result *AuthorizationResult) (*STSTokenClaims, error) {
 	subject := result.Client.ID
 	var subjectTokenClaims map[string]json.RawMessage
 
@@ -77,13 +76,13 @@ func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[TokenIssuer
 	}
 
 	if result.GrantType == oidc.GrantTypeTokenExchange {
-		subjectIssuer := TokenIssuer(result.SubjectTokenClaims.Issuer)
+		subjectIssuer := jwt.Issuer(result.SubjectTokenClaims.Issuer)
 		stsTokenClaims.Actor = &ActorClaims{
 			ClientID: result.Client.ID,
 		}
 
 		// ignore existing `act` claim for externally issued subject tokens
-		if subjectIssuer == TokenIssuer(issuer) {
+		if subjectIssuer == jwt.Issuer(issuer) {
 			if raw, ok := subjectTokenClaims["act"]; ok {
 				// preserve the chain of `act` claims
 				stsTokenClaims.Actor.Actor = raw
@@ -122,44 +121,4 @@ func mergeClaims(base map[string]json.RawMessage, authoritative any) (map[string
 		return nil, err
 	}
 	return claims, nil
-}
-
-var _ json.Unmarshaler = (*AccessTokenClaims)(nil)
-
-type AccessTokenClaims struct {
-	oidc.TokenClaims
-	Claims map[string]json.RawMessage `json:"-"`
-}
-
-func (a *AccessTokenClaims) UnmarshalJSON(data []byte) error {
-	// Use a distinct type without UnmarshalJSON to avoid recursive unmarshalling.
-	type tokenClaims oidc.TokenClaims
-	if err := json.Unmarshal(data, (*tokenClaims)(&a.TokenClaims)); err != nil {
-		return err
-	}
-	return json.Unmarshal(data, &a.Claims)
-}
-
-type KubernetesClaims struct {
-	Namespace      string `json:"namespace"`
-	ServiceAccount struct {
-		Name string `json:"name"`
-	} `json:"serviceaccount"`
-}
-
-func (a *AccessTokenClaims) Kubernetes() (*KubernetesClaims, error) {
-	raw, ok := a.Claims["kubernetes.io"]
-	if !ok {
-		return nil, errors.New("kubernetes.io claim is missing")
-	}
-
-	var kubernetes KubernetesClaims
-	if err := json.Unmarshal(raw, &kubernetes); err != nil {
-		return nil, fmt.Errorf("kubernetes.io claim is malformed: %w", err)
-	}
-
-	if kubernetes.Namespace == "" || kubernetes.ServiceAccount.Name == "" {
-		return nil, errors.New("kubernetes.io claim has no namespace or service account name")
-	}
-	return &kubernetes, nil
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
+	"github.com/nais/sts/internal/jwt"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/store/clientstore"
 	"github.com/nais/sts/internal/store/keystore"
@@ -535,8 +536,8 @@ func testClientParams(scopes ...string) sqlgen.UpsertClientParams {
 	}
 }
 
-func testClientClaims() *oauth.AccessTokenClaims {
-	return &oauth.AccessTokenClaims{
+func testClientClaims() *jwt.AccessTokenClaims {
+	return &jwt.AccessTokenClaims{
 		TokenClaims: oidc.TokenClaims{Issuer: "https://issuer.example"},
 		Claims: map[string]json.RawMessage{
 			"kubernetes.io": json.RawMessage(`{"namespace":"namespace","serviceaccount":{"name":"workload"}}`),
