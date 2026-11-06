@@ -10,31 +10,38 @@ import (
 	"slices"
 
 	"github.com/nais/sts/internal/errs"
+	"github.com/nais/sts/internal/jwt"
 	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
 type AuthorizationServer struct {
-	ClientAuthVerifier    MultiIssuerTokenVerifier
+	ClientAuthVerifier    *jwt.TokenVerifier
 	ClientStore           ClientStore
 	KeyStore              KeyStore
-	TokenExchangeVerifier MultiIssuerTokenVerifier
+	TokenExchangeVerifier *jwt.TokenVerifier
 	Metrics               *stsmetrics.Metrics
 	AuthorizationServerConfig
 }
 
 func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore, metrics *stsmetrics.Metrics) (*AuthorizationServer, error) {
-	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx, httpClient, cfg.Environments.ClientAuthIssuers())
+	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx, httpClient, cfg.Environments.ClientAuthIssuers(), cfg.ExpectedAudience, cfg.MaxClientAuthTokenLifetime)
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}
 
-	var tokenExchangeVerifier MultiIssuerTokenVerifier
-	if len(cfg.SubjectTokenIssuers) > 0 {
-		tokenExchangeVerifier, err = NewTokenExchangeTokenVerifier(ctx, httpClient, cfg, keyStore)
-		if err != nil {
-			return nil, fmt.Errorf("creating token exchange verifier: %w", err)
-		}
+	opts := []jwt.TokenVerifierOption{
+		jwt.WithHttpClient(httpClient),
+		jwt.WithIssuerAndKeySet(string(cfg.Issuer), keyStore, string(InternalSigningAlgorithm)),
+	}
+
+	for _, issuer := range cfg.SubjectTokenIssuers.Issuers() {
+		opts = append(opts, jwt.WithIssuer(string(issuer)))
+	}
+
+	tokenExchangeVerifier, err := jwt.NewTokenVerifier(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("creating token exchange verifier: %w", err)
 	}
 
 	return &AuthorizationServer{
@@ -50,7 +57,7 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 type AuthorizationResult struct {
 	Target             Target
 	GrantType          oidc.GrantType
-	SubjectTokenClaims *AccessTokenClaims
+	SubjectTokenClaims *jwt.AccessTokenClaims
 	Client             *Client
 	Roles              Roles
 }
@@ -61,10 +68,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	}
 
 	finishStep := a.Metrics.StartTokenStep(ctx, "verify_client_assertion")
-	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion, func(claims *AccessTokenClaims) error {
-		// TODO: revisit this func, can it be moved to verifier? look at the whole client verifier stuff
-		return ValidateClientAuthClaims(claims, a.ExpectedAudience, a.MaxClientAuthTokenLifetime)
-	})
+	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion)
 	finishStep(err)
 	if err != nil {
 		return nil, errs.InvalidClient(err, "client assertion is invalid")
@@ -85,7 +89,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		return nil, err
 	}
 
-	var claims *AccessTokenClaims
+	var claims *jwt.AccessTokenClaims
 	// TODO: move verify subject token to a func on request, by passing in verifier? noop on client credentials, verify on token exchange
 	if request.GrantType() == oidc.GrantTypeTokenExchange {
 		te, ok := request.(*TokenExchangeRequest)
@@ -93,8 +97,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 			return nil, fmt.Errorf("request is %T, want *TokenExchangeRequest", request)
 		}
 		finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
-		claims, err = a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken, func(claims *AccessTokenClaims) error {
-			// TODO: revisit this func, can it be moved to verifier? look at the whole internal verifier stuff
+		claims, err = a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken, func(claims *jwt.AccessTokenClaims) error {
 			return a.verifySTSIssuedSubjectTokenClaims(claims, client.ID)
 		})
 		finishStep(err)
@@ -172,7 +175,7 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 	return ret, nil
 }
 
-func (a *AuthorizationServer) verifySTSIssuedSubjectTokenClaims(claims *AccessTokenClaims, clientID string) error {
+func (a *AuthorizationServer) verifySTSIssuedSubjectTokenClaims(claims *jwt.AccessTokenClaims, clientID string) error {
 	if claims.Issuer != string(a.Issuer) {
 		return nil
 	}

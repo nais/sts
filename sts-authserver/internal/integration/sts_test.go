@@ -18,6 +18,7 @@ import (
 	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/ioconvenience"
+	"github.com/nais/sts/internal/jwt"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/registration"
 	"github.com/stretchr/testify/assert"
@@ -620,7 +621,7 @@ func assertTokenExchangeClaims(
 	t *testing.T,
 	stsConfig testServerConfig,
 	response *oauth.AccessTokenResponse,
-	subjectClaims *oauth.AccessTokenClaims,
+	subjectClaims *jwt.AccessTokenClaims,
 	targetID, consumerID string,
 ) {
 	t.Helper()
@@ -664,7 +665,7 @@ func assertTokenClaims(
 	targetID, consumerID string,
 	fn claimAssertions,
 	roles ...oauth.Roles,
-) *oauth.AccessTokenClaims {
+) *jwt.AccessTokenClaims {
 	t.Helper()
 	require.NotEmpty(t, response.AccessToken)
 
@@ -672,14 +673,11 @@ func assertTokenClaims(
 	assert.GreaterOrEqual(t, response.ExpiresIn, wantExpiresIn-10)
 	assert.LessOrEqual(t, response.ExpiresIn, wantExpiresIn)
 
-	tokenVerifier, err := oauth.NewTokenVerifier(
-		oauth.TokenIssuer(sts.Endpoint()),
+	verifier, err := jwt.NewTokenVerifier(t.Context(), jwt.WithIssuerAndKeySet(
+		sts.Endpoint(),
 		rp.NewRemoteKeySet(http.DefaultClient, sts.Endpoint("jwks")),
 		string(oauth.InternalSigningAlgorithm),
-	)
-	require.NoError(t, err)
-
-	verifier, err := oauth.NewMultiIssuerTokenVerifier(tokenVerifier)
+	))
 	require.NoError(t, err)
 	rawClaims, err := verifier.Verify(t.Context(), response.AccessToken)
 	require.NoError(t, err)
@@ -761,7 +759,7 @@ func getClientToken(t testing.TB, oauthServer testServer, client clientFixture) 
 	return getKubernetesToken(t, oauthServer, client.Environment, client.Namespace, client.Name)
 }
 
-func getSubjectTokenFromIssuer(t testing.TB, oauthServer testServer, issuer string) (string, *oauth.AccessTokenClaims) {
+func getSubjectTokenFromIssuer(t testing.TB, oauthServer testServer, issuer string) (string, *jwt.AccessTokenClaims) {
 	t.Helper()
 
 	redirectURI := "https://unused.example/callback"
@@ -799,10 +797,7 @@ func getSubjectTokenFromIssuer(t testing.TB, oauthServer testServer, issuer stri
 		"redirect_uri":  {redirectURI},
 	})
 
-	subjectTokenVerifier, err := oauth.ExternalTokenVerifier(t.Context(), http.DefaultClient, oauth.TokenIssuer(oauthServer.Endpoint(issuer)))
-	require.NoError(t, err)
-
-	verifier, err := oauth.NewMultiIssuerTokenVerifier(subjectTokenVerifier)
+	verifier, err := jwt.NewTokenVerifier(t.Context(), jwt.WithIssuer(oauthServer.Endpoint(issuer)))
 	require.NoError(t, err)
 
 	claims, err := verifier.Verify(t.Context(), token.AccessToken)

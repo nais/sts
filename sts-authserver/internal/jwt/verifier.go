@@ -20,13 +20,13 @@ type verifier struct {
 	issuer         string
 	keyset         oidc.KeySet
 	requiredAlgs   []string
-	claimsVerifier func(claims *oidc.AccessTokenClaims) error
+	claimsVerifier func(claims *AccessTokenClaims) error
 }
 
 type tokenVerifierConfig struct {
 	issuers        []verifier
 	httpClient     *http.Client
-	claimsVerifier func(claims *oidc.AccessTokenClaims) error
+	claimsVerifier func(claims *AccessTokenClaims) error
 }
 
 type TokenVerifierOption func(*tokenVerifierConfig)
@@ -55,7 +55,7 @@ func WithIssuerAndKeySet(issuer string, keySet oidc.KeySet, requiredAlgs ...stri
 	}
 }
 
-func WithClaimsVerifier(claimsVerifier func(claims *oidc.AccessTokenClaims) error) TokenVerifierOption {
+func WithClaimsVerifier(claimsVerifier func(claims *AccessTokenClaims) error) TokenVerifierOption {
 	return func(cfg *tokenVerifierConfig) {
 		cfg.claimsVerifier = claimsVerifier
 	}
@@ -92,8 +92,10 @@ func NewTokenVerifier(ctx context.Context, opts ...TokenVerifierOption) (*TokenV
 	}, nil
 }
 
-func (m TokenVerifier) Verify(ctx context.Context, rawToken string) (*oidc.AccessTokenClaims, error) {
-	claims := new(oidc.AccessTokenClaims)
+type VerifyFn func(claims *AccessTokenClaims) error
+
+func (m TokenVerifier) Verify(ctx context.Context, rawToken string, verifyFn ...VerifyFn) (*AccessTokenClaims, error) {
+	claims := new(AccessTokenClaims)
 	payload, err := oidc.ParseToken(rawToken, claims)
 	if err != nil {
 		return nil, err
@@ -104,15 +106,21 @@ func (m TokenVerifier) Verify(ctx context.Context, rawToken string) (*oidc.Acces
 		return nil, fmt.Errorf("issuer %q is not trusted", claims.Issuer)
 	}
 
-	verifiedClaims, err := v.Verify(ctx, rawToken, payload, claims)
+	verifiedClaims, err := v.verify(ctx, rawToken, payload, claims)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, fn := range verifyFn {
+		if err := fn(verifiedClaims); err != nil {
+			return nil, err
+		}
 	}
 
 	return verifiedClaims, nil
 }
 
-func (v verifier) Verify(ctx context.Context, rawToken string, payload []byte, claims *oidc.AccessTokenClaims) (*oidc.AccessTokenClaims, error) {
+func (v verifier) verify(ctx context.Context, rawToken string, payload []byte, claims *AccessTokenClaims) (*AccessTokenClaims, error) {
 	const SkewTime = time.Minute
 
 	if claims.Issuer != v.issuer {

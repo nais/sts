@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/nais/sts/internal/jwk"
+	"github.com/nais/sts/internal/jwt"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
@@ -17,7 +18,7 @@ var (
 type ClientStore interface {
 	AuthorizeTarget(ctx context.Context, consumer ClientID, target Target) (Roles, error)
 	Delete(ctx context.Context, clientID ClientID, authoritativeIssuer string) error
-	Get(ctx context.Context, claims *AccessTokenClaims) (*Client, error)
+	Get(ctx context.Context, claims *jwt.AccessTokenClaims) (*Client, error)
 	Save(ctx context.Context, client *Client, policies []AuthorizationPolicy, authoritativeIssuer string) error
 }
 

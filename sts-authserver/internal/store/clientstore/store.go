@@ -13,6 +13,7 @@ import (
 	"github.com/nais/sts/internal/cache"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
+	"github.com/nais/sts/internal/jwt"
 	"github.com/nais/sts/internal/oauth"
 )
 
@@ -74,7 +75,7 @@ func (s *Store) Close() {
 	s.listener.Close()
 }
 
-func (s *Store) Get(_ context.Context, claims *oauth.AccessTokenClaims) (*oauth.Client, error) {
+func (s *Store) Get(_ context.Context, claims *jwt.AccessTokenClaims) (*oauth.Client, error) {
 	// TODO: should we move the KubernetesClaims type here, i.e. to the store package?
 	workload, err := claims.Kubernetes()
 	if err != nil {

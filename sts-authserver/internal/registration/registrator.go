@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	nethttp "net/http"
-	"time"
 
 	"github.com/nais/sts/internal/http"
+	"github.com/nais/sts/internal/jwt"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -16,9 +16,7 @@ import (
 type Registrators struct {
 	environments       []oauth.Name
 	byIdentity         map[registratorIdentity]*Registrator
-	clientAuthVerifier oauth.MultiIssuerTokenVerifier
-	expectedAudience   string
-	maxTokenLifetime   time.Duration
+	clientAuthVerifier *jwt.TokenVerifier
 }
 
 type registratorIdentity struct {
@@ -36,7 +34,7 @@ type Registrator struct {
 
 func NewRegistrators(ctx context.Context, httpClient *nethttp.Client, authServerCfg oauth.AuthorizationServerConfig) (*Registrators, error) {
 	environments := authServerCfg.Environments
-	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, environments.ClientAuthIssuers())
+	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, environments.ClientAuthIssuers(), authServerCfg.ExpectedAudience, authServerCfg.MaxClientAuthTokenLifetime)
 	if err != nil {
 		return nil, err
 	}
@@ -57,8 +55,6 @@ func NewRegistrators(ctx context.Context, httpClient *nethttp.Client, authServer
 		environments:       names,
 		byIdentity:         registrators,
 		clientAuthVerifier: verifier,
-		expectedAudience:   authServerCfg.ExpectedAudience,
-		maxTokenLifetime:   authServerCfg.MaxClientAuthTokenLifetime,
 	}, nil
 }
 
@@ -68,9 +64,7 @@ func (r *Registrators) Authenticate(request *nethttp.Request) (*Registrator, err
 		return nil, errors.New("missing bearer token")
 	}
 	// TODO: see comment in AuthorizeRequest
-	claims, err := r.clientAuthVerifier.Verify(request.Context(), token, func(claims *oauth.AccessTokenClaims) error {
-		return oauth.ValidateClientAuthClaims(claims, r.expectedAudience, r.maxTokenLifetime)
-	})
+	claims, err := r.clientAuthVerifier.Verify(request.Context(), token)
 	if err != nil {
 		return nil, err
 	}
