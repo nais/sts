@@ -15,7 +15,6 @@ import (
 type TokenVerifier struct {
 	issuers          map[Issuer]issuerConfig
 	httpClient       *http.Client
-	claimsVerifier   func(claims *AccessTokenClaims) error
 	expectedAudience string
 	maxTokenLifetime time.Duration
 }
@@ -49,12 +48,6 @@ func WithIssuerAndKeySet(issuer Issuer, keySet oidc.KeySet, requiredAlgs ...stri
 			keyset:       keySet,
 			requiredAlgs: requiredAlgs,
 		}
-	}
-}
-
-func WithClaimsVerifier(claimsVerifier func(claims *AccessTokenClaims) error) TokenVerifierOption {
-	return func(t *TokenVerifier) {
-		t.claimsVerifier = claimsVerifier
 	}
 }
 
@@ -123,13 +116,6 @@ func (t *TokenVerifier) Verify(ctx context.Context, rawToken string, verifyFn ..
 	verifiedClaims, err := t.verifyClaims(cfg, claims)
 	if err != nil {
 		return nil, err
-	}
-
-	if t.claimsVerifier != nil {
-		err := t.claimsVerifier(claims)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	for _, fn := range verifyFn {
