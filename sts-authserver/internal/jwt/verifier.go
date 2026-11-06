@@ -13,9 +13,11 @@ import (
 )
 
 type TokenVerifier struct {
-	issuers        map[Issuer]issuerConfig
-	httpClient     *http.Client
-	claimsVerifier func(claims *AccessTokenClaims) error
+	issuers          map[Issuer]issuerConfig
+	httpClient       *http.Client
+	claimsVerifier   func(claims *AccessTokenClaims) error
+	expectedAudience string
+	maxTokenLifetime time.Duration
 }
 
 type issuerConfig struct {
@@ -53,6 +55,18 @@ func WithIssuerAndKeySet(issuer Issuer, keySet oidc.KeySet, requiredAlgs ...stri
 func WithClaimsVerifier(claimsVerifier func(claims *AccessTokenClaims) error) TokenVerifierOption {
 	return func(t *TokenVerifier) {
 		t.claimsVerifier = claimsVerifier
+	}
+}
+
+func WithExpectedAudience(audience string) TokenVerifierOption {
+	return func(t *TokenVerifier) {
+		t.expectedAudience = audience
+	}
+}
+
+func WithMaxTokenLifetime(maxLifetime time.Duration) TokenVerifierOption {
+	return func(t *TokenVerifier) {
+		t.maxTokenLifetime = maxLifetime
 	}
 }
 
@@ -136,7 +150,7 @@ func (t *TokenVerifier) verifyClaims(v issuerConfig, claims *AccessTokenClaims) 
 	if err := oidc.CheckExpiration(claims, SkewTime); err != nil {
 		return nil, err
 	}
-	if err := oidc.CheckIssuedAt(claims, 0, SkewTime); err != nil {
+	if err := oidc.CheckIssuedAt(claims, t.maxTokenLifetime, SkewTime); err != nil {
 		return nil, err
 	}
 	if !claims.Expiration.AsTime().After(claims.IssuedAt.AsTime()) {
@@ -151,6 +165,12 @@ func (t *TokenVerifier) verifyClaims(v issuerConfig, claims *AccessTokenClaims) 
 			return nil, fmt.Errorf("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
 		}
 	}
+	if t.expectedAudience != "" {
+		if len(claims.Audience) != 1 || claims.Audience[0] != t.expectedAudience {
+			return nil, fmt.Errorf("audience %q is invalid, expected %q", claims.Audience, t.expectedAudience)
+		}
+	}
+
 	return claims, nil
 }
 

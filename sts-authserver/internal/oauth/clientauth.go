@@ -2,8 +2,6 @@ package oauth
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -12,26 +10,9 @@ import (
 
 func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, issuers []jwt.Issuer, expectedAudience string, maxLifetime time.Duration) (*jwt.TokenVerifier, error) {
 	opts := []jwt.TokenVerifierOption{
-		jwt.WithClaimsVerifier(func(claims *jwt.AccessTokenClaims) error {
-			// TODO: should be an option within verifier
-			if len(claims.Audience) != 1 || claims.Audience[0] != expectedAudience {
-				return fmt.Errorf("audience %q is invalid, expected %q", claims.Audience, expectedAudience)
-			}
-			issuedAt := claims.IssuedAt.AsTime()
-			if issuedAt.IsZero() {
-				return errors.New("issued at claim is missing")
-			}
-			expiration := claims.Expiration.AsTime()
-			if expiration.IsZero() {
-				return errors.New("expiration claim is missing")
-			}
-			// TODO: maxage should be configured and checked via verifier
-			if claims.Expiration.AsTime().Sub(issuedAt) > maxLifetime+time.Minute {
-				return fmt.Errorf("token lifetime %s exceeds maximum %s", expiration.Sub(issuedAt), maxLifetime)
-			}
-			return nil
-		}),
 		jwt.WithHttpClient(httpClient),
+		jwt.WithExpectedAudience(expectedAudience),
+		jwt.WithMaxTokenLifetime(maxLifetime),
 	}
 
 	for _, issuer := range issuers {
