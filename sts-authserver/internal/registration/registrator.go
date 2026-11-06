@@ -36,7 +36,7 @@ type Registrator struct {
 
 func NewRegistrators(ctx context.Context, httpClient *nethttp.Client, authServerCfg oauth.AuthorizationServerConfig) (*Registrators, error) {
 	environments := authServerCfg.Environments
-	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, environments.ClientAuthIssuers(), authServerCfg.ClientAuthSigningAlgorithms)
+	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, environments.ClientAuthIssuers())
 	if err != nil {
 		return nil, err
 	}

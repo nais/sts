@@ -45,7 +45,6 @@ func TestSts(t *testing.T) {
 		}, resp.GrantTypesSupported)
 
 		assert.Equal(t, []api.AuthMethod{api.AuthMethodPrivateKeyJWT}, resp.TokenEndpointAuthMethodsSupported)
-		assert.Equal(t, []string{"RS256"}, resp.TokenEndpointAuthSigningAlgValuesSupported)
 	})
 
 	t.Run("registration", func(t *testing.T) {

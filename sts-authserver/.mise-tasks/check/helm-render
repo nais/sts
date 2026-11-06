@@ -42,7 +42,6 @@ render_config() {
 render_config > "$config_dir/default.json"
 
 render_config \
-  --set 'config.authorizationServer.clientAuthSigningAlgorithms[0]=ES256' \
   --set config.authorizationServer.maxClientAuthTokenLifetime=5m \
   --set-string config.authorizationServer.expectedAudience=true \
   --set-json 'config.authorizationServer.subjectTokenIssuers={"https://identity.example.com":"identity"}' \

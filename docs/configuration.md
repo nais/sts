@@ -10,8 +10,7 @@ See [`config.example.yaml`](../sts-authserver/config.example.yaml) for a local e
 It sets `tokenExpiry` to `1h` instead of the `15m` default.
 
 The Helm chart's `config` values map verbatim to this file's fields.
-`clientAuthSigningAlgorithms` controls the algorithms accepted for Kubernetes-issued client assertions and registration bearer tokens.
-`environments[].registrator.signingAlg` is separate: it sets the algorithm the registrator must use to sign software statements.
+`environments[].registrator.signingAlg` sets the algorithm the registrator must use to sign software statements.
 
 | Field                                             | Default   | Required | Constraints                                                   | Description                                                                                    |
 |---------------------------------------------------|-----------|----------|---------------------------------------------------------------|------------------------------------------------------------------------------------------------|
@@ -23,7 +22,6 @@ The Helm chart's `config` values map verbatim to this file's fields.
 | `additionalCAFile`                                | empty     |          | Path to a PEM file, or empty.                                 | Supplements system roots for local k3d. Upstream TLS verification stays enabled.               |
 | `authorizationServer.issuer`                      |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | STS issuer URL.                                                                                |
 | `authorizationServer.expectedAudience`            | `nais`    |          | Nonempty.                                                     | Sole audience for client assertions and registration bearer tokens.                            |
-| `authorizationServer.clientAuthSigningAlgorithms` | `[RS256]` |          | Unique RS256/384/512, PS256/384/512, or ES256/384/512 values. | Allowed algorithms for client assertions and registration bearer tokens.                       |
 | `authorizationServer.subjectTokenIssuers`         | `{}`      |          |                                                               | Accepted subject-token issuer URLs mapped to aliases. An empty map disables token exchange.    |
 | `authorizationServer.maxClientAuthTokenLifetime`  | `1h`      |          | Positive duration.                                            | Maximum client assertion and registration bearer-token lifetime, plus one minute of tolerance. |
 | `authorizationServer.tokenExpiry`                 | `15m`     |          | Positive duration.                                            | Lifetime of access tokens issued by STS.                                                       |

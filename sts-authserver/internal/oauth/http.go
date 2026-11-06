@@ -27,7 +27,6 @@ func (a *AuthorizationServer) DiscoveryEndpoint() nethttp.HandlerFunc {
 			TokenEndpointAuthMethodsSupported: []api.AuthMethod{
 				api.AuthMethodPrivateKeyJWT,
 			},
-			TokenEndpointAuthSigningAlgValuesSupported: cfg.ClientAuthSigningAlgorithms,
 		})
 	}
 }

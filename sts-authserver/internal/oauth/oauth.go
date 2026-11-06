@@ -24,7 +24,7 @@ type AuthorizationServer struct {
 }
 
 func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore, metrics *stsmetrics.Metrics) (*AuthorizationServer, error) {
-	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx, httpClient, cfg.Environments.ClientAuthIssuers(), cfg.ClientAuthSigningAlgorithms)
+	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx, httpClient, cfg.Environments.ClientAuthIssuers())
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}

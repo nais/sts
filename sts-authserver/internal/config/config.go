@@ -71,10 +71,9 @@ func defaultConfig() Config {
 		LogLevel:            slog.LevelInfo,
 		LogFormat:           "text",
 		AuthorizationServerConfig: oauth.AuthorizationServerConfig{
-			ExpectedAudience:            "nais",
-			ClientAuthSigningAlgorithms: []string{"RS256"},
-			MaxClientAuthTokenLifetime:  time.Hour,
-			TokenExpiry:                 15 * time.Minute,
+			ExpectedAudience:           "nais",
+			MaxClientAuthTokenLifetime: time.Hour,
+			TokenExpiry:                15 * time.Minute,
 		},
 	}
 }

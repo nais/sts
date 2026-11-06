@@ -150,10 +150,6 @@ func ExternalTokenVerifiers(ctx context.Context, httpClient *http.Client, issuer
 }
 
 func ExternalTokenVerifier(ctx context.Context, httpClient *http.Client, issuer TokenIssuer) (*TokenVerifier, error) {
-	return externalTokenVerifier(ctx, httpClient, issuer, nil)
-}
-
-func externalTokenVerifier(ctx context.Context, httpClient *http.Client, issuer TokenIssuer, allowedAlgorithms []string) (*TokenVerifier, error) {
 	metadata, err := oauthclient.Discover(ctx, string(issuer), httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("discover metadata from issuer %q: %w", issuer, err)
@@ -163,10 +159,7 @@ func externalTokenVerifier(ctx context.Context, httpClient *http.Client, issuer 
 		return nil, fmt.Errorf("configured issuer does not match issuer in discovery document: got %q, want %q", metadata.Issuer, issuer)
 	}
 
-	algorithms := allowedAlgorithms
-	if algorithms == nil {
-		algorithms = jwa.FilterSupportedAlgorithms(metadata.IDTokenSigningAlgValuesSupported)
-	}
+	algorithms := jwa.FilterSupportedAlgorithms(metadata.IDTokenSigningAlgValuesSupported)
 	if len(algorithms) == 0 {
 		return nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms: %v", metadata.IDTokenSigningAlgValuesSupported)
 	}

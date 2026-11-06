@@ -12,13 +12,12 @@ import (
 )
 
 type AuthorizationServerConfig struct {
-	Issuer                      api.STSIssuer       `yaml:"issuer"`
-	ExpectedAudience            string              `yaml:"expectedAudience"`
-	Environments                Environments        `yaml:"environments"`
-	ClientAuthSigningAlgorithms []string            `yaml:"clientAuthSigningAlgorithms"`
-	SubjectTokenIssuers         SubjectTokenIssuers `yaml:"subjectTokenIssuers"`
-	MaxClientAuthTokenLifetime  time.Duration       `yaml:"maxClientAuthTokenLifetime"`
-	TokenExpiry                 time.Duration       `yaml:"tokenExpiry"`
+	Issuer                     api.STSIssuer       `yaml:"issuer"`
+	ExpectedAudience           string              `yaml:"expectedAudience"`
+	Environments               Environments        `yaml:"environments"`
+	SubjectTokenIssuers        SubjectTokenIssuers `yaml:"subjectTokenIssuers"`
+	MaxClientAuthTokenLifetime time.Duration       `yaml:"maxClientAuthTokenLifetime"`
+	TokenExpiry                time.Duration       `yaml:"tokenExpiry"`
 }
 
 type SubjectTokenIssuers map[TokenIssuer]string
@@ -40,9 +39,6 @@ func (c AuthorizationServerConfig) Validate() error {
 	}
 	if err := c.Environments.Validate(); err != nil {
 		return fmt.Errorf("environments: %w", err)
-	}
-	if err := jwa.ValidateAlgorithms(c.ClientAuthSigningAlgorithms...); err != nil {
-		return fmt.Errorf("client auth signing algorithms: %w", err)
 	}
 	if c.ExpectedAudience == "" {
 		return fmt.Errorf("expected audience must not be empty")

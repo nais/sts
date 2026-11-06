@@ -7,28 +7,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAuthorizationServerConfigRejectsInvalidClientAuthSigningAlgorithms(t *testing.T) {
-	cfg := AuthorizationServerConfig{
-		Issuer:                      "https://sts.example",
-		ExpectedAudience:            "nais",
-		Environments:                validEnvironments(),
-		ClientAuthSigningAlgorithms: []string{"EdDSA"},
-		SubjectTokenIssuers:         map[TokenIssuer]string{"https://subject.example": "issuerName"},
-		MaxClientAuthTokenLifetime:  time.Hour,
-		TokenExpiry:                 time.Hour,
-	}
-
-	require.Error(t, cfg.Validate())
-}
-
 func TestAuthorizationServerConfigAllowsNoSubjectTokenIssuers(t *testing.T) {
 	cfg := AuthorizationServerConfig{
-		Issuer:                      "https://sts.example",
-		ExpectedAudience:            "nais",
-		Environments:                validEnvironments(),
-		ClientAuthSigningAlgorithms: []string{"RS256"},
-		MaxClientAuthTokenLifetime:  time.Hour,
-		TokenExpiry:                 time.Hour,
+		Issuer:                     "https://sts.example",
+		ExpectedAudience:           "nais",
+		Environments:               validEnvironments(),
+		MaxClientAuthTokenLifetime: time.Hour,
+		TokenExpiry:                time.Hour,
 	}
 
 	require.NoError(t, cfg.Validate())

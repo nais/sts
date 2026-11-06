@@ -41,10 +41,6 @@ type DiscoveryMetadata struct {
 	// TokenEndpointAuthMethodsSupported contains a list of Client Authentication methods supported by the Token Endpoint. If omitted, the default is client_secret_basic.
 	TokenEndpointAuthMethodsSupported []AuthMethod `json:"token_endpoint_auth_methods_supported,omitempty"`
 
-	// TokenEndpointAuthSigningAlgValuesSupported contains a list of JWS signing algorithms (alg values) supported by the Token Endpoint
-	// for the signature of the JWT used to authenticate the Client by private_key_jwt and client_secret_jwt.
-	TokenEndpointAuthSigningAlgValuesSupported []string `json:"token_endpoint_auth_signing_alg_values_supported,omitempty"`
-
 	// RegistrationEndpoint is the URL for the Dynamic Client Registration.
 	RegistrationEndpoint string `json:"registration_endpoint,omitempty"`
 }
