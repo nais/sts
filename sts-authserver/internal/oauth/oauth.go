@@ -213,7 +213,7 @@ func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr 
 		subjectIssuer := result.SubjectTokenClaims.Issuer
 		attrs = append(attrs, slog.String("subject_token_issuer", subjectIssuer))
 
-		if idpName, ok := a.SubjectTokenIssuers[TokenIssuer(subjectIssuer)]; ok {
+		if idpName, ok := a.SubjectTokenIssuers[jwt.Issuer(subjectIssuer)]; ok {
 			attrs = append(attrs, slog.String("idp_name", idpName))
 		}
 	}

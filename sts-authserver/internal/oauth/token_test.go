@@ -68,20 +68,20 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 
 func TestCreateAccessTokenIssuerRoles(t *testing.T) {
 	const stsIssuer api.STSIssuer = "https://sts.example"
-	const externalIssuer TokenIssuer = "https://idp.example"
+	const externalIssuer jwt.Issuer = "https://idp.example"
 
 	for _, test := range []struct {
 		name          string
-		subjectIssuer TokenIssuer
+		subjectIssuer jwt.Issuer
 		wantActor     bool
 		wantIDP       string
 		wantIDPName   string
 	}{
-		{name: "STS", subjectIssuer: TokenIssuer(stsIssuer), wantActor: true},
+		{name: "STS", subjectIssuer: jwt.Issuer(stsIssuer), wantActor: true},
 		{name: "external", subjectIssuer: externalIssuer, wantIDP: string(externalIssuer), wantIDPName: "idp"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			claims, err := CreateAccessToken(stsIssuer, map[TokenIssuer]string{externalIssuer: "idp"}, time.Hour, &AuthorizationResult{
+			claims, err := CreateAccessToken(stsIssuer, map[jwt.Issuer]string{externalIssuer: "idp"}, time.Hour, &AuthorizationResult{
 				Target:    TargetAudience("audience"),
 				GrantType: oidc.GrantTypeTokenExchange,
 				Client:    &Client{ID: "client"},

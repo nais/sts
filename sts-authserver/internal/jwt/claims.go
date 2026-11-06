@@ -8,6 +8,9 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
+// Issuer identifies an issuer for token verification, including STS itself.
+type Issuer string
+
 var _ json.Unmarshaler = (*AccessTokenClaims)(nil)
 
 type AccessTokenClaims struct {

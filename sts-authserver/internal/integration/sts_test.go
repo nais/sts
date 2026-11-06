@@ -626,7 +626,7 @@ func assertTokenExchangeClaims(
 ) {
 	t.Helper()
 
-	idpName, ok := stsConfig.AuthServerConfig.SubjectTokenIssuers[oauth.TokenIssuer(subjectClaims.Issuer)]
+	idpName, ok := stsConfig.AuthServerConfig.SubjectTokenIssuers[jwt.Issuer(subjectClaims.Issuer)]
 	require.True(t, ok, "subject token issuer %q not found in STS configuration", subjectClaims.Issuer)
 
 	stsAddress := stsConfig.Address

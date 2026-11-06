@@ -8,6 +8,7 @@ import (
 
 	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/jwk"
+	"github.com/nais/sts/internal/jwt"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
@@ -43,7 +44,7 @@ func (s *STSTokenClaims) Sign(signer *jwk.Signer) (string, error) {
 	return signer.SignJWT(s.Claims)
 }
 
-func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[TokenIssuer]string, expiresIn time.Duration, result *AuthorizationResult) (*STSTokenClaims, error) {
+func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[jwt.Issuer]string, expiresIn time.Duration, result *AuthorizationResult) (*STSTokenClaims, error) {
 	subject := result.Client.ID
 	var subjectTokenClaims map[string]json.RawMessage
 
@@ -75,13 +76,13 @@ func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[TokenIssuer
 	}
 
 	if result.GrantType == oidc.GrantTypeTokenExchange {
-		subjectIssuer := TokenIssuer(result.SubjectTokenClaims.Issuer)
+		subjectIssuer := jwt.Issuer(result.SubjectTokenClaims.Issuer)
 		stsTokenClaims.Actor = &ActorClaims{
 			ClientID: result.Client.ID,
 		}
 
 		// ignore existing `act` claim for externally issued subject tokens
-		if subjectIssuer == TokenIssuer(issuer) {
+		if subjectIssuer == jwt.Issuer(issuer) {
 			if raw, ok := subjectTokenClaims["act"]; ok {
 				// preserve the chain of `act` claims
 				stsTokenClaims.Actor.Actor = raw

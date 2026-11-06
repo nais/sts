@@ -10,7 +10,7 @@ import (
 	"github.com/nais/sts/internal/jwt"
 )
 
-func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, issuers []TokenIssuer, expectedAudience string, maxLifetime time.Duration) (*jwt.TokenVerifier, error) {
+func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, issuers []jwt.Issuer, expectedAudience string, maxLifetime time.Duration) (*jwt.TokenVerifier, error) {
 	opts := []jwt.TokenVerifierOption{
 		jwt.WithClaimsVerifier(func(claims *jwt.AccessTokenClaims) error {
 			// TODO: should be an option within verifier

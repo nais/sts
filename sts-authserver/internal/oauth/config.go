@@ -9,6 +9,7 @@ import (
 
 	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/jwa"
+	"github.com/nais/sts/internal/jwt"
 )
 
 type AuthorizationServerConfig struct {
@@ -20,10 +21,10 @@ type AuthorizationServerConfig struct {
 	TokenExpiry                time.Duration       `yaml:"tokenExpiry"`
 }
 
-type SubjectTokenIssuers map[TokenIssuer]string
+type SubjectTokenIssuers map[jwt.Issuer]string
 
-func (s SubjectTokenIssuers) Issuers() []TokenIssuer {
-	issuers := make([]TokenIssuer, 0, len(s))
+func (s SubjectTokenIssuers) Issuers() []jwt.Issuer {
+	issuers := make([]jwt.Issuer, 0, len(s))
 	for issuer := range s {
 		issuers = append(issuers, issuer)
 	}
@@ -57,7 +58,7 @@ func (c AuthorizationServerConfig) Validate() error {
 // stable once clients are registered.
 type Environment struct {
 	Name             Name              `yaml:"name"`
-	ClientAuthIssuer TokenIssuer       `yaml:"clientAuthIssuer"`
+	ClientAuthIssuer jwt.Issuer        `yaml:"clientAuthIssuer"`
 	Registrator      RegistratorConfig `yaml:"registrator"`
 }
 
@@ -76,7 +77,7 @@ func (e Environments) Validate() error {
 		return fmt.Errorf("must not be empty")
 	}
 	names := make(map[Name]struct{}, len(e))
-	issuers := make(map[TokenIssuer]struct{}, len(e))
+	issuers := make(map[jwt.Issuer]struct{}, len(e))
 	for i, env := range e {
 		if err := env.Name.Validate(); err != nil {
 			return fmt.Errorf("environment %d name: %w", i, err)
@@ -106,8 +107,8 @@ func (e Environments) Validate() error {
 }
 
 // ClientAuthIssuers returns the Kubernetes issuers of all environments.
-func (e Environments) ClientAuthIssuers() []TokenIssuer {
-	issuers := make([]TokenIssuer, len(e))
+func (e Environments) ClientAuthIssuers() []jwt.Issuer {
+	issuers := make([]jwt.Issuer, len(e))
 	for i, env := range e {
 		issuers[i] = env.ClientAuthIssuer
 	}
