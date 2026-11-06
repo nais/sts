@@ -674,7 +674,7 @@ func assertTokenClaims(
 	assert.LessOrEqual(t, response.ExpiresIn, wantExpiresIn)
 
 	verifier, err := jwt.NewTokenVerifier(t.Context(), jwt.WithIssuerAndKeySet(
-		sts.Endpoint(),
+		jwt.Issuer(sts.Endpoint()),
 		rp.NewRemoteKeySet(http.DefaultClient, sts.Endpoint("jwks")),
 		string(oauth.InternalSigningAlgorithm),
 	))
@@ -797,7 +797,7 @@ func getSubjectTokenFromIssuer(t testing.TB, oauthServer testServer, issuer stri
 		"redirect_uri":  {redirectURI},
 	})
 
-	verifier, err := jwt.NewTokenVerifier(t.Context(), jwt.WithIssuer(oauthServer.Endpoint(issuer)))
+	verifier, err := jwt.NewTokenVerifier(t.Context(), jwt.WithIssuer(jwt.Issuer(oauthServer.Endpoint(issuer))))
 	require.NoError(t, err)
 
 	claims, err := verifier.Verify(t.Context(), token.AccessToken)

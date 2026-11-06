@@ -32,11 +32,11 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 
 	opts := []jwt.TokenVerifierOption{
 		jwt.WithHttpClient(httpClient),
-		jwt.WithIssuerAndKeySet(string(cfg.Issuer), keyStore, string(InternalSigningAlgorithm)),
+		jwt.WithIssuerAndKeySet(jwt.Issuer(cfg.Issuer), keyStore, string(InternalSigningAlgorithm)),
 	}
 
 	for _, issuer := range cfg.SubjectTokenIssuers.Issuers() {
-		opts = append(opts, jwt.WithIssuer(string(issuer)))
+		opts = append(opts, jwt.WithIssuer(issuer))
 	}
 
 	tokenExchangeVerifier, err := jwt.NewTokenVerifier(ctx, opts...)

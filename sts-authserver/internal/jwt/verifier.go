@@ -13,57 +13,52 @@ import (
 )
 
 type TokenVerifier struct {
-	verifiers map[string]verifier
-}
-
-type verifier struct {
-	issuer         string
-	keyset         oidc.KeySet
-	requiredAlgs   []string
-	claimsVerifier func(claims *AccessTokenClaims) error
-}
-
-type tokenVerifierConfig struct {
-	issuers        []verifier
+	issuers        map[Issuer]issuerConfig
 	httpClient     *http.Client
 	claimsVerifier func(claims *AccessTokenClaims) error
 }
 
-type TokenVerifierOption func(*tokenVerifierConfig)
+type issuerConfig struct {
+	issuer       Issuer
+	keyset       oidc.KeySet
+	requiredAlgs []string
+}
+
+type TokenVerifierOption func(*TokenVerifier)
 
 func WithHttpClient(client *http.Client) TokenVerifierOption {
-	return func(cfg *tokenVerifierConfig) {
-		cfg.httpClient = client
+	return func(t *TokenVerifier) {
+		t.httpClient = client
 	}
 }
 
-func WithIssuer(issuer string) TokenVerifierOption {
-	return func(cfg *tokenVerifierConfig) {
-		cfg.issuers = append(cfg.issuers, verifier{
+func WithIssuer(issuer Issuer) TokenVerifierOption {
+	return func(t *TokenVerifier) {
+		t.issuers[issuer] = issuerConfig{
 			issuer: issuer,
-		})
+		}
 	}
 }
 
-func WithIssuerAndKeySet(issuer string, keySet oidc.KeySet, requiredAlgs ...string) TokenVerifierOption {
-	return func(cfg *tokenVerifierConfig) {
-		cfg.issuers = append(cfg.issuers, verifier{
+func WithIssuerAndKeySet(issuer Issuer, keySet oidc.KeySet, requiredAlgs ...string) TokenVerifierOption {
+	return func(t *TokenVerifier) {
+		t.issuers[issuer] = issuerConfig{
 			issuer:       issuer,
 			keyset:       keySet,
 			requiredAlgs: requiredAlgs,
-		})
+		}
 	}
 }
 
 func WithClaimsVerifier(claimsVerifier func(claims *AccessTokenClaims) error) TokenVerifierOption {
-	return func(cfg *tokenVerifierConfig) {
-		cfg.claimsVerifier = claimsVerifier
+	return func(t *TokenVerifier) {
+		t.claimsVerifier = claimsVerifier
 	}
 }
 
 func NewTokenVerifier(ctx context.Context, opts ...TokenVerifierOption) (*TokenVerifier, error) {
-	cfg := &tokenVerifierConfig{
-		issuers: []verifier{},
+	t := &TokenVerifier{
+		issuers: map[Issuer]issuerConfig{},
 		// TODO: consider extracting sts.httpClient
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
@@ -73,48 +68,54 @@ func NewTokenVerifier(ctx context.Context, opts ...TokenVerifierOption) (*TokenV
 		},
 	}
 	for _, opt := range opts {
-		opt(cfg)
+		opt(t)
 	}
-	if len(cfg.issuers) == 0 {
+	if len(t.issuers) == 0 {
 		return nil, fmt.Errorf("no issuers configured")
 	}
 
-	verifiers := make(map[string]verifier)
-	for _, issuer := range cfg.issuers {
-		if issuer.keyset == nil {
+	for _, cfg := range t.issuers {
+		if cfg.keyset == nil {
 			var err error
-			issuer.keyset, issuer.requiredAlgs, err = discoverRemoteKeySet(ctx, issuer.issuer, cfg.httpClient)
+			cfg.keyset, cfg.requiredAlgs, err = discoverRemoteKeySet(ctx, cfg.issuer, t.httpClient)
 			if err != nil {
-				return nil, fmt.Errorf("resolving key set for issuer %q: %w", issuer.issuer, err)
+				return nil, fmt.Errorf("resolving key set for issuer %q: %w", cfg.issuer, err)
 			}
 		}
-
-		issuer.claimsVerifier = cfg.claimsVerifier
-		verifiers[issuer.issuer] = issuer
+		t.issuers[cfg.issuer] = cfg
 	}
 
-	return &TokenVerifier{
-		verifiers: verifiers,
-	}, nil
+	return t, nil
 }
 
 type VerifyFn func(claims *AccessTokenClaims) error
 
-func (m *TokenVerifier) Verify(ctx context.Context, rawToken string, verifyFn ...VerifyFn) (*AccessTokenClaims, error) {
+func (t *TokenVerifier) Verify(ctx context.Context, rawToken string, verifyFn ...VerifyFn) (*AccessTokenClaims, error) {
 	claims := new(AccessTokenClaims)
 	payload, err := oidc.ParseToken(rawToken, claims)
 	if err != nil {
 		return nil, err
 	}
 
-	v, ok := m.verifiers[claims.Issuer]
+	cfg, ok := t.issuers[Issuer(claims.Issuer)]
 	if !ok {
 		return nil, fmt.Errorf("issuer %q is not trusted", claims.Issuer)
 	}
 
-	verifiedClaims, err := v.verify(ctx, rawToken, payload, claims)
+	if err := oidc.CheckSignature(ctx, rawToken, payload, claims, cfg.requiredAlgs, cfg.keyset); err != nil {
+		return nil, err
+	}
+
+	verifiedClaims, err := t.verifyClaims(cfg, claims)
 	if err != nil {
 		return nil, err
+	}
+
+	if t.claimsVerifier != nil {
+		err := t.claimsVerifier(claims)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	for _, fn := range verifyFn {
@@ -126,20 +127,20 @@ func (m *TokenVerifier) Verify(ctx context.Context, rawToken string, verifyFn ..
 	return verifiedClaims, nil
 }
 
-func (v verifier) verify(ctx context.Context, rawToken string, payload []byte, claims *AccessTokenClaims) (*AccessTokenClaims, error) {
+func (t *TokenVerifier) verifyClaims(v issuerConfig, claims *AccessTokenClaims) (*AccessTokenClaims, error) {
 	const SkewTime = time.Minute
 
-	if claims.Issuer != v.issuer {
+	if claims.Issuer != string(v.issuer) {
 		return nil, oidc.ErrIssuerInvalid
-	}
-	if err := oidc.CheckSignature(ctx, rawToken, payload, claims, v.requiredAlgs, v.keyset); err != nil {
-		return nil, err
 	}
 	if err := oidc.CheckExpiration(claims, SkewTime); err != nil {
 		return nil, err
 	}
 	if err := oidc.CheckIssuedAt(claims, 0, SkewTime); err != nil {
 		return nil, err
+	}
+	if !claims.Expiration.AsTime().After(claims.IssuedAt.AsTime()) {
+		return nil, fmt.Errorf("expiration (%v) must be after issued-at (%v)", claims.Expiration.AsTime(), claims.IssuedAt.AsTime())
 	}
 	if err := oidc.CheckSubject(claims); err != nil {
 		return nil, err
@@ -150,23 +151,16 @@ func (v verifier) verify(ctx context.Context, rawToken string, payload []byte, c
 			return nil, fmt.Errorf("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
 		}
 	}
-	if v.claimsVerifier != nil {
-		err := v.claimsVerifier(claims)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	return claims, nil
 }
 
-func discoverRemoteKeySet(ctx context.Context, issuer string, client *http.Client) (oidc.KeySet, []string, error) {
-	metadata, err := oauthclient.Discover(ctx, issuer, client)
+func discoverRemoteKeySet(ctx context.Context, issuer Issuer, client *http.Client) (oidc.KeySet, []string, error) {
+	metadata, err := oauthclient.Discover(ctx, string(issuer), client)
 	if err != nil {
 		return nil, nil, fmt.Errorf("discover metadata from issuer %q: %w", issuer, err)
 	}
 
-	if metadata.Issuer != issuer {
+	if metadata.Issuer != string(issuer) {
 		return nil, nil, fmt.Errorf("configured issuer does not match issuer in discovery document: got %q, want %q", metadata.Issuer, issuer)
 	}
 

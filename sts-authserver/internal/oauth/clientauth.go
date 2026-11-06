@@ -25,10 +25,6 @@ func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, is
 			if expiration.IsZero() {
 				return errors.New("expiration claim is missing")
 			}
-			// TODO: this should be checked in the verifier
-			if !expiration.After(issuedAt) {
-				return errors.New("expiration must be after issued-at")
-			}
 			// TODO: maxage should be configured and checked via verifier
 			if claims.Expiration.AsTime().Sub(issuedAt) > maxLifetime+time.Minute {
 				return fmt.Errorf("token lifetime %s exceeds maximum %s", expiration.Sub(issuedAt), maxLifetime)
@@ -39,7 +35,7 @@ func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, is
 	}
 
 	for _, issuer := range issuers {
-		opts = append(opts, jwt.WithIssuer(string(issuer)))
+		opts = append(opts, jwt.WithIssuer(issuer))
 	}
 
 	return jwt.NewTokenVerifier(ctx, opts...)
