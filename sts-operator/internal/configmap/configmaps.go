@@ -29,7 +29,7 @@ type ConfigMapData struct {
 	Issuer   stsapi.STSIssuer
 }
 
-func CreateConfigMapSpec(name, namespace string, data ConfigMapData) (*corev1.ConfigMap, error) {
+func CreateConfigMapSpec(name, namespace string, data ConfigMapData) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		Kind:       "ConfigMap",
 		APIVersion: "v1",
@@ -46,7 +46,7 @@ func CreateConfigMapSpec(name, namespace string, data ConfigMapData) (*corev1.Co
 			STSJwksURIKey:       data.Issuer.JWKSEndpoint(),
 			STSTokenEndpointKey: data.Issuer.TokenEndpoint(),
 		},
-	}, nil
+	}
 }
 
 func Labels(appName string) map[string]string {

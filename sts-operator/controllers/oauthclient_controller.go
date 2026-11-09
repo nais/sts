@@ -142,14 +142,11 @@ func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Reques
 	log.Info(fmt.Sprintf("registered %q with STS", clientID))
 
 	cmName := oauthClient.Spec.ConfigMapName
-	configMap, err := configmap.CreateConfigMapSpec(cmName, req.Namespace, configmap.ConfigMapData{
+	configMap := configmap.CreateConfigMapSpec(cmName, req.Namespace, configmap.ConfigMapData{
 		AppName:  req.Name,
 		ClientID: clientID,
 		Issuer:   r.STSIssuer,
 	})
-	if err != nil {
-		return "", fmt.Errorf("creating config map spec: %w", err)
-	}
 
 	target := &corev1.ConfigMap{
 		Name:      cmName,
