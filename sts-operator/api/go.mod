@@ -2,7 +2,7 @@ module github.com/nais/sts-operator/api
 
 go 1.26.0
 
-require k8s.io/apimachinery v0.37.1
+require k8s.io/apimachinery v0.37.2
 
 require (
 	github.com/fxamacker/cbor/v2 v2.9.6 // indirect

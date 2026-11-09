@@ -273,7 +273,7 @@ func TestOAuthClientReconciler(t *testing.T) {
 func verifySoftwareStatement(t *testing.T, raw string, keySet jose.JSONWebKeySet) stsapi.SoftwareStatement {
 	t.Helper()
 
-	jws, err := jose.ParseSigned(raw, []jose.SignatureAlgorithm{jose.ES256})
+	jws, err := jose.ParseSignedCompact(raw, []jose.SignatureAlgorithm{jose.ES256})
 	require.NoError(t, err)
 
 	require.Len(t, keySet.Keys, 1)
