@@ -63,7 +63,6 @@ func (r *Registrators) Authenticate(request *nethttp.Request) (*Registrator, err
 	if !ok {
 		return nil, errors.New("missing bearer token")
 	}
-	// TODO: see comment in AuthorizeRequest
 	claims, err := r.clientAuthVerifier.Verify(request.Context(), token)
 	if err != nil {
 		return nil, err
