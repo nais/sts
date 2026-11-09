@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	internalhttp "github.com/nais/sts/internal/http"
 	"github.com/nais/sts/internal/jwa"
 	oauthclient "github.com/zitadel/oidc/v3/pkg/client"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
@@ -65,14 +66,8 @@ func WithMaxTokenLifetime(maxLifetime time.Duration) TokenVerifierOption {
 
 func NewTokenVerifier(ctx context.Context, opts ...TokenVerifierOption) (*TokenVerifier, error) {
 	t := &TokenVerifier{
-		issuers: map[Issuer]issuerConfig{},
-		// TODO: consider extracting sts.httpClient
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-			CheckRedirect: func(req *http.Request, _ []*http.Request) error {
-				return fmt.Errorf("redirect to %q is not allowed", req.URL)
-			},
-		},
+		issuers:    map[Issuer]issuerConfig{},
+		httpClient: internalhttp.NewClient(),
 	}
 	for _, opt := range opts {
 		opt(t)

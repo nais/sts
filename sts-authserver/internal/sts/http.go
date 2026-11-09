@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	internalhttp "github.com/nais/sts/internal/http"
 )
 
 func serve(server *http.Server) error {
@@ -34,12 +36,7 @@ type httpClientOption func(*http.Client) error
 
 // httpClient returns the client used for upstream OAuth and JWKS requests.
 func httpClient(opts ...httpClientOption) (*http.Client, error) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
-			return fmt.Errorf("redirect to %q is not allowed", req.URL)
-		},
-	}
+	client := internalhttp.NewClient()
 
 	for _, opt := range opts {
 		if err := opt(client); err != nil {
