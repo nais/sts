@@ -3,6 +3,9 @@ package configmap
 import (
 	stsapi "github.com/nais/sts/api"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -50,5 +53,17 @@ func Labels(appName string) map[string]string {
 	return map[string]string{
 		"app":             appName,
 		ManagedByLabelKey: ManagedByLabelValue,
+	}
+}
+
+// CacheOptions limits the ConfigMap informer to ConfigMaps managed by this
+// operator, instead of caching every ConfigMap in the cluster.
+func CacheOptions() cache.Options {
+	return cache.Options{
+		ByObject: map[client.Object]cache.ByObject{
+			&corev1.ConfigMap{}: {
+				Label: labels.SelectorFromSet(labels.Set{ManagedByLabelKey: ManagedByLabelValue}),
+			},
+		},
 	}
 }

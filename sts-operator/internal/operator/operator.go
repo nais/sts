@@ -11,6 +11,7 @@ import (
 	stsv1 "github.com/nais/sts-operator/api/nais.io/v1"
 	"github.com/nais/sts-operator/controllers"
 	"github.com/nais/sts-operator/internal/config"
+	"github.com/nais/sts-operator/internal/configmap"
 	stsmetrics "github.com/nais/sts-operator/internal/metric"
 	stsapi "github.com/nais/sts/api"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -69,7 +70,7 @@ func Run(cfg *config.Config, log *slog.Logger, opts ...Option) error {
 	}
 	mgr, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Scheme: scheme,
-		Cache:  controllers.CacheOptions(),
+		Cache:  configmap.CacheOptions(),
 		Metrics: ctrlmetricsserver.Options{
 			BindAddress: cfg.MetricsAddr,
 		},

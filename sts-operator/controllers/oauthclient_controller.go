@@ -12,11 +12,9 @@ import (
 	stsapi "github.com/nais/sts/api"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	kevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -25,18 +23,6 @@ import (
 const (
 	finalizer = "sts-operator.nais.io/finalizer"
 )
-
-// CacheOptions limits the ConfigMap informer to ConfigMaps managed by this
-// operator, instead of caching every ConfigMap in the cluster.
-func CacheOptions() cache.Options {
-	return cache.Options{
-		ByObject: map[client.Object]cache.ByObject{
-			&corev1.ConfigMap{}: {
-				Label: labels.SelectorFromSet(labels.Set{configmap.ManagedByLabelKey: configmap.ManagedByLabelValue}),
-			},
-		},
-	}
-}
 
 // OAuthClientReconciler reconciles an OAuthClient object.
 type OAuthClientReconciler struct {

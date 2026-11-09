@@ -105,7 +105,7 @@ func TestOAuthClientReconciler(t *testing.T) {
 	skipNameValidation := true
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme:     scheme,
-		Cache:      controllers.CacheOptions(),
+		Cache:      configmap.CacheOptions(),
 		Metrics:    ctrlmetricsserver.Options{BindAddress: "0"},
 		Controller: controllerconfig.Controller{SkipNameValidation: &skipNameValidation},
 	})
