@@ -40,6 +40,9 @@ jobs:
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # ratchet:jdx/mise-action@v5
         with:
           install_args: helm yq
+      - name: Read Go version
+        id: go_version
+        run: echo "go_version=$(mise current go)" >> "$GITHUB_OUTPUT"
       - uses: nais/platform-build-push-sign@0f74f19fb291a0563f7d30e23fb83de3c4c7c851 # ratchet:nais/platform-build-push-sign@main
         id: image
         with:
@@ -49,6 +52,8 @@ jobs:
           context: ${{ inputs.component == 'operator' && '.' || 'sts-authserver' }}
           cache_from: type=gha,scope=sts-${{ inputs.component }}-branch
           cache_to: type=gha,mode=max,scope=sts-${{ inputs.component }}-branch
+          build_args: |
+            GO_VERSION=${{ steps.go_version.outputs.go_version }}
           google_service_account: gh-sts
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
           push_ghcr: true

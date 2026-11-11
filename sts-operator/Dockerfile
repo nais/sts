@@ -1,4 +1,6 @@
-FROM --platform=$BUILDPLATFORM golang:1.27.3 AS builder
+ARG GO_VERSION=1.27
+
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS builder
 ENV CGO_ENABLED=0
 WORKDIR /src
 
