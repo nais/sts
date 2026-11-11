@@ -14,9 +14,12 @@ import (
 	"github.com/nais/sts-operator/internal/configmap"
 	stsmetrics "github.com/nais/sts-operator/internal/metric"
 	stsapi "github.com/nais/sts/api"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -70,7 +73,7 @@ func Run(cfg *config.Config, log *slog.Logger, opts ...Option) error {
 	}
 	mgr, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Scheme: scheme,
-		Cache:  configmap.CacheOptions(),
+		Cache:  CacheOptions(),
 		Metrics: ctrlmetricsserver.Options{
 			BindAddress: cfg.MetricsAddr,
 		},
@@ -122,6 +125,14 @@ func Run(cfg *config.Config, log *slog.Logger, opts ...Option) error {
 		return fmt.Errorf("problem running manager: %w", err)
 	}
 	return nil
+}
+
+func CacheOptions() cache.Options {
+	return cache.Options{
+		ByObject: map[client.Object]cache.ByObject{
+			&corev1.ConfigMap{}: {Label: configmap.ManagedBySelector()},
+		},
+	}
 }
 
 func setupLogger(logLevel string) error {

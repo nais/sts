@@ -79,8 +79,7 @@ const ConditionReady = "Ready"
 
 const (
 	ReasonSucceeded = "Succeeded"
-	// ReasonFailed covers every failure; the message identifies the stage.
-	ReasonFailed = "Failed"
+	ReasonFailed    = "Failed"
 )
 
 // OAuthClientStatus defines the observed state of OAuthClient.
@@ -88,8 +87,7 @@ type OAuthClientStatus struct {
 	// ClientID is the OAuth2 client ID most recently returned by STS.
 	// +optional
 	ClientID string `json:"clientID,omitempty"`
-	// SynchronizationTimestamp is the last time both STS registration and
-	// application ConfigMap reconciliation succeeded.
+	// SynchronizationTimestamp is the time of the last successful reconciliation.
 	// +optional
 	SynchronizationTimestamp *metav1.Time `json:"synchronizationTimestamp,omitempty"`
 	// Conditions describe the observed state. Ready reports the outcome of the

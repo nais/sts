@@ -141,7 +141,7 @@ func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Reques
 	log.Info(fmt.Sprintf("registered %q with STS", registration.ClientID))
 
 	cmName := oauthClient.Spec.ConfigMapName
-	configMap := configmap.CreateConfigMapSpec(cmName, req.Namespace, configmap.ConfigMapData{
+	configMap := configmap.Spec(cmName, req.Namespace, configmap.ConfigMapData{
 		AppName:  req.Name,
 		ClientID: registration.ClientID,
 		Issuer:   r.STSIssuer,
@@ -202,7 +202,6 @@ func ready(oauthClient *stsv1.OAuthClient) {
 	})
 }
 
-// failed sets Ready to False and returns err, so callers can return it directly.
 func failed(oauthClient *stsv1.OAuthClient, message string, err error) error {
 	meta.SetStatusCondition(&oauthClient.Status.Conditions, metav1.Condition{
 		Type:               stsv1.ConditionReady,

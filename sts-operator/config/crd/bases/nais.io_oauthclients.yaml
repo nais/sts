@@ -178,9 +178,8 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               synchronizationTimestamp:
-                description: |-
-                  SynchronizationTimestamp is the last time both STS registration and
-                  application ConfigMap reconciliation succeeded.
+                description: SynchronizationTimestamp is the time of the last successful
+                  reconciliation.
                 format: date-time
                 type: string
             type: object

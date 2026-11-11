@@ -16,6 +16,7 @@ import (
 	"github.com/nais/sts-operator/controllers"
 	"github.com/nais/sts-operator/internal/config"
 	"github.com/nais/sts-operator/internal/configmap"
+	"github.com/nais/sts-operator/internal/operator"
 	stsapi "github.com/nais/sts/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -106,7 +107,7 @@ func TestOAuthClientReconciler(t *testing.T) {
 	skipNameValidation := true
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme:     scheme,
-		Cache:      configmap.CacheOptions(),
+		Cache:      operator.CacheOptions(),
 		Metrics:    ctrlmetricsserver.Options{BindAddress: "0"},
 		Controller: controllerconfig.Controller{SkipNameValidation: &skipNameValidation},
 	})
