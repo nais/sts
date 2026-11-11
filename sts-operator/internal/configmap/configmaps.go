@@ -3,6 +3,7 @@ package configmap
 import (
 	stsapi "github.com/nais/sts/api"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 )
 
 const (
@@ -26,7 +27,7 @@ type ConfigMapData struct {
 	Issuer   stsapi.STSIssuer
 }
 
-func CreateConfigMapSpec(name, namespace string, data ConfigMapData) (*corev1.ConfigMap, error) {
+func Spec(name, namespace string, data ConfigMapData) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		Kind:       "ConfigMap",
 		APIVersion: "v1",
@@ -43,7 +44,7 @@ func CreateConfigMapSpec(name, namespace string, data ConfigMapData) (*corev1.Co
 			STSJwksURIKey:       data.Issuer.JWKSEndpoint(),
 			STSTokenEndpointKey: data.Issuer.TokenEndpoint(),
 		},
-	}, nil
+	}
 }
 
 func Labels(appName string) map[string]string {
@@ -51,4 +52,8 @@ func Labels(appName string) map[string]string {
 		"app":             appName,
 		ManagedByLabelKey: ManagedByLabelValue,
 	}
+}
+
+func ManagedBySelector() labels.Selector {
+	return labels.SelectorFromSet(labels.Set{ManagedByLabelKey: ManagedByLabelValue})
 }

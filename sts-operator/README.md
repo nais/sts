@@ -68,6 +68,13 @@ The operator re-registers clients with STS and refreshes application ConfigMaps
 every `SYNC_INTERVAL`, even when the spec is unchanged. Spec changes trigger an
 immediate sync.
 
+### Status and readiness
+
+The `Ready` condition reports the outcome of the last reconciliation, not
+continuous STS availability. Check that its `observedGeneration` matches
+`metadata.generation` before treating it as confirmation of the current spec;
+`kubectl wait --for=condition=Ready` does not check this.
+
 ### Application ConfigMap keys
 
 - `STS_CLIENT_ID`

@@ -16,11 +16,13 @@ import (
 	"github.com/nais/sts-operator/controllers"
 	"github.com/nais/sts-operator/internal/config"
 	"github.com/nais/sts-operator/internal/configmap"
+	"github.com/nais/sts-operator/internal/operator"
 	stsapi "github.com/nais/sts/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -105,7 +107,7 @@ func TestOAuthClientReconciler(t *testing.T) {
 	skipNameValidation := true
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme:     scheme,
-		Cache:      controllers.CacheOptions(),
+		Cache:      operator.CacheOptions(),
 		Metrics:    ctrlmetricsserver.Options{BindAddress: "0"},
 		Controller: controllerconfig.Controller{SkipNameValidation: &skipNameValidation},
 	})
@@ -163,8 +165,12 @@ func TestOAuthClientReconciler(t *testing.T) {
 				return
 			}
 			assert.Equal(c, clientID, obj.Status.ClientID)
-			assert.Equal(c, obj.Generation, obj.Status.ObservedGeneration)
-			assert.False(c, obj.Status.SynchronizationTimestamp.IsZero())
+			ready := meta.FindStatusCondition(obj.Status.Conditions, stsv1.ConditionReady)
+			if assert.NotNil(c, ready, "Ready condition missing") {
+				assert.Equal(c, metav1.ConditionTrue, ready.Status)
+				assert.Equal(c, obj.Generation, ready.ObservedGeneration)
+			}
+			assert.NotNil(c, obj.Status.SynchronizationTimestamp)
 			assert.Contains(c, obj.Finalizers, finalizerName)
 		}, reconcileTimeout, pollInterval)
 		require.NoError(t, k8sClient.Get(ctx, key, oauthClient))
@@ -236,7 +242,11 @@ func TestOAuthClientReconciler(t *testing.T) {
 			if !assert.NoError(c, k8sClient.Get(ctx, key, &obj)) {
 				return
 			}
-			assert.Equal(c, oauthClient.Generation, obj.Status.ObservedGeneration)
+			ready := meta.FindStatusCondition(obj.Status.Conditions, stsv1.ConditionReady)
+			if assert.NotNil(c, ready, "Ready condition missing") {
+				assert.Equal(c, metav1.ConditionTrue, ready.Status)
+				assert.Equal(c, oauthClient.Generation, ready.ObservedGeneration)
+			}
 		}, reconcileTimeout, pollInterval)
 
 		require.Len(t, registrations, 1)

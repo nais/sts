@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -11,12 +12,11 @@ import (
 	stsmetrics "github.com/nais/sts-operator/internal/metric"
 	stsapi "github.com/nais/sts/api"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	kevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -25,18 +25,6 @@ import (
 const (
 	finalizer = "sts-operator.nais.io/finalizer"
 )
-
-// CacheOptions limits the ConfigMap informer to ConfigMaps managed by this
-// operator, instead of caching every ConfigMap in the cluster.
-func CacheOptions() cache.Options {
-	return cache.Options{
-		ByObject: map[client.Object]cache.ByObject{
-			&corev1.ConfigMap{}: {
-				Label: labels.SelectorFromSet(labels.Set{configmap.ManagedByLabelKey: configmap.ManagedByLabelValue}),
-			},
-		},
-	}
-}
 
 // OAuthClientReconciler reconciles an OAuthClient object.
 type OAuthClientReconciler struct {
@@ -88,54 +76,50 @@ func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// object is marked for deletion
 	if !oauthClient.DeletionTimestamp.IsZero() {
-		clientID := oauthClient.Status.ClientID
-		// Registration may have succeeded before its status update failed. It is ok if the client is not removed from STS
-		// in this edge case, as the OAuthClient will be re-registered on the next reconciliation.
-		if clientID != "" {
-			if err := r.finalize(ctx, clientID, &oauthClient); err != nil {
-				stsmetrics.OAuthClientsProcessingFailedCount.Inc()
-				return ctrl.Result{}, fmt.Errorf("finalize: %w", err)
-			}
+		if err := r.finalize(ctx, &oauthClient); err != nil {
+			stsmetrics.OAuthClientsProcessingFailedCount.Inc()
+			return ctrl.Result{}, fmt.Errorf("finalize: %w", err)
 		}
 		return ctrl.Result{}, nil
 	}
 
 	if !controllerutil.ContainsFinalizer(&oauthClient, finalizer) {
-		if err := r.updateOAuthClient(ctx, oauthClient, func(existing *stsv1.OAuthClient) error {
-			controllerutil.AddFinalizer(existing, finalizer)
-			return r.Update(ctx, existing)
-		}); err != nil {
+		controllerutil.AddFinalizer(&oauthClient, finalizer)
+		if err := r.Update(ctx, &oauthClient); err != nil {
+			stsmetrics.OAuthClientsProcessingFailedCount.Inc()
 			return ctrl.Result{}, fmt.Errorf("registering finalizer: %w", err)
 		}
 		return ctrl.Result{}, nil
 	}
 
-	specUnchanged := oauthClient.GetGeneration() == oauthClient.Status.ObservedGeneration
-	remaining := time.Until(oauthClient.Status.SynchronizationTimestamp.Add(r.Config.SyncInterval))
+	condition := meta.FindStatusCondition(oauthClient.Status.Conditions, stsv1.ConditionReady)
+	specSynced := condition != nil && condition.Status == metav1.ConditionTrue &&
+		condition.ObservedGeneration == oauthClient.GetGeneration()
+	lastSync := oauthClient.Status.SynchronizationTimestamp
 
-	if specUnchanged && remaining > 0 {
-		log.V(4).WithValues(
-			".metadata.generation", oauthClient.GetGeneration(),
-			".status.observedGeneration", oauthClient.Status.ObservedGeneration,
-			"remaining", remaining,
-		).Info("skipping reconciliation")
-		return ctrl.Result{RequeueAfter: remaining}, nil
+	if specSynced && lastSync != nil {
+		if remaining := time.Until(lastSync.Add(r.Config.SyncInterval)); remaining > 0 {
+			log.V(4).WithValues(
+				".metadata.generation", oauthClient.GetGeneration(),
+				"remaining", remaining,
+			).Info("skipping reconciliation")
+			return ctrl.Result{RequeueAfter: remaining}, nil
+		}
 	}
 
-	clientID, err := r.synchronize(ctx, req, oauthClient)
-	if err != nil {
+	if err := r.synchronize(ctx, req, &oauthClient); err != nil {
 		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
-		return ctrl.Result{}, fmt.Errorf("synchronize: %w", err)
+		err = fmt.Errorf("synchronize: %w", err)
+		if statusErr := r.Status().Update(ctx, &oauthClient); statusErr != nil {
+			err = errors.Join(err, fmt.Errorf("updating status: %w", statusErr))
+		}
+		return ctrl.Result{}, err
 	}
 
-	oauthClient.Status.SynchronizationTimestamp = metav1.Now()
-	oauthClient.Status.ObservedGeneration = oauthClient.GetGeneration()
-	oauthClient.Status.ClientID = clientID
+	oauthClient.Status.SynchronizationTimestamp = new(metav1.Now())
+	ready(&oauthClient)
 
-	if err := r.updateOAuthClient(ctx, oauthClient, func(existing *stsv1.OAuthClient) error {
-		existing.Status = oauthClient.Status
-		return r.Status().Update(ctx, existing)
-	}); err != nil {
+	if err := r.Status().Update(ctx, &oauthClient); err != nil {
 		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
 		return ctrl.Result{}, fmt.Errorf("updating status: %w", err)
 	}
@@ -144,26 +128,24 @@ func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{RequeueAfter: r.Config.SyncInterval}, nil
 }
 
-func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Request, oauthClient stsv1.OAuthClient) (string, error) {
+func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Request, oauthClient *stsv1.OAuthClient) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("subsystem", "synchronize")
 
 	registration, err := r.Register(ctx, makeSoftwareStatement(oauthClient))
 	if err != nil {
-		return "", fmt.Errorf("registering client with STS: %w", err)
+		return failed(oauthClient, "Registration with STS failed", fmt.Errorf("registering client with STS: %w", err))
 	}
-	clientID := registration.ClientID
+	// Retain the registration ID even if ConfigMap reconciliation fails, so finalization can clean it up.
+	oauthClient.Status.ClientID = registration.ClientID
 
-	log.Info(fmt.Sprintf("registered %q with STS", clientID))
+	log.Info(fmt.Sprintf("registered %q with STS", registration.ClientID))
 
 	cmName := oauthClient.Spec.ConfigMapName
-	configMap, err := configmap.CreateConfigMapSpec(cmName, req.Namespace, configmap.ConfigMapData{
+	configMap := configmap.Spec(cmName, req.Namespace, configmap.ConfigMapData{
 		AppName:  req.Name,
-		ClientID: clientID,
+		ClientID: registration.ClientID,
 		Issuer:   r.STSIssuer,
 	})
-	if err != nil {
-		return "", fmt.Errorf("creating config map spec: %w", err)
-	}
 
 	target := &corev1.ConfigMap{
 		Name:      cmName,
@@ -174,30 +156,32 @@ func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Reques
 		target.SetLabels(configMap.GetLabels())
 		target.Data = configMap.Data
 
-		return ctrl.SetControllerReference(&oauthClient, target, r.Scheme)
+		return ctrl.SetControllerReference(oauthClient, target, r.Scheme)
 	})
 	if err != nil {
-		return "", fmt.Errorf("creating or updating config map %s: %w", cmName, err)
+		return failed(oauthClient, fmt.Sprintf("ConfigMap %q could not be reconciled", cmName), fmt.Errorf("creating or updating config map %q: %w", cmName, err))
 	}
 
 	if res != controllerutil.OperationResultNone {
 		log.Info(fmt.Sprintf("config map %q %s", cmName, res))
 	}
-	return clientID, nil
+	return nil
 }
 
 // finalize purges relevant resources from external systems (i.e. the STS instances)
-func (r *OAuthClientReconciler) finalize(ctx context.Context, clientId string, oauthClient *stsv1.OAuthClient) error {
+func (r *OAuthClientReconciler) finalize(ctx context.Context, oauthClient *stsv1.OAuthClient) error {
 	if !controllerutil.ContainsFinalizer(oauthClient, finalizer) {
 		return nil
 	}
 
 	log := ctrl.LoggerFrom(ctx).WithValues("subsystem", "finalize")
 
-	if err := r.RegistrationClient.Delete(ctx, clientId); err != nil {
-		return err
+	if clientID := oauthClient.Status.ClientID; clientID != "" {
+		if err := r.RegistrationClient.Delete(ctx, clientID); err != nil {
+			return fmt.Errorf("deleting %q from STS: %w", clientID, err)
+		}
+		log.Info(fmt.Sprintf("deleted %q from STS", clientID))
 	}
-	log.Info(fmt.Sprintf("deleted %q from STS", clientId))
 
 	controllerutil.RemoveFinalizer(oauthClient, finalizer)
 	if err := r.Update(ctx, oauthClient); err != nil {
@@ -208,17 +192,28 @@ func (r *OAuthClientReconciler) finalize(ctx context.Context, clientId string, o
 	return nil
 }
 
-func (r *OAuthClientReconciler) updateOAuthClient(ctx context.Context, oauthClient stsv1.OAuthClient, updateFunc func(existing *stsv1.OAuthClient) error) error {
-	existing := &stsv1.OAuthClient{}
-	err := r.Get(ctx, client.ObjectKey{Namespace: oauthClient.GetNamespace(), Name: oauthClient.GetName()}, existing)
-	if err != nil {
-		return fmt.Errorf("get newest version of OAuthClient: %s", err)
-	}
-
-	return updateFunc(existing)
+func ready(oauthClient *stsv1.OAuthClient) {
+	meta.SetStatusCondition(&oauthClient.Status.Conditions, metav1.Condition{
+		Type:               stsv1.ConditionReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             stsv1.ReasonSucceeded,
+		Message:            "Registration and ConfigMap reconciled",
+		ObservedGeneration: oauthClient.GetGeneration(),
+	})
 }
 
-func makeSoftwareStatement(oauthClient stsv1.OAuthClient) stsapi.SoftwareStatement {
+func failed(oauthClient *stsv1.OAuthClient, message string, err error) error {
+	meta.SetStatusCondition(&oauthClient.Status.Conditions, metav1.Condition{
+		Type:               stsv1.ConditionReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             stsv1.ReasonFailed,
+		Message:            message,
+		ObservedGeneration: oauthClient.GetGeneration(),
+	})
+	return err
+}
+
+func makeSoftwareStatement(oauthClient *stsv1.OAuthClient) stsapi.SoftwareStatement {
 	var policies []stsapi.AuthorizationPolicy
 	for _, acl := range oauthClient.Spec.AccessControlList {
 		for _, workload := range acl.Workloads {
