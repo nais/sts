@@ -1,3 +1,5 @@
 #!/usr/bin/env sh
 #MISE description="Generate source files"
 #MISE depends=["generate:sqlc"]
+
+mise run fmt
