@@ -20,12 +20,14 @@ func (s *Store) Save(ctx context.Context, client *oauth.Client, policies []oauth
 	}
 	return database.WithTx(ctx, s.pool, func(ctx context.Context, queries *sqlgen.Queries) error {
 		_, err := queries.UpsertClient(ctx, sqlgen.UpsertClientParams{
-			ID:            client.ID,
-			Environment:   client.Environment,
-			Namespace:     client.Namespace,
-			Name:          client.Name,
-			Issuer:        client.Issuer,
-			AllowedScopes: client.AllowedScopes,
+			ID:                 client.ID,
+			Environment:        client.Environment,
+			Namespace:          client.Namespace,
+			Name:               client.Name,
+			Issuer:             client.Issuer,
+			AllowedScopes:      client.AllowedScopes,
+			AllowAllConsumers:  client.AllowAllConsumers,
+			ConsumerNamespaces: client.ConsumerNamespaces,
 		})
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("upsert client: %w", err)
@@ -71,6 +73,7 @@ func (s *Store) Save(ctx context.Context, client *oauth.Client, policies []oauth
 		if batchErr != nil {
 			return fmt.Errorf("upsert authorization policy: %w", batchErr)
 		}
+
 		return nil
 	})
 }

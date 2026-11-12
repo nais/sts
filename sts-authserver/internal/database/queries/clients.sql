@@ -65,18 +65,25 @@ INSERT INTO clients(
 	namespace,
 	name,
 	issuer,
-	allowed_scopes)
+	allowed_scopes,
+	allow_all_consumers,
+	consumer_namespaces)
 VALUES (
 	@id,
 	@environment,
 	@namespace,
 	@name,
 	@issuer,
-	@allowed_scopes::TEXT[])
+	@allowed_scopes::TEXT[],
+	@allow_all_consumers,
+	COALESCE(
+		@consumer_namespaces::TEXT[], '{}'))
 ON CONFLICT (
 	id)
 	DO UPDATE SET
 		allowed_scopes = EXCLUDED.allowed_scopes,
+		allow_all_consumers = EXCLUDED.allow_all_consumers,
+		consumer_namespaces = EXCLUDED.consumer_namespaces,
 		issuer = EXCLUDED.issuer,
 		updated_at = NOW()
 	WHERE
@@ -85,6 +92,8 @@ ON CONFLICT (
 		AND clients.name = EXCLUDED.name
 		AND (
 			clients.allowed_scopes IS DISTINCT FROM EXCLUDED.allowed_scopes
+			OR clients.allow_all_consumers IS DISTINCT FROM EXCLUDED.allow_all_consumers
+			OR clients.consumer_namespaces IS DISTINCT FROM EXCLUDED.consumer_namespaces
 			OR clients.issuer IS DISTINCT FROM EXCLUDED.issuer)
 	RETURNING
 		*;

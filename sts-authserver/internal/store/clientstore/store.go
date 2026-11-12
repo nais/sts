@@ -97,17 +97,27 @@ func (s *Store) Get(_ context.Context, claims *jwt.AccessTokenClaims) (*oauth.Cl
 	return toClient(row), nil
 }
 
-func (s *Store) AuthorizeTarget(_ context.Context, consumer oauth.ClientID, target oauth.Target) (oauth.Roles, error) {
+// AuthorizeTarget checks client policies first because only they grant roles,
+// then namespace and allow-all policies. An unknown target never matches.
+// TODO: decide whether namespace and allow-all policies should match the
+// target itself and other clients in its namespace.
+func (s *Store) AuthorizeTarget(_ context.Context, consumer *oauth.Client, target oauth.Target) (oauth.Roles, error) {
 	snapshot, ok := s.snapshot.Current()
 	if !ok {
 		return nil, errors.New("client cache is not initialized")
 	}
-	key := policyKey{owner: target.GetValue(), consumer: string(consumer)}
-	roles, ok := snapshot.policies[key]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", oauth.ErrTargetUnauthorized, key)
+	owner := target.GetValue()
+	key := policyKey{owner: owner, consumer: consumer.ID}
+	if roles, ok := snapshot.policies[key]; ok {
+		return slices.Clone(roles), nil
 	}
-	return slices.Clone(roles), nil
+	if _, ok := snapshot.namespacePolicies[namespacePolicyKey{owner: owner, namespace: consumer.Namespace}]; ok {
+		return nil, nil
+	}
+	if _, ok := snapshot.allowAllOwners[owner]; ok {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("%w: %s", oauth.ErrTargetUnauthorized, key)
 }
 
 // initialize subscribes before loading to avoid missing a write between the

@@ -100,7 +100,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "authorize_target")
-	roles, err := a.ClientStore.AuthorizeTarget(ctx, ClientID(client.ID), target)
+	roles, err := a.ClientStore.AuthorizeTarget(ctx, client, target)
 	finishStep(err)
 	if errors.Is(err, ErrTargetUnauthorized) {
 		return nil, errs.InvalidTarget(err, "client is not authorized for target %q", target.GetValue())

@@ -11,6 +11,10 @@ import (
 type clientSnapshot struct {
 	clients  map[clientKey]sqlgen.Client
 	policies map[policyKey]oauth.Roles
+	// namespacePolicies holds owner IDs paired with authorized consumer namespaces.
+	namespacePolicies map[namespacePolicyKey]struct{}
+	// allowAllOwners holds IDs of clients that authorize every consumer.
+	allowAllOwners map[string]struct{}
 }
 
 func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSnapshot, error) {
@@ -26,10 +30,20 @@ func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSn
 	result := &clientSnapshot{
 		clients:  make(map[clientKey]sqlgen.Client, len(clients)),
 		policies: make(map[policyKey]oauth.Roles, len(policies)),
+
+		namespacePolicies: make(map[namespacePolicyKey]struct{}),
+		allowAllOwners:    make(map[string]struct{}),
 	}
 	for _, client := range clients {
 		result.clients[clientKeyFromRow(client)] = client
+		if client.AllowAllConsumers {
+			result.allowAllOwners[client.ID] = struct{}{}
+		}
+		for _, namespace := range client.ConsumerNamespaces {
+			result.namespacePolicies[namespacePolicyKey{owner: client.ID, namespace: namespace}] = struct{}{}
+		}
 	}
+
 	for _, policy := range policies {
 		result.policies[policyKey{
 			owner:    policy.OwnerClientID,
@@ -60,6 +74,11 @@ type policyKey struct {
 
 func (k policyKey) String() string {
 	return fmt.Sprintf("target %q, consumer %q", k.owner, k.consumer)
+}
+
+type namespacePolicyKey struct {
+	owner     string
+	namespace string
 }
 
 func toClient(row sqlgen.Client) *oauth.Client {

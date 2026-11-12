@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	nethttp "net/http"
+	"slices"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -64,6 +65,8 @@ func (a *Api) PostEndpoint() nethttp.HandlerFunc {
 			slog.String("client_id", string(clientID)),
 			slog.String("registrator_issuer", registrator.AuthIssuer),
 			slog.Int("policy_count", len(ss.AuthorizationPolicies)),
+			slog.Int("consumer_namespace_count", len(ss.ConsumerNamespaces)),
+			slog.Bool("allow_all_consumers", ss.AllowAllConsumers),
 		)
 
 		http.WriteJSON(w, r, &api.ClientRegistrationResponse{
@@ -121,13 +124,18 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 			})
 		}
 	}
+	// Sorting and deduplicating makes reordered registrations unchanged, so
+	// they do not refresh caches.
+	consumerNamespaces := slices.Compact(slices.Sorted(slices.Values(s.ConsumerNamespaces)))
 	err := a.store.Save(ctx, &oauth.Client{
-		ID:            string(clientID),
-		Environment:   string(registrator.Environment),
-		Namespace:     s.Client.Namespace,
-		Name:          s.Client.Name,
-		Issuer:        registrator.AuthIssuer,
-		AllowedScopes: []string{},
+		ID:                 string(clientID),
+		Environment:        string(registrator.Environment),
+		Namespace:          s.Client.Namespace,
+		Name:               s.Client.Name,
+		Issuer:             registrator.AuthIssuer,
+		AllowedScopes:      []string{},
+		AllowAllConsumers:  s.AllowAllConsumers,
+		ConsumerNamespaces: consumerNamespaces,
 	}, policies, registrator.AuthIssuer)
 	if err != nil {
 		if errors.Is(err, oauth.ErrRegistrationUnauthorized) {

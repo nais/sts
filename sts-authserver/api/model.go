@@ -12,6 +12,11 @@ type ClientRegistrationResponse struct {
 type SoftwareStatement struct {
 	Client                Client                `json:"client"`
 	AuthorizationPolicies []AuthorizationPolicy `json:"authorization_policies,omitempty"`
+	// ConsumerNamespaces authorizes every client in these namespaces, in all
+	// environments, without roles.
+	ConsumerNamespaces []string `json:"consumer_namespaces,omitempty"`
+	// AllowAllConsumers authorizes every registered client, without roles.
+	AllowAllConsumers bool `json:"allow_all_consumers,omitempty"`
 }
 
 type Client struct {

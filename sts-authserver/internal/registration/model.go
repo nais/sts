@@ -27,6 +27,12 @@ func (s SoftwareStatement) validate() error {
 			return fmt.Errorf("authorization policy %d consumer: %w", i, err)
 		}
 	}
+
+	for i, namespace := range s.ConsumerNamespaces {
+		if err := oauth.Name(namespace).Validate(); err != nil {
+			return fmt.Errorf("consumer namespace %d: %w", i, err)
+		}
+	}
 	return nil
 }
 

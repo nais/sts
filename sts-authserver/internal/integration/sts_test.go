@@ -220,6 +220,66 @@ func TestSts(t *testing.T) {
 			require.Equal(t, http.StatusNoContent, status)
 		})
 
+		t.Run("authorizes wildcard policy consumers without roles", func(t *testing.T) {
+			namespaceConsumer := newClientFixture("env2", "wildcard-team", "consumer")
+			otherConsumer := newClientFixture("env2", "other-team", "consumer")
+			for _, consumer := range []clientFixture{namespaceConsumer, otherConsumer} {
+				status, response := postRegistration[api.ClientRegistrationResponse](t, stsAddress, otherRegistratorToken, api.ClientRegistration{
+					SoftwareStatement: signSoftwareStatement(t, api.SoftwareStatement{Client: consumer.apiClient()}),
+				})
+				require.Equal(t, http.StatusOK, status, response)
+			}
+
+			target := statement
+			target.Client.Name = "wildcard-target"
+			targetClientID := "env1:namespace1:wildcard-target"
+			target.AuthorizationPolicies = nil
+			target.ConsumerNamespaces = []string{"wildcard-team"}
+			register := func(allowAll bool) {
+				t.Helper()
+				target.AllowAllConsumers = allowAll
+				status, response := postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{
+					SoftwareStatement: signSoftwareStatement(t, target),
+				})
+				require.Equal(t, http.StatusOK, status, response)
+			}
+			register(false)
+
+			subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, "subject1")
+			namespaceAssertion := getClientToken(t, oauthServer, namespaceConsumer)
+			for grant, form := range map[string]url.Values{
+				"client credentials": clientCredentialsForm(namespaceAssertion, targetClientID),
+				"token exchange":     tokenExchangeForm(namespaceAssertion, subjectToken, targetClientID),
+			} {
+				t.Run(grant, func(t *testing.T) {
+					token := stsToken[oauth.AccessTokenResponse](t, stsAddress, form)
+					claims := assertTokenClaims(t, stsAddress, token, targetClientID, namespaceConsumer.ID, func(*oauth.STSTokenClaims) {}, oauth.Roles(nil))
+					assert.NotContains(t, claims.Claims, "urn:nais:roles")
+				})
+			}
+
+			otherAssertion := getClientToken(t, oauthServer, otherConsumer)
+			denial := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(otherAssertion, targetClientID))
+			require.Equal(t, "invalid_target", denial.Code)
+
+			register(true)
+			assert.Eventually(t, func() bool {
+				// A success response decodes as an error response without a code.
+				return stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(otherAssertion, targetClientID)).Code == ""
+			}, 5*time.Second, 10*time.Millisecond)
+
+			register(false)
+			assertTokenDenialAfterRefresh(t, stsAddress, clientCredentialsForm(otherAssertion, targetClientID),
+				"invalid_target", fmt.Sprintf("client is not authorized for target %q", targetClientID))
+
+			status, _ := deleteRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, targetClientID)
+			require.Equal(t, http.StatusNoContent, status)
+			for _, consumer := range []clientFixture{namespaceConsumer, otherConsumer} {
+				status, _ = deleteRegistration[errs.ErrorResponse](t, stsAddress, otherRegistratorToken, consumer.ID)
+				require.Equal(t, http.StatusNoContent, status)
+			}
+		})
+
 		t.Run("consumer cannot grant itself access to another target", func(t *testing.T) {
 			selfGrant := statement
 			selfGrant.Client.Name = "self-grant-workload"
