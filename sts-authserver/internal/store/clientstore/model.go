@@ -36,10 +36,10 @@ func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSn
 	}
 	for _, client := range clients {
 		result.clients[clientKeyFromRow(client)] = client
-		if client.AllowAllConsumers {
+		if client.AllowAll {
 			result.allowAllOwners[client.ID] = struct{}{}
 		}
-		for _, namespace := range client.AllowedConsumerNamespaces {
+		for _, namespace := range client.AllowedNamespaces {
 			result.namespacePolicies[namespacePolicyKey{owner: client.ID, namespace: namespace}] = struct{}{}
 		}
 	}

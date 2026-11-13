@@ -234,10 +234,10 @@ func TestSts(t *testing.T) {
 			target.Client.Name = "wildcard-target"
 			targetClientID := "env1:namespace1:wildcard-target"
 			target.AuthorizationPolicies = nil
-			target.AllowedConsumerNamespaces = []string{"wildcard-team"}
+			target.AllowedNamespaces = []string{"wildcard-team"}
 			register := func(allowAll bool) {
 				t.Helper()
-				target.AllowAllConsumers = allowAll
+				target.AllowAll = allowAll
 				status, response := postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{
 					SoftwareStatement: signSoftwareStatement(t, target),
 				})

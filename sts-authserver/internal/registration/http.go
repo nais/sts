@@ -65,8 +65,8 @@ func (a *Api) PostEndpoint() nethttp.HandlerFunc {
 			slog.String("client_id", string(clientID)),
 			slog.String("registrator_issuer", registrator.AuthIssuer),
 			slog.Int("policy_count", len(ss.AuthorizationPolicies)),
-			slog.Int("allowed_consumer_namespace_count", len(ss.AllowedConsumerNamespaces)),
-			slog.Bool("allow_all_consumers", ss.AllowAllConsumers),
+			slog.Int("allowed_namespace_count", len(ss.AllowedNamespaces)),
+			slog.Bool("allow_all", ss.AllowAll),
 		)
 
 		http.WriteJSON(w, r, &api.ClientRegistrationResponse{
@@ -126,16 +126,16 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 	}
 	// Sorting and deduplicating makes reordered registrations unchanged, so
 	// they do not refresh caches.
-	allowedConsumerNamespaces := slices.Compact(slices.Sorted(slices.Values(s.AllowedConsumerNamespaces)))
+	allowedNamespaces := slices.Compact(slices.Sorted(slices.Values(s.AllowedNamespaces)))
 	err := a.store.Save(ctx, &oauth.Client{
-		ID:                        string(clientID),
-		Environment:               string(registrator.Environment),
-		Namespace:                 s.Client.Namespace,
-		Name:                      s.Client.Name,
-		Issuer:                    registrator.AuthIssuer,
-		AllowedScopes:             []string{},
-		AllowAllConsumers:         s.AllowAllConsumers,
-		AllowedConsumerNamespaces: allowedConsumerNamespaces,
+		ID:                string(clientID),
+		Environment:       string(registrator.Environment),
+		Namespace:         s.Client.Namespace,
+		Name:              s.Client.Name,
+		Issuer:            registrator.AuthIssuer,
+		AllowedScopes:     []string{},
+		AllowAll:          s.AllowAll,
+		AllowedNamespaces: allowedNamespaces,
 	}, policies, registrator.AuthIssuer)
 	if err != nil {
 		if errors.Is(err, oauth.ErrRegistrationUnauthorized) {

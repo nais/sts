@@ -325,12 +325,12 @@ func testAuthorizeTarget(t *testing.T, pool *pgxpool.Pool) {
 	otherNamespace := newClient("env1", "team-b", "other")
 
 	namespaceTarget := newClient("env1", "target", "namespace")
-	namespaceTarget.AllowedConsumerNamespaces = []string{"team-a"}
+	namespaceTarget.AllowedNamespaces = []string{"team-a"}
 	require.NoError(t, writer.Save(t.Context(), namespaceTarget, []oauth.AuthorizationPolicy{
 		{Consumer: oauth.ClientID(exactWithRoles.ID), Roles: oauth.Roles{"reader"}},
 	}, namespaceTarget.Issuer))
 	allTarget := newClient("env1", "target", "all")
-	allTarget.AllowAllConsumers = true
+	allTarget.AllowAll = true
 	require.NoError(t, writer.Save(t.Context(), allTarget, []oauth.AuthorizationPolicy{
 		{Consumer: oauth.ClientID(exactWithRoles.ID), Roles: oauth.Roles{"writer"}},
 	}, allTarget.Issuer))
@@ -391,8 +391,8 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 
 	run("replaces policies, scopes and allow-all", func(t *testing.T) {
 		client := testClient("old-scope")
-		client.AllowAllConsumers = true
-		client.AllowedConsumerNamespaces = []string{"old-namespace", "retained-namespace"}
+		client.AllowAll = true
+		client.AllowedNamespaces = []string{"old-namespace", "retained-namespace"}
 		oldPolicies := []oauth.AuthorizationPolicy{
 			{Owner: oauth.ClientID(client.ID), Consumer: oldConsumer, Roles: oauth.Roles{"old-role"}},
 			{Owner: oauth.ClientID(client.ID), Consumer: retainedConsumer, Roles: oauth.Roles{"old-role"}},
@@ -400,7 +400,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		require.NoError(t, clients.Save(t.Context(), client, oldPolicies, client.Issuer))
 
 		replacement := testClient("new-scope")
-		replacement.AllowedConsumerNamespaces = []string{"new-namespace", "retained-namespace"}
+		replacement.AllowedNamespaces = []string{"new-namespace", "retained-namespace"}
 		newPolicies := []oauth.AuthorizationPolicy{
 			{Owner: oauth.ClientID(client.ID), Consumer: retainedConsumer, Roles: oauth.Roles{"new-role"}},
 			{Owner: oauth.ClientID(client.ID), Consumer: newConsumer, Roles: oauth.Roles{"new-role"}},
@@ -413,8 +413,8 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		})
 		stored, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.NoError(t, err)
-		require.False(t, stored.AllowAllConsumers)
-		require.Equal(t, replacement.AllowedConsumerNamespaces, stored.AllowedConsumerNamespaces)
+		require.False(t, stored.AllowAll)
+		require.Equal(t, replacement.AllowedNamespaces, stored.AllowedNamespaces)
 	})
 
 	run("rolls back on policy failure", func(t *testing.T) {
@@ -496,18 +496,18 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 			}},
 			{name: "identical registration after removing policies"},
 			{name: "adds consumer namespaces", want: 1, change: func() {
-				client.AllowedConsumerNamespaces = []string{"team-a", "team-b"}
+				client.AllowedNamespaces = []string{"team-a", "team-b"}
 			}},
 			{name: "identical registration with consumer namespaces"},
 			{name: "removes consumer namespaces", want: 1, change: func() {
-				client.AllowedConsumerNamespaces = nil
+				client.AllowedNamespaces = nil
 			}},
 			{name: "allows all consumers", want: 1, change: func() {
-				client.AllowAllConsumers = true
+				client.AllowAll = true
 			}},
 			{name: "identical registration allowing all consumers"},
 			{name: "disallows all consumers", want: 1, change: func() {
-				client.AllowAllConsumers = false
+				client.AllowAll = false
 			}},
 		}
 		for _, step := range steps {

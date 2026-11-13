@@ -15,7 +15,7 @@ func TestSoftwareStatementValidate(t *testing.T) {
 				Consumer: api.Client{Namespace: "team-b", Name: "workload-2"},
 				Roles:    []string{"reader", "writer"},
 			}},
-			AllowedConsumerNamespaces: []string{"team-c", "team-d"},
+			AllowedNamespaces: []string{"team-c", "team-d"},
 		}
 	}
 
@@ -42,9 +42,9 @@ func TestSoftwareStatementValidate(t *testing.T) {
 		"empty roles": {
 			mutate: func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = []string{} },
 		},
-		"invalid consumer namespace": {
-			mutate:  func(s *SoftwareStatement) { s.AllowedConsumerNamespaces[1] = "*" },
-			wantErr: "consumer namespace 1",
+		"invalid allowed namespace": {
+			mutate:  func(s *SoftwareStatement) { s.AllowedNamespaces[1] = "*" },
+			wantErr: "allowed namespace 1",
 		},
 	}
 

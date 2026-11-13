@@ -28,9 +28,9 @@ func (s SoftwareStatement) validate() error {
 		}
 	}
 
-	for i, namespace := range s.AllowedConsumerNamespaces {
+	for i, namespace := range s.AllowedNamespaces {
 		if err := oauth.Name(namespace).Validate(); err != nil {
-			return fmt.Errorf("consumer namespace %d: %w", i, err)
+			return fmt.Errorf("allowed namespace %d: %w", i, err)
 		}
 	}
 	return nil

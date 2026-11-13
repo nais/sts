@@ -12,12 +12,12 @@ type ClientRegistrationResponse struct {
 type SoftwareStatement struct {
 	Client                Client                `json:"client"`
 	AuthorizationPolicies []AuthorizationPolicy `json:"authorization_policies,omitempty"`
-	// AllowedConsumerNamespaces authorizes every client in these namespaces, in all
+	// AllowedNamespaces authorizes every client in these namespaces, in all
 	// environments, without roles. Matching client policies still grant their roles.
-	AllowedConsumerNamespaces []string `json:"allowed_consumer_namespaces,omitempty"`
-	// AllowAllConsumers authorizes every registered client, without roles.
+	AllowedNamespaces []string `json:"allowed_namespaces,omitempty"`
+	// AllowAll authorizes every registered client, without roles.
 	// Matching client policies still grant their roles when this is enabled.
-	AllowAllConsumers bool `json:"allow_all_consumers,omitempty"`
+	AllowAll bool `json:"allow_all,omitempty"`
 }
 
 type Client struct {
