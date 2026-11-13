@@ -45,7 +45,7 @@ func (s *STSTokenClaims) Sign(signer *jwk.Signer) (string, error) {
 }
 
 func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[jwt.Issuer]string, expiresIn time.Duration, result *AuthorizationResult) (*STSTokenClaims, error) {
-	subject := result.Client.ID
+	subject := string(result.Client.ID)
 	var subjectTokenClaims map[string]json.RawMessage
 
 	if result.SubjectTokenClaims != nil {
@@ -64,7 +64,7 @@ func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[jwt.Issuer]
 		Issuer:     string(issuer),
 		Subject:    subject,
 		Audience:   result.Target.AsAudience(),
-		ClientID:   result.Client.ID,
+		ClientID:   string(result.Client.ID),
 		JWTID:      jti,
 		Expiration: exp,
 		IssuedAt:   iat,
@@ -78,7 +78,7 @@ func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[jwt.Issuer]
 	if result.GrantType == oidc.GrantTypeTokenExchange {
 		subjectIssuer := jwt.Issuer(result.SubjectTokenClaims.Issuer)
 		stsTokenClaims.Actor = &ActorClaims{
-			ClientID: result.Client.ID,
+			ClientID: string(result.Client.ID),
 		}
 
 		// ignore existing `act` claim for externally issued subject tokens

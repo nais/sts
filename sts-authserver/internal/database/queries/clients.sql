@@ -21,15 +21,6 @@ FOR UPDATE;
 DELETE FROM clients
 WHERE id = @id;
 
--- name: GetAuthorizationPolicy :one
-SELECT
-	*
-FROM
-	authorization_policies
-WHERE
-	owner_client_id = @owner_client_id
-	AND consumer_client_id = @consumer_client_id;
-
 -- name: ListClients :many
 SELECT
 	*
@@ -38,26 +29,6 @@ FROM
 ORDER BY
 	id;
 
--- name: ListAuthorizationPolicies :many
-SELECT
-	*
-FROM
-	authorization_policies
-ORDER BY
-	owner_client_id,
-	consumer_client_id;
-
--- name: ListAuthorizationPoliciesByOwner :many
-SELECT
-	*
-FROM
-	authorization_policies
-WHERE
-	owner_client_id = @owner_client_id
-ORDER BY
-	owner_client_id,
-	consumer_client_id;
-
 -- name: UpsertClient :one
 INSERT INTO clients(
 	id,
@@ -65,18 +36,18 @@ INSERT INTO clients(
 	namespace,
 	name,
 	issuer,
-	allowed_scopes)
+	authorization_policy)
 VALUES (
 	@id,
 	@environment,
 	@namespace,
 	@name,
 	@issuer,
-	@allowed_scopes::TEXT[])
+	@authorization_policy::JSONB)
 ON CONFLICT (
 	id)
 	DO UPDATE SET
-		allowed_scopes = EXCLUDED.allowed_scopes,
+		authorization_policy = EXCLUDED.authorization_policy,
 		issuer = EXCLUDED.issuer,
 		updated_at = NOW()
 	WHERE
@@ -84,51 +55,8 @@ ON CONFLICT (
 		AND clients.namespace = EXCLUDED.namespace
 		AND clients.name = EXCLUDED.name
 		AND (
-			clients.allowed_scopes IS DISTINCT FROM EXCLUDED.allowed_scopes
+			clients.authorization_policy IS DISTINCT FROM EXCLUDED.authorization_policy
 			OR clients.issuer IS DISTINCT FROM EXCLUDED.issuer)
 	RETURNING
 		*;
-
--- name: DeleteAuthorizationPolicies :exec
-DELETE FROM authorization_policies
-WHERE owner_client_id = @owner_client_id;
-
--- name: DeleteOrphanedAuthorizationPolicies :exec
-DELETE FROM authorization_policies
-WHERE owner_client_id = @owner_client_id
-	AND consumer_client_id = ANY (@orphaned_ids::TEXT[]);
-
--- name: BatchUpsertAuthorizationPolicy :batchexec
-INSERT INTO authorization_policies(
-	owner_client_id,
-	consumer_client_id,
-	roles)
-VALUES (
-	@owner_client_id,
-	@consumer_client_id,
-	@roles::TEXT[])
-ON CONFLICT (
-	owner_client_id,
-	consumer_client_id)
-	DO UPDATE SET
-		roles = EXCLUDED.roles
-	WHERE
-		authorization_policies.roles IS DISTINCT FROM EXCLUDED.roles;
-
--- name: UpsertAuthorizationPolicy :exec
-INSERT INTO authorization_policies(
-	owner_client_id,
-	consumer_client_id,
-	roles)
-VALUES (
-	@owner_client_id,
-	@consumer_client_id,
-	@roles::TEXT[])
-ON CONFLICT (
-	owner_client_id,
-	consumer_client_id)
-	DO UPDATE SET
-		roles = EXCLUDED.roles
-	WHERE
-		authorization_policies.roles IS DISTINCT FROM EXCLUDED.roles;
 

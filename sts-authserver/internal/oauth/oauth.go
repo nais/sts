@@ -100,7 +100,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "authorize_target")
-	roles, err := a.ClientStore.AuthorizeTarget(ctx, ClientID(client.ID), target)
+	roles, err := a.ClientStore.AuthorizeTarget(ctx, client, target)
 	finishStep(err)
 	if errors.Is(err, ErrTargetUnauthorized) {
 		return nil, errs.InvalidTarget(err, "client is not authorized for target %q", target.GetValue())
@@ -171,7 +171,7 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr {
 	attrs := []slog.Attr{
 		slog.String("grant_type", string(result.GrantType)),
-		slog.String("client_id", result.Client.ID),
+		slog.String("client_id", string(result.Client.ID)),
 		slog.String("target_type", result.Target.GetType()),
 		slog.String("target", result.Target.GetValue()),
 		slog.Int("role_count", len(result.Roles)),
@@ -214,7 +214,7 @@ func (a *AuthorizationServer) verifySubjectToken(ctx context.Context, request To
 			return fmt.Errorf("grant_type claim is invalid: got %q, want %q", grantType, oidc.GrantTypeTokenExchange)
 		}
 
-		if !slices.Contains(claims.Audience, client.ID) {
+		if !slices.Contains(claims.Audience, string(client.ID)) {
 			return fmt.Errorf("subject token audience %q does not contain client_id %q", claims.Audience, client.ID)
 		}
 		return nil

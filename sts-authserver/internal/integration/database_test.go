@@ -96,12 +96,12 @@ func testWithTx(t *testing.T, pool *pgxpool.Pool) {
 
 	params := func(workload string) sqlgen.UpsertClientParams {
 		return sqlgen.UpsertClientParams{
-			ID:            "environment:namespace:" + workload,
-			Environment:   "environment",
-			Namespace:     "namespace",
-			Name:          workload,
-			Issuer:        "https://issuer.example",
-			AllowedScopes: []string{"scope"},
+			ID:                  oauth.ClientID("environment:namespace:" + workload),
+			Environment:         "environment",
+			Namespace:           "namespace",
+			Name:                workload,
+			Issuer:              "https://issuer.example",
+			AuthorizationPolicy: oauth.AuthorizationPolicy{AllowedScopes: []string{"scope"}},
 		}
 	}
 	get := func(workload string) (sqlgen.Client, error) {
@@ -296,7 +296,7 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			client, err := cached.Get(t.Context(), testClientClaims())
-			return err == nil && len(client.AllowedScopes) == 1 && client.AllowedScopes[0] == "new-scope"
+			return err == nil && len(client.AuthorizationPolicy.AllowedScopes) == 1 && client.AuthorizationPolicy.AllowedScopes[0] == "new-scope"
 		}, 5*time.Second, 10*time.Millisecond)
 	})
 }
@@ -308,11 +308,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 	require.NoError(t, err)
 	defer clients.Close()
 	queries := sqlgen.New(pool)
-	oldConsumer := oauth.NewClientID("environment", "namespace", "old-consumer")
-	retainedConsumer := oauth.NewClientID("environment", "namespace", "retained-consumer")
-	newConsumer := oauth.NewClientID("environment", "namespace", "new-consumer")
 	consumer := oauth.NewClientID("environment", "namespace", "consumer")
-	missingClient := oauth.NewClientID("environment", "namespace", "missing")
 
 	run := func(name string, test func(*testing.T)) {
 		t.Run(name, func(t *testing.T) {
@@ -321,56 +317,16 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		})
 	}
 
-	run("replaces policies and scopes", func(t *testing.T) {
-		client := testClient("old-scope")
-		oldPolicies := []oauth.AuthorizationPolicy{
-			{Owner: oauth.ClientID(client.ID), Consumer: oldConsumer, Roles: oauth.Roles{"old-role"}},
-			{Owner: oauth.ClientID(client.ID), Consumer: retainedConsumer, Roles: oauth.Roles{"old-role"}},
-		}
-		require.NoError(t, clients.Save(t.Context(), client, oldPolicies, client.Issuer))
-
-		replacement := testClient("new-scope")
-		newPolicies := []oauth.AuthorizationPolicy{
-			{Owner: oauth.ClientID(client.ID), Consumer: retainedConsumer, Roles: oauth.Roles{"new-role"}},
-			{Owner: oauth.ClientID(client.ID), Consumer: newConsumer, Roles: oauth.Roles{"new-role"}},
-		}
-		require.NoError(t, clients.Save(t.Context(), replacement, newPolicies, client.Issuer))
-
-		assertStoredRegistration(t, queries, client.ID, replacement.AllowedScopes, []sqlgen.AuthorizationPolicy{
-			{OwnerClientID: client.ID, ConsumerClientID: string(newConsumer), Roles: []string{"new-role"}},
-			{OwnerClientID: client.ID, ConsumerClientID: string(retainedConsumer), Roles: []string{"new-role"}},
-		})
-	})
-
-	run("rolls back on policy failure", func(t *testing.T) {
-		client := testClient("old-scope")
-		oldPolicies := []oauth.AuthorizationPolicy{{Owner: oauth.ClientID(client.ID), Consumer: consumer, Roles: oauth.Roles{"old-role"}}}
-		require.NoError(t, clients.Save(t.Context(), client, oldPolicies, client.Issuer))
-
-		replacement := testClient("new-scope")
-		// The store must remain atomic even if a caller bypasses software-statement validation.
-		invalidPolicies := []oauth.AuthorizationPolicy{{Owner: oauth.ClientID(client.ID), Consumer: "invalid\x00consumer", Roles: oauth.Roles{"new-role"}}}
-		require.Error(t, clients.Save(t.Context(), replacement, invalidPolicies, client.Issuer))
-
-		assertStoredRegistration(t, queries, client.ID, client.AllowedScopes, []sqlgen.AuthorizationPolicy{
-			{OwnerClientID: client.ID, ConsumerClientID: string(consumer), Roles: []string{"old-role"}},
-		})
-	})
-
-	run("updates issuer without changing scopes", func(t *testing.T) {
+	run("updates issuer", func(t *testing.T) {
 		client := testClient("scope")
-		policies := []oauth.AuthorizationPolicy{{Owner: oauth.ClientID(client.ID), Consumer: consumer, Roles: oauth.Roles{"reader"}}}
-		require.NoError(t, clients.Save(t.Context(), client, policies, client.Issuer))
+		require.NoError(t, clients.Save(t.Context(), client, client.Issuer))
 
 		client.Issuer = "https://new-issuer.example"
-		require.NoError(t, clients.Save(t.Context(), client, policies, client.Issuer))
+		require.NoError(t, clients.Save(t.Context(), client, client.Issuer))
 
 		stored, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.NoError(t, err)
 		require.Equal(t, client.Issuer, stored.Issuer)
-		assertStoredRegistration(t, queries, client.ID, client.AllowedScopes, []sqlgen.AuthorizationPolicy{
-			{OwnerClientID: client.ID, ConsumerClientID: string(consumer), Roles: []string{"reader"}},
-		})
 	})
 
 	run("notifies only when registration changes", func(t *testing.T) {
@@ -384,42 +340,28 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		require.NoError(t, err)
 
 		client := testClient()
-		client.AllowedScopes = []string{} // Matches HTTP registration.
-		var policies []oauth.AuthorizationPolicy
+		client.AuthorizationPolicy.AllowedScopes = []string{} // Matches HTTP registration.
+		policy := &client.AuthorizationPolicy
 		steps := []struct {
 			name   string
 			change func()
 			want   int
 		}{
 			{name: "initial registration", want: 1},
-			{name: "identical registration without policies"},
-			{name: "adds policies", want: 1, change: func() {
-				policies = []oauth.AuthorizationPolicy{
-					{Consumer: consumer, Roles: oauth.Roles{"reader"}},
-					{Consumer: newConsumer, Roles: oauth.Roles{"writer"}},
-				}
+			{name: "identical registration without policy"},
+			{name: "adds policy", want: 1, change: func() {
+				policy.Clients = []oauth.AuthorizedClient{{ClientID: consumer, Roles: oauth.Roles{"reader"}}}
+				policy.AllowedNamespaces = []string{"team-a"}
+				policy.AllowAll = true
 			}},
-			{name: "identical registration with policies"},
-			{name: "reorders policies", change: func() {
-				policies[0], policies[1] = policies[1], policies[0]
-			}},
-			{name: "changes roles", want: 1, change: func() {
-				policies[0].Roles = oauth.Roles{"admin"}
-			}},
-			{name: "changes scopes", want: 1, change: func() {
-				client.AllowedScopes = []string{"scope"}
-			}},
+			{name: "identical registration with policy"},
 			{name: "changes issuer", want: 1, change: func() {
 				client.Issuer = "https://new-issuer.example"
 			}},
-			{name: "removes one policy", want: 1, change: func() {
-				policies = policies[:1]
+			{name: "removes policy", want: 1, change: func() {
+				*policy = oauth.AuthorizationPolicy{AllowedScopes: []string{}}
 			}},
-			{name: "identical registration after changes"},
-			{name: "removes all policies", want: 1, change: func() {
-				policies = nil
-			}},
-			{name: "identical registration after removing policies"},
+			{name: "identical registration after removing policy"},
 		}
 		for _, step := range steps {
 			// These steps intentionally build on the preceding registration.
@@ -430,7 +372,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 			if step.name != "initial registration" {
 				require.NoError(t, err)
 			}
-			require.NoError(t, clients.Save(t.Context(), client, policies, client.Issuer), step.name)
+			require.NoError(t, clients.Save(t.Context(), client, client.Issuer), step.name)
 
 			// This marker commits after Save. Reading through it checks for absent
 			// or duplicate notifications without relying on a timeout for silence.
@@ -458,81 +400,45 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 
 	run("rejects issuer outside authority", func(t *testing.T) {
 		client := testClient("scope")
-		require.ErrorIs(t, clients.Save(t.Context(), client, nil, "https://other.example"), oauth.ErrRegistrationUnauthorized)
+		require.ErrorIs(t, clients.Save(t.Context(), client, "https://other.example"), oauth.ErrRegistrationUnauthorized)
 
 		_, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.ErrorIs(t, err, pgx.ErrNoRows)
 	})
-
-	run("deletes clients", func(t *testing.T) {
-		// Deleting the missing client succeeds.
-		require.NoError(t, clients.Delete(t.Context(), missingClient, "https://issuer.example"))
-
-		// Another issuer cannot delete this client or its policy for consumer.
-		client := testClient("scope")
-		policy := oauth.AuthorizationPolicy{Owner: oauth.ClientID(client.ID), Consumer: consumer, Roles: oauth.Roles{"reader"}}
-		require.NoError(t, clients.Save(t.Context(), client, []oauth.AuthorizationPolicy{policy}, client.Issuer))
-		require.ErrorIs(t, clients.Delete(t.Context(), oauth.ClientID(client.ID), "https://other.example"), oauth.ErrRegistrationUnauthorized)
-
-		// Read PostgreSQL directly so a stale cache cannot hide a deleted client or policy.
-		assertStoredRegistration(t, queries, client.ID, client.AllowedScopes, []sqlgen.AuthorizationPolicy{
-			{OwnerClientID: client.ID, ConsumerClientID: string(consumer), Roles: []string{"reader"}},
-		})
-
-		// The client's issuer can delete both the client and its policy for consumer.
-		require.NoError(t, clients.Delete(t.Context(), oauth.ClientID(client.ID), client.Issuer))
-		_, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
-		require.ErrorIs(t, err, pgx.ErrNoRows)
-
-		_, err = queries.GetAuthorizationPolicy(t.Context(), sqlgen.GetAuthorizationPolicyParams{
-			OwnerClientID: client.ID, ConsumerClientID: string(consumer),
-		})
-		require.ErrorIs(t, err, pgx.ErrNoRows)
-	})
-}
-
-func assertStoredRegistration(t *testing.T, queries *sqlgen.Queries, clientID string, scopes []string, policies []sqlgen.AuthorizationPolicy) {
-	t.Helper()
-	stored, err := queries.GetClientByIDForUpdate(t.Context(), clientID)
-	require.NoError(t, err)
-	require.Equal(t, scopes, stored.AllowedScopes)
-	storedPolicies, err := queries.ListAuthorizationPolicies(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, policies, storedPolicies)
 }
 
 func resetDatabase(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
-	_, err := pool.Exec(t.Context(), "TRUNCATE authorization_policies, clients, rotatable_signing_keys")
+	_, err := pool.Exec(t.Context(), "TRUNCATE clients, rotatable_signing_keys")
 	require.NoError(t, err)
 }
 
 func resetClients(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
-	_, err := pool.Exec(t.Context(), "TRUNCATE authorization_policies, clients")
+	_, err := pool.Exec(t.Context(), "TRUNCATE clients")
 	require.NoError(t, err)
 }
 
 func testClient(scopes ...string) *oauth.Client {
-	return &oauth.Client{Client: sqlgen.Client{
-		ID:            string(oauth.NewClientID("environment", "namespace", "workload")),
-		Environment:   "environment",
-		Namespace:     "namespace",
-		Name:          "workload",
-		Issuer:        "https://issuer.example",
-		AllowedScopes: scopes,
-	}}
+	return &oauth.Client{
+		ID:                  oauth.NewClientID("environment", "namespace", "workload"),
+		Environment:         "environment",
+		Namespace:           "namespace",
+		Name:                "workload",
+		Issuer:              "https://issuer.example",
+		AuthorizationPolicy: oauth.AuthorizationPolicy{AllowedScopes: scopes},
+	}
 }
 
 func testClientParams(scopes ...string) sqlgen.UpsertClientParams {
 	client := testClient(scopes...)
 	return sqlgen.UpsertClientParams{
-		ID:            client.ID,
-		Environment:   client.Environment,
-		Namespace:     client.Namespace,
-		Name:          client.Name,
-		Issuer:        client.Issuer,
-		AllowedScopes: client.AllowedScopes,
+		ID:                  client.ID,
+		Environment:         client.Environment,
+		Namespace:           client.Namespace,
+		Name:                client.Name,
+		Issuer:              client.Issuer,
+		AuthorizationPolicy: client.AuthorizationPolicy,
 	}
 }
 

@@ -41,9 +41,11 @@ func TestRegistratorVerifiesAPIClientStatement(t *testing.T) {
 	})
 	statement := api.SoftwareStatement{
 		Client: api.Client{Namespace: "team-a", Name: "app-a"},
-		AuthorizationPolicies: []api.AuthorizationPolicy{
-			{Consumer: api.Client{Namespace: "team-b", Name: "app-b"}, Roles: []string{"reader"}},
-			{Consumer: api.Client{Namespace: "team-c", Name: "app-c"}},
+		AuthorizationPolicy: api.AuthorizationPolicy{
+			Clients: []api.AuthorizedClient{
+				{Client: api.Client{Namespace: "team-b", Name: "app-b"}, Roles: []string{"reader"}},
+				{Client: api.Client{Namespace: "team-c", Name: "app-c"}},
+			},
 		},
 	}
 	_, err = client.Register(t.Context(), statement)

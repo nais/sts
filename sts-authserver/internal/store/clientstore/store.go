@@ -93,21 +93,31 @@ func (s *Store) Get(_ context.Context, claims *jwt.AccessTokenClaims) (*oauth.Cl
 		return nil, fmt.Errorf("%w: %s", oauth.ErrClientNotFound, key)
 	}
 
-	row.AllowedScopes = slices.Clone(row.AllowedScopes)
 	return toClient(row), nil
 }
 
-func (s *Store) AuthorizeTarget(_ context.Context, consumer oauth.ClientID, target oauth.Target) (oauth.Roles, error) {
+func (s *Store) AuthorizeTarget(_ context.Context, consumer *oauth.Client, target oauth.Target) (oauth.Roles, error) {
 	snapshot, ok := s.snapshot.Current()
 	if !ok {
 		return nil, errors.New("client cache is not initialized")
 	}
-	key := policyKey{owner: target.GetValue(), consumer: string(consumer)}
-	roles, ok := snapshot.policies[key]
+	owner := target.GetValue()
+
+	p, ok := snapshot.policies[oauth.ClientID(owner)]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", oauth.ErrTargetUnauthorized, key)
+		return nil, fmt.Errorf("%w: target %q not found", oauth.ErrTargetUnauthorized, owner)
 	}
-	return slices.Clone(roles), nil
+	if roles, ok := p.clients[consumer.ID]; ok {
+		return slices.Clone(roles), nil
+	}
+	if _, ok := p.namespaces[consumer.Namespace]; ok {
+		return nil, nil
+	}
+	if p.allowAll {
+		return nil, nil
+	}
+
+	return nil, fmt.Errorf("%w: %s", oauth.ErrTargetUnauthorized, target.GetValue())
 }
 
 // initialize subscribes before loading to avoid missing a write between the

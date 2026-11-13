@@ -4,22 +4,17 @@ package sqlgen
 
 import (
 	"context"
+
+	"github.com/nais/sts/internal/oauth"
 )
 
 type Querier interface {
-	BatchUpsertAuthorizationPolicy(ctx context.Context, arg []BatchUpsertAuthorizationPolicyParams) *BatchUpsertAuthorizationPolicyBatchResults
-	DeleteAuthorizationPolicies(ctx context.Context, ownerClientID string) error
-	DeleteClient(ctx context.Context, id string) error
-	DeleteOrphanedAuthorizationPolicies(ctx context.Context, arg DeleteOrphanedAuthorizationPoliciesParams) error
-	GetAuthorizationPolicy(ctx context.Context, arg GetAuthorizationPolicyParams) (AuthorizationPolicy, error)
+	DeleteClient(ctx context.Context, id oauth.ClientID) error
 	GetClient(ctx context.Context, arg GetClientParams) (Client, error)
-	GetClientByIDForUpdate(ctx context.Context, id string) (Client, error)
+	GetClientByIDForUpdate(ctx context.Context, id oauth.ClientID) (Client, error)
 	GetSigningKeySet(ctx context.Context) (RotatableSigningKey, error)
-	ListAuthorizationPolicies(ctx context.Context) ([]AuthorizationPolicy, error)
-	ListAuthorizationPoliciesByOwner(ctx context.Context, ownerClientID string) ([]AuthorizationPolicy, error)
 	ListClients(ctx context.Context) ([]Client, error)
 	SaveSigningKeySet(ctx context.Context, arg SaveSigningKeySetParams) error
-	UpsertAuthorizationPolicy(ctx context.Context, arg UpsertAuthorizationPolicyParams) error
 	UpsertClient(ctx context.Context, arg UpsertClientParams) (Client, error)
 }
 

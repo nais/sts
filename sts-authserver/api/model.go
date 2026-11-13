@@ -10,8 +10,8 @@ type ClientRegistrationResponse struct {
 }
 
 type SoftwareStatement struct {
-	Client                Client                `json:"client"`
-	AuthorizationPolicies []AuthorizationPolicy `json:"authorization_policies,omitempty"`
+	Client              Client              `json:"client"`
+	AuthorizationPolicy AuthorizationPolicy `json:"authorization_policy,omitzero"`
 }
 
 type Client struct {
@@ -20,8 +20,15 @@ type Client struct {
 }
 
 type AuthorizationPolicy struct {
-	Consumer Client   `json:"consumer"`
-	Roles    []string `json:"roles,omitempty"`
+	AllowAll          bool               `json:"allow_all,omitempty"`
+	AllowedNamespaces []string           `json:"allowed_namespaces,omitempty"`
+	AllowedScopes     []string           `json:"allowed_scopes,omitempty"`
+	Clients           []AuthorizedClient `json:"clients,omitempty"`
+}
+
+type AuthorizedClient struct {
+	Client
+	Roles []string `json:"roles,omitempty"`
 }
 
 type DiscoveryMetadata struct {

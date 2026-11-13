@@ -63,7 +63,6 @@ func (a *Api) PostEndpoint() nethttp.HandlerFunc {
 		slog.InfoContext(r.Context(), "client registered",
 			slog.String("client_id", string(clientID)),
 			slog.String("registrator_issuer", registrator.AuthIssuer),
-			slog.Int("policy_count", len(ss.AuthorizationPolicies)),
 		)
 
 		http.WriteJSON(w, r, &api.ClientRegistrationResponse{
@@ -106,29 +105,35 @@ func (a *Api) DeleteEndpoint() nethttp.HandlerFunc {
 	})
 }
 
-// TODO: add integration tests for ErrRegistrationUnauthorized error
 // SaveRegistration stores the client in the registrator's environment and
 // returns its client ID. Each policy authorizes the consumer namespace and name
 // in every configured environment, including consumers not registered yet.
 func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s *SoftwareStatement) (oauth.ClientID, error) {
 	clientID := oauth.NewClientID(registrator.Environment, oauth.Name(s.Client.Namespace), oauth.Name(s.Client.Name))
-	policies := make([]oauth.AuthorizationPolicy, 0, len(s.AuthorizationPolicies)*len(a.registrators.environments))
-	for _, policy := range s.AuthorizationPolicies {
+
+	policy := oauth.AuthorizationPolicy{
+		AllowAll:          s.AuthorizationPolicy.AllowAll,
+		AllowedNamespaces: s.AuthorizationPolicy.AllowedNamespaces,
+		AllowedScopes:     s.AuthorizationPolicy.AllowedScopes,
+		Clients:           make([]oauth.AuthorizedClient, 0),
+	}
+	for _, c := range s.AuthorizationPolicy.Clients {
 		for _, environment := range a.registrators.environments {
-			policies = append(policies, oauth.AuthorizationPolicy{
-				Consumer: oauth.NewClientID(environment, oauth.Name(policy.Consumer.Namespace), oauth.Name(policy.Consumer.Name)),
-				Roles:    policy.Roles,
+			policy.Clients = append(policy.Clients, oauth.AuthorizedClient{
+				ClientID: oauth.NewClientID(environment, oauth.Name(c.Namespace), oauth.Name(c.Name)),
+				Roles:    c.Roles,
 			})
 		}
 	}
+
 	err := a.store.Save(ctx, &oauth.Client{
-		ID:            string(clientID),
-		Environment:   string(registrator.Environment),
-		Namespace:     s.Client.Namespace,
-		Name:          s.Client.Name,
-		Issuer:        registrator.AuthIssuer,
-		AllowedScopes: []string{},
-	}, policies, registrator.AuthIssuer)
+		ID:                  clientID,
+		Environment:         string(registrator.Environment),
+		Namespace:           s.Client.Namespace,
+		Name:                s.Client.Name,
+		Issuer:              registrator.AuthIssuer,
+		AuthorizationPolicy: policy,
+	}, registrator.AuthIssuer)
 	if err != nil {
 		if errors.Is(err, oauth.ErrRegistrationUnauthorized) {
 			return "", errs.UnauthorizedClient(err, "registrator is not authorized for client")

@@ -11,20 +11,12 @@ CREATE TABLE IF NOT EXISTS clients(
 	namespace TEXT NOT NULL,
 	-- Provided by registrator
 	name TEXT NOT NULL,
-	allowed_scopes TEXT[] NOT NULL,
+	-- Provided by registrator
+	authorization_policy JSONB NOT NULL DEFAULT '{}',
 	created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
 	updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
 	CONSTRAINT clients_pkey PRIMARY KEY (id),
 	CONSTRAINT clients_name_namespace_issuer_key UNIQUE (NAME, namespace, issuer)
-);
-
--- TODO: should policies be its own table or a part of the client itself? e.g. what do we do with wildcard policies?
-CREATE TABLE IF NOT EXISTS authorization_policies(
-	owner_client_id TEXT,
-	consumer_client_id TEXT,
-	roles TEXT[],
-	CONSTRAINT authorization_policies_pkey PRIMARY KEY (owner_client_id, consumer_client_id),
-	CONSTRAINT authorization_policies_owner_client_id_fkey FOREIGN KEY (owner_client_id) REFERENCES clients(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS rotatable_signing_keys(
@@ -53,11 +45,6 @@ BEGIN
 	RETURN NULL;
 END;
 $$;
-
-CREATE OR REPLACE TRIGGER authorization_policies_cache_changed
-	AFTER INSERT OR UPDATE OR DELETE ON authorization_policies
-	FOR EACH ROW
-	EXECUTE FUNCTION notify_sts_cache_changed();
 
 CREATE OR REPLACE TRIGGER clients_cache_changed
 	AFTER INSERT OR UPDATE OR DELETE ON clients

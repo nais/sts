@@ -53,11 +53,11 @@ func TestSts(t *testing.T) {
 		otherRegistratorToken := getKubernetesToken(t, oauthServer, "env2", fixtures.RegisteredTarget.Namespace, "registrator2")
 		statement := registration.SoftwareStatement{
 			Client: fixtures.RegisteredTarget.apiClient(),
-			AuthorizationPolicies: []api.AuthorizationPolicy{
-				{
-					Consumer: fixtures.Client1.apiClient(),
-					Roles:    []string{fixtures.Role},
-				},
+			AuthorizationPolicy: api.AuthorizationPolicy{
+				Clients: []api.AuthorizedClient{{
+					Client: fixtures.Client1.apiClient(),
+					Roles:  []string{fixtures.Role},
+				}},
 			},
 		}
 		statementClientID := fixtures.RegisteredTarget.ID
@@ -89,7 +89,7 @@ func TestSts(t *testing.T) {
 		t.Run("replaces registration", func(t *testing.T) {
 			// Replacing registered-workload's policies removes Client1's grant.
 			withoutGrant := statement
-			withoutGrant.AuthorizationPolicies = nil
+			withoutGrant.AuthorizationPolicy = api.AuthorizationPolicy{}
 			status, response := postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, withoutGrant),
 			})
@@ -120,11 +120,11 @@ func TestSts(t *testing.T) {
 			another := statement
 			another.Client.Name = "another-workload"
 			anotherClientID := "env1:namespace1:another-workload"
-			another.AuthorizationPolicies = []api.AuthorizationPolicy{
-				{
-					Consumer: fixtures.Client3.apiClient(),
-					Roles:    []string{fixtures.Role},
-				},
+			another.AuthorizationPolicy = api.AuthorizationPolicy{
+				Clients: []api.AuthorizedClient{{
+					Client: fixtures.Client3.apiClient(),
+					Roles:  []string{fixtures.Role},
+				}},
 			}
 
 			status, response := postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{
@@ -149,14 +149,14 @@ func TestSts(t *testing.T) {
 				target := statement
 				targetClientID := "env1:namespace1:" + roles + "-roles-target"
 				target.Client.Name = roles + "-roles-target"
-				policy := map[string]any{"consumer": consumer.apiClient()}
+				policy := map[string]any{"name": consumer.Name, "namespace": consumer.Namespace}
 				if roles == "empty" {
 					policy["roles"] = []string{}
 				}
 				status, response := postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{
 					SoftwareStatement: signSoftwareStatement(t, map[string]any{
-						"client":                 target.Client,
-						"authorization_policies": []map[string]any{policy},
+						"client":               target.Client,
+						"authorization_policy": map[string]any{"clients": []map[string]any{policy}},
 					}),
 				})
 				require.Equal(t, http.StatusOK, status, response)
@@ -196,7 +196,7 @@ func TestSts(t *testing.T) {
 			target.Client.Name = "multi-environment-target"
 			targetClientID := "env1:namespace1:multi-environment-target"
 			consumer := newClientFixture("env2", "namespace1", "multi-environment-consumer")
-			target.AuthorizationPolicies = []api.AuthorizationPolicy{{Consumer: consumer.apiClient()}}
+			target.AuthorizationPolicy = api.AuthorizationPolicy{Clients: []api.AuthorizedClient{{Client: consumer.apiClient()}}}
 
 			status, response := postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, target),
@@ -220,11 +220,65 @@ func TestSts(t *testing.T) {
 			require.Equal(t, http.StatusNoContent, status)
 		})
 
+		t.Run("authorizes wildcard policy consumers", func(t *testing.T) {
+			namespaceConsumer := newClientFixture("env2", "wildcard-team", "consumer")
+			otherConsumer := newClientFixture("env2", "other-team", "consumer")
+			for _, consumer := range []clientFixture{namespaceConsumer, otherConsumer} {
+				status, response := postRegistration[api.ClientRegistrationResponse](t, stsAddress, otherRegistratorToken, api.ClientRegistration{
+					SoftwareStatement: signSoftwareStatement(t, api.SoftwareStatement{Client: consumer.apiClient()}),
+				})
+				require.Equal(t, http.StatusOK, status, response)
+			}
+
+			target := statement
+			target.Client.Name = "wildcard-target"
+			targetClientID := "env1:namespace1:wildcard-target"
+			register := func(policy api.AuthorizationPolicy) {
+				t.Helper()
+				target.AuthorizationPolicy = policy
+				status, response := postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{
+					SoftwareStatement: signSoftwareStatement(t, target),
+				})
+				require.Equal(t, http.StatusOK, status, response)
+			}
+			register(api.AuthorizationPolicy{AllowedNamespaces: []string{"wildcard-team"}})
+
+			namespaceAssertion := getClientToken(t, oauthServer, namespaceConsumer)
+			namespaceToken := stsToken[oauth.AccessTokenResponse](t, stsAddress, clientCredentialsForm(namespaceAssertion, targetClientID))
+			claims := assertTokenClaims(t, stsAddress, namespaceToken, targetClientID, namespaceConsumer.ID, func(*oauth.STSTokenClaims) {}, oauth.Roles(nil))
+			assert.NotContains(t, claims.Claims, "urn:nais:roles")
+
+			otherAssertion := getClientToken(t, oauthServer, otherConsumer)
+			denial := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(otherAssertion, targetClientID))
+			require.Equal(t, "invalid_target", denial.Code)
+
+			// Client roles take precedence over allow-all, so Client1 keeps its role.
+			register(api.AuthorizationPolicy{
+				AllowAll: true,
+				Clients:  []api.AuthorizedClient{{Client: fixtures.Client1.apiClient(), Roles: []string{fixtures.Role}}},
+			})
+			assert.Eventually(t, func() bool {
+				// A success response decodes as an error response without a code.
+				return stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(otherAssertion, targetClientID)).Code == ""
+			}, 5*time.Second, 10*time.Millisecond)
+
+			client1Assertion := getClientToken(t, oauthServer, fixtures.Client1)
+			client1Token := stsToken[oauth.AccessTokenResponse](t, stsAddress, clientCredentialsForm(client1Assertion, targetClientID))
+			assertTokenClaims(t, stsAddress, client1Token, targetClientID, fixtures.Client1.ID, func(*oauth.STSTokenClaims) {})
+
+			status, _ := deleteRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, targetClientID)
+			require.Equal(t, http.StatusNoContent, status)
+			for _, consumer := range []clientFixture{namespaceConsumer, otherConsumer} {
+				status, _ = deleteRegistration[errs.ErrorResponse](t, stsAddress, otherRegistratorToken, consumer.ID)
+				require.Equal(t, http.StatusNoContent, status)
+			}
+		})
+
 		t.Run("consumer cannot grant itself access to another target", func(t *testing.T) {
 			selfGrant := statement
 			selfGrant.Client.Name = "self-grant-workload"
-			selfGrant.AuthorizationPolicies = []api.AuthorizationPolicy{
-				{Consumer: fixtures.Client3.apiClient(), Roles: []string{fixtures.Role}},
+			selfGrant.AuthorizationPolicy = api.AuthorizationPolicy{
+				Clients: []api.AuthorizedClient{{Client: fixtures.Client3.apiClient(), Roles: []string{fixtures.Role}}},
 			}
 
 			status, response := postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{

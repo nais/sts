@@ -10,7 +10,29 @@ import (
 
 type clientSnapshot struct {
 	clients  map[clientKey]sqlgen.Client
-	policies map[policyKey]oauth.Roles
+	policies map[oauth.ClientID]policy
+}
+
+// policy indexes a target's authorization policy for token requests.
+type policy struct {
+	clients    map[oauth.ClientID]oauth.Roles
+	namespaces map[string]struct{}
+	allowAll   bool
+}
+
+func newPolicy(p oauth.AuthorizationPolicy) policy {
+	result := policy{
+		clients:    make(map[oauth.ClientID]oauth.Roles, len(p.Clients)),
+		namespaces: make(map[string]struct{}, len(p.AllowedNamespaces)),
+		allowAll:   p.AllowAll,
+	}
+	for _, c := range p.Clients {
+		result.clients[c.ClientID] = c.Roles
+	}
+	for _, namespace := range p.AllowedNamespaces {
+		result.namespaces[namespace] = struct{}{}
+	}
+	return result
 }
 
 func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSnapshot, error) {
@@ -18,23 +40,14 @@ func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSn
 	if err != nil {
 		return nil, fmt.Errorf("list Kubernetes clients: %w", err)
 	}
-	policies, err := queries.ListAuthorizationPolicies(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list authorization policies: %w", err)
-	}
 
 	result := &clientSnapshot{
 		clients:  make(map[clientKey]sqlgen.Client, len(clients)),
-		policies: make(map[policyKey]oauth.Roles, len(policies)),
+		policies: make(map[oauth.ClientID]policy, len(clients)),
 	}
 	for _, client := range clients {
 		result.clients[clientKeyFromRow(client)] = client
-	}
-	for _, policy := range policies {
-		result.policies[policyKey{
-			owner:    policy.OwnerClientID,
-			consumer: policy.ConsumerClientID,
-		}] = policy.Roles
+		result.policies[client.ID] = newPolicy(client.AuthorizationPolicy)
 	}
 	return result, nil
 }
@@ -53,15 +66,15 @@ func clientKeyFromRow(row sqlgen.Client) clientKey {
 	return clientKey{issuer: row.Issuer, namespace: row.Namespace, name: row.Name}
 }
 
-type policyKey struct {
-	owner    string
-	consumer string
-}
-
-func (k policyKey) String() string {
-	return fmt.Sprintf("target %q, consumer %q", k.owner, k.consumer)
-}
-
 func toClient(row sqlgen.Client) *oauth.Client {
-	return &oauth.Client{Client: row}
+	return &oauth.Client{
+		ID:                  row.ID,
+		Issuer:              row.Issuer,
+		Environment:         row.Environment,
+		Namespace:           row.Namespace,
+		Name:                row.Name,
+		AuthorizationPolicy: row.AuthorizationPolicy,
+		CreatedAt:           row.CreatedAt,
+		UpdatedAt:           row.UpdatedAt,
+	}
 }

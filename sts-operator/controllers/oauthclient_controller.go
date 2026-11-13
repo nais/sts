@@ -214,18 +214,18 @@ func failed(oauthClient *stsv1.OAuthClient, message string, err error) error {
 }
 
 func makeSoftwareStatement(oauthClient *stsv1.OAuthClient) stsapi.SoftwareStatement {
-	var policies []stsapi.AuthorizationPolicy
+	var clients []stsapi.AuthorizedClient
 	for _, acl := range oauthClient.Spec.AccessControlList {
 		for _, workload := range acl.Workloads {
-			policies = append(policies, stsapi.AuthorizationPolicy{
-				Consumer: stsapi.Client{Namespace: acl.Team, Name: workload.Name},
-				Roles:    workload.Roles,
+			clients = append(clients, stsapi.AuthorizedClient{
+				Client: stsapi.Client{Namespace: acl.Team, Name: workload.Name},
+				Roles:  workload.Roles,
 			})
 		}
 	}
 
 	return stsapi.SoftwareStatement{
-		Client:                stsapi.Client{Namespace: oauthClient.Namespace, Name: oauthClient.Name},
-		AuthorizationPolicies: policies,
+		Client:              stsapi.Client{Namespace: oauthClient.Namespace, Name: oauthClient.Name},
+		AuthorizationPolicy: stsapi.AuthorizationPolicy{Clients: clients},
 	}
 }

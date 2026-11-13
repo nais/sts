@@ -254,29 +254,18 @@ func seedSts(t testing.TB, dsn string, oauthServer testServer) {
 	defer pool.Close()
 
 	queries := sqlgen.New(pool)
+	policies := map[clientFixture]oauth.AuthorizationPolicy{
+		fixtures.Client2: {Clients: []oauth.AuthorizedClient{{ClientID: oauth.ClientID(fixtures.Client1.ID), Roles: oauth.Roles{fixtures.Role}}}},
+		fixtures.Client3: {Clients: []oauth.AuthorizedClient{{ClientID: oauth.ClientID(fixtures.Client2.ID), Roles: oauth.Roles{fixtures.Role}}}},
+	}
 	for _, client := range []clientFixture{fixtures.Client1, fixtures.Client2, fixtures.Client3} {
 		if _, err := queries.UpsertClient(t.Context(), sqlgen.UpsertClientParams{
-			ID:            client.ID,
-			Environment:   client.Environment,
-			Namespace:     client.Namespace,
-			Name:          client.Name,
-			Issuer:        oauthServer.Endpoint(client.Environment),
-			AllowedScopes: []string{},
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, pair := range []struct {
-		consumer clientFixture
-		target   clientFixture
-	}{
-		{consumer: fixtures.Client1, target: fixtures.Client2},
-		{consumer: fixtures.Client2, target: fixtures.Client3},
-	} {
-		if err := queries.UpsertAuthorizationPolicy(t.Context(), sqlgen.UpsertAuthorizationPolicyParams{
-			OwnerClientID:    pair.target.ID,
-			ConsumerClientID: pair.consumer.ID,
-			Roles:            []string{fixtures.Role},
+			ID:                  oauth.ClientID(client.ID),
+			Environment:         client.Environment,
+			Namespace:           client.Namespace,
+			Name:                client.Name,
+			Issuer:              oauthServer.Endpoint(client.Environment),
+			AuthorizationPolicy: policies[client],
 		}); err != nil {
 			t.Fatal(err)
 		}
