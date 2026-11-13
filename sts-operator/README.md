@@ -12,14 +12,20 @@ metadata:
   namespace: team-b
 spec:
   configMapName: sts-workload-b
+  allowAll: false
   acl:
     - team: team-a
+      allowAll: true
       workloads:
         - name: workload-a
           roles: [x, y]
 ```
 
-An ACL lists teams and workloads allowed to access the client, with optional workload roles.
+An ACL lists teams and workloads allowed to access the client, with optional
+workload roles. `acl[].allowAll` grants every workload in a team access, and
+`spec.allowAll` grants every registered client access. Both grant access
+without roles; listed workloads still get their roles. Each team must set
+`allowAll` or `workloads`.
 
 - [API types](api/nais.io/v1/oauthclient_types.go)
 - [CRD manifest](config/crd/bases/nais.io_oauthclients.yaml)

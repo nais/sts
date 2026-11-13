@@ -61,6 +61,11 @@ spec:
                   grouped by team.
                 items:
                   properties:
+                    allowAll:
+                      description: |-
+                        AllowAll grants every workload in the team access to this
+                        client, without roles. Listed workloads still get their roles.
+                      type: boolean
                     team:
                       description: Team is the consumers' namespace.
                       type: string
@@ -82,18 +87,28 @@ spec:
                         required:
                         - name
                         type: object
+                      minItems: 1
                       type: array
                       x-kubernetes-list-map-keys:
                       - name
                       x-kubernetes-list-type: map
                   required:
                   - team
-                  - workloads
                   type: object
+                  x-kubernetes-validations:
+                  - message: at least one of the fields in [allowAll workloads] must
+                      be set
+                    rule: has(self.allowAll)||has(self.workloads)
                 type: array
                 x-kubernetes-list-map-keys:
                 - team
                 x-kubernetes-list-type: map
+              allowAll:
+                description: |-
+                  AllowAll grants every registered client access to this client,
+                  without roles. Workloads listed in the access control list still get
+                  their roles.
+                type: boolean
               configMapName:
                 description: ConfigMapName is the immutable name of the application
                   ConfigMap in this namespace.

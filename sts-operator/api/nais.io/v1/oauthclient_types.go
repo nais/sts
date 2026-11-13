@@ -47,6 +47,12 @@ type OAuthClientSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="configMapName is immutable"
 	ConfigMapName string `json:"configMapName"`
 
+	// AllowAll grants every registered client access to this client,
+	// without roles. Workloads listed in the access control list still get
+	// their roles.
+	// +optional
+	AllowAll bool `json:"allowAll,omitempty"`
+
 	// AccessControlList grants consumers access to this client, grouped by team.
 	// +listType=map
 	// +listMapKey=team
@@ -54,12 +60,19 @@ type OAuthClientSpec struct {
 	AccessControlList []AccessControlList `json:"acl,omitempty"`
 }
 
+// +kubebuilder:validation:AtLeastOneOf=allowAll;workloads
 type AccessControlList struct {
 	// Team is the consumers' namespace.
 	Team string `json:"team"`
+	// AllowAll grants every workload in the team access to this
+	// client, without roles. Listed workloads still get their roles.
+	// +optional
+	AllowAll bool `json:"allowAll,omitempty"`
 	// +listType=map
 	// +listMapKey=name
-	Workloads []Workload `json:"workloads"`
+	// +kubebuilder:validation:MinItems=1
+	// +optional
+	Workloads []Workload `json:"workloads,omitempty"`
 }
 
 type Workload struct {
