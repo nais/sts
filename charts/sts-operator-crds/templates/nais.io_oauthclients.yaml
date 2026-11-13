@@ -62,9 +62,7 @@ spec:
                   items:
                     properties:
                       allowAll:
-                        description: |-
-                          AllowAll grants every workload in the team access to this
-                          client, without roles. Listed workloads still get their roles.
+                        description: AllowAll grants every workload in the team access without roles.
                         type: boolean
                       team:
                         description: Team is the consumers' namespace.
@@ -102,10 +100,7 @@ spec:
                     - team
                   x-kubernetes-list-type: map
                 allowAll:
-                  description: |-
-                    AllowAll grants every registered client access to this client,
-                    without roles. Workloads listed in the access control list still get
-                    their roles.
+                  description: AllowAll grants every registered client access without roles.
                   type: boolean
                 configMapName:
                   description: ConfigMapName is the immutable name of the application ConfigMap in this namespace.
