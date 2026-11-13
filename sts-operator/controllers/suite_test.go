@@ -252,10 +252,12 @@ func TestOAuthClientReconciler(t *testing.T) {
 		require.Len(t, registrations, 1)
 		assert.Equal(t, stsapi.SoftwareStatement{
 			Client: stsapi.Client{Namespace: namespace, Name: appName},
-			AuthorizationPolicy: []stsapi.AuthorizationPolicy{
-				{Consumer: stsapi.Client{Namespace: "team1", Name: "consumer1"}, Roles: []string{"reader"}},
-				{Consumer: stsapi.Client{Namespace: "team1", Name: "consumer2"}},
-				{Consumer: stsapi.Client{Namespace: "team2", Name: "consumer1"}},
+			AuthorizationPolicy: stsapi.AuthorizationPolicy{
+				Clients: []stsapi.AuthorizedClient{
+					{Client: stsapi.Client{Namespace: "team1", Name: "consumer1"}, Roles: []string{"reader"}},
+					{Client: stsapi.Client{Namespace: "team1", Name: "consumer2"}},
+					{Client: stsapi.Client{Namespace: "team2", Name: "consumer1"}},
+				},
 			},
 		}, verifySoftwareStatement(t, <-registrations, keySet))
 
