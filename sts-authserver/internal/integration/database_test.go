@@ -326,16 +326,12 @@ func testAuthorizeTarget(t *testing.T, pool *pgxpool.Pool) {
 
 	namespaceTarget := newClient("env1", "target", "namespace")
 	namespaceTarget.AllowedNamespaces = []string{"team-a"}
-	require.NoError(t, writer.Save(t.Context(), namespaceTarget, []oauth.AuthorizationPolicy{
-		{Consumer: oauth.ClientID(exactWithRoles.ID), Roles: oauth.Roles{"reader"}},
-	}, namespaceTarget.Issuer))
+	require.NoError(t, writer.Save(t.Context(), namespaceTarget, namespaceTarget.Issuer))
 	allTarget := newClient("env1", "target", "all")
 	allTarget.AllowAll = true
-	require.NoError(t, writer.Save(t.Context(), allTarget, []oauth.AuthorizationPolicy{
-		{Consumer: oauth.ClientID(exactWithRoles.ID), Roles: oauth.Roles{"writer"}},
-	}, allTarget.Issuer))
+	require.NoError(t, writer.Save(t.Context(), allTarget, allTarget.Issuer))
 	exactTarget := newClient("env1", "target", "exact")
-	require.NoError(t, writer.Save(t.Context(), exactTarget, nil, exactTarget.Issuer))
+	require.NoError(t, writer.Save(t.Context(), exactTarget, exactTarget.Issuer))
 
 	// A fresh store loads the saved policies in its initial snapshot.
 	store, err := clientstore.New(t.Context(), pool, time.Hour)
@@ -397,7 +393,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 			{Owner: oauth.ClientID(client.ID), Consumer: oldConsumer, Roles: oauth.Roles{"old-role"}},
 			{Owner: oauth.ClientID(client.ID), Consumer: retainedConsumer, Roles: oauth.Roles{"old-role"}},
 		}
-		require.NoError(t, clients.Save(t.Context(), client, oldPolicies, client.Issuer))
+		require.NoError(t, clients.Save(t.Context(), client, client.Issuer))
 
 		replacement := testClient("new-scope")
 		replacement.AllowedNamespaces = []string{"new-namespace", "retained-namespace"}
@@ -405,7 +401,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 			{Owner: oauth.ClientID(client.ID), Consumer: retainedConsumer, Roles: oauth.Roles{"new-role"}},
 			{Owner: oauth.ClientID(client.ID), Consumer: newConsumer, Roles: oauth.Roles{"new-role"}},
 		}
-		require.NoError(t, clients.Save(t.Context(), replacement, newPolicies, client.Issuer))
+		require.NoError(t, clients.Save(t.Context(), replacement, client.Issuer))
 
 		assertStoredRegistration(t, queries, client.ID, replacement.AllowedScopes, []sqlgen.AuthorizationPolicy{
 			{OwnerClientID: client.ID, ConsumerClientID: string(newConsumer), Roles: []string{"new-role"}},
@@ -420,12 +416,12 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 	run("rolls back on policy failure", func(t *testing.T) {
 		client := testClient("old-scope")
 		oldPolicies := []oauth.AuthorizationPolicy{{Owner: oauth.ClientID(client.ID), Consumer: consumer, Roles: oauth.Roles{"old-role"}}}
-		require.NoError(t, clients.Save(t.Context(), client, oldPolicies, client.Issuer))
+		require.NoError(t, clients.Save(t.Context(), client, client.Issuer))
 
 		replacement := testClient("new-scope")
 		// The store must remain atomic even if a caller bypasses software-statement validation.
 		invalidPolicies := []oauth.AuthorizationPolicy{{Owner: oauth.ClientID(client.ID), Consumer: "invalid\x00consumer", Roles: oauth.Roles{"new-role"}}}
-		require.Error(t, clients.Save(t.Context(), replacement, invalidPolicies, client.Issuer))
+		require.Error(t, clients.Save(t.Context(), replacement, client.Issuer))
 
 		assertStoredRegistration(t, queries, client.ID, client.AllowedScopes, []sqlgen.AuthorizationPolicy{
 			{OwnerClientID: client.ID, ConsumerClientID: string(consumer), Roles: []string{"old-role"}},
@@ -435,10 +431,10 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 	run("updates issuer without changing scopes", func(t *testing.T) {
 		client := testClient("scope")
 		policies := []oauth.AuthorizationPolicy{{Owner: oauth.ClientID(client.ID), Consumer: consumer, Roles: oauth.Roles{"reader"}}}
-		require.NoError(t, clients.Save(t.Context(), client, policies, client.Issuer))
+		require.NoError(t, clients.Save(t.Context(), client, client.Issuer))
 
 		client.Issuer = "https://new-issuer.example"
-		require.NoError(t, clients.Save(t.Context(), client, policies, client.Issuer))
+		require.NoError(t, clients.Save(t.Context(), client, client.Issuer))
 
 		stored, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.NoError(t, err)
@@ -519,7 +515,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 			if step.name != "initial registration" {
 				require.NoError(t, err)
 			}
-			require.NoError(t, clients.Save(t.Context(), client, policies, client.Issuer), step.name)
+			require.NoError(t, clients.Save(t.Context(), client, client.Issuer), step.name)
 
 			// This marker commits after Save. Reading through it checks for absent
 			// or duplicate notifications without relying on a timeout for silence.
@@ -547,7 +543,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 
 	run("rejects issuer outside authority", func(t *testing.T) {
 		client := testClient("scope")
-		require.ErrorIs(t, clients.Save(t.Context(), client, nil, "https://other.example"), oauth.ErrRegistrationUnauthorized)
+		require.ErrorIs(t, clients.Save(t.Context(), client, "https://other.example"), oauth.ErrRegistrationUnauthorized)
 
 		_, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.ErrorIs(t, err, pgx.ErrNoRows)
@@ -560,7 +556,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		// Another issuer cannot delete this client or its policy for consumer.
 		client := testClient("scope")
 		policy := oauth.AuthorizationPolicy{Owner: oauth.ClientID(client.ID), Consumer: consumer, Roles: oauth.Roles{"reader"}}
-		require.NoError(t, clients.Save(t.Context(), client, []oauth.AuthorizationPolicy{policy}, client.Issuer))
+		require.NoError(t, clients.Save(t.Context(), client, client.Issuer))
 		require.ErrorIs(t, clients.Delete(t.Context(), oauth.ClientID(client.ID), "https://other.example"), oauth.ErrRegistrationUnauthorized)
 
 		// Read PostgreSQL directly so a stale cache cannot hide a deleted client or policy.

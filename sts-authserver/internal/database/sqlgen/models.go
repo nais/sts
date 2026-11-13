@@ -5,26 +5,19 @@ package sqlgen
 import (
 	"time"
 
+	"github.com/nais/sts/internal/oauth"
 	"uuid"
 )
 
-type AuthorizationPolicy struct {
-	OwnerClientID    string
-	ConsumerClientID string
-	Roles            []string
-}
-
 type Client struct {
-	ID                string
-	Issuer            string
-	Environment       string
-	Namespace         string
-	Name              string
-	AllowedScopes     []string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	AllowAll          bool
-	AllowedNamespaces []string
+	ID                  oauth.ClientID
+	Issuer              string
+	Environment         string
+	Namespace           string
+	Name                string
+	AuthorizationPolicy oauth.AuthorizationPolicy
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type RotatableSigningKey struct {

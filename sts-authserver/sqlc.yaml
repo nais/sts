@@ -23,6 +23,14 @@ sql:
         omit_unused_structs: true
         emit_pointers_for_null_types: true
         overrides:
+          - column: "clients.id"
+            go_type:
+              import: "github.com/nais/sts/internal/oauth"
+              type: "ClientID"
+          - db_type: "jsonb"
+            go_type:
+              import: "github.com/nais/sts/internal/oauth"
+              type: "AuthorizationPolicy"
           - db_type: "timestamptz"
             go_type: "time.Time"
           - db_type: "timestamptz"

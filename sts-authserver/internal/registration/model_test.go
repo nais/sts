@@ -11,7 +11,7 @@ func TestSoftwareStatementValidate(t *testing.T) {
 	valid := func() SoftwareStatement {
 		return SoftwareStatement{
 			Client: api.Client{Namespace: "team-a", Name: "workload-1"},
-			AuthorizationPolicies: []api.AuthorizationPolicy{{
+			AuthorizationPolicy: []api.AuthorizationPolicy{{
 				Consumer: api.Client{Namespace: "team-b", Name: "workload-2"},
 				Roles:    []string{"reader", "writer"},
 			}},
@@ -33,14 +33,14 @@ func TestSoftwareStatementValidate(t *testing.T) {
 			wantErr: "client: name",
 		},
 		"invalid consumer": {
-			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Consumer.Namespace = "Team-b" },
+			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicy[0].Consumer.Namespace = "Team-b" },
 			wantErr: "consumer",
 		},
 		"nil roles": {
-			mutate: func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = nil },
+			mutate: func(s *SoftwareStatement) { s.AuthorizationPolicy[0].Roles = nil },
 		},
 		"empty roles": {
-			mutate: func(s *SoftwareStatement) { s.AuthorizationPolicies[0].Roles = []string{} },
+			mutate: func(s *SoftwareStatement) { s.AuthorizationPolicy[0].Roles = []string{} },
 		},
 		"invalid allowed namespace": {
 			mutate:  func(s *SoftwareStatement) { s.AllowedNamespaces[1] = "*" },

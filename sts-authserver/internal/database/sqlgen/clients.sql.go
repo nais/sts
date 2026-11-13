@@ -5,69 +5,23 @@ package sqlgen
 
 import (
 	"context"
+
+	"github.com/nais/sts/internal/oauth"
 )
-
-const deleteAuthorizationPolicies = `-- name: DeleteAuthorizationPolicies :exec
-DELETE FROM authorization_policies
-WHERE owner_client_id = $1
-`
-
-func (q *Queries) DeleteAuthorizationPolicies(ctx context.Context, ownerClientID string) error {
-	_, err := q.db.Exec(ctx, deleteAuthorizationPolicies, ownerClientID)
-	return err
-}
 
 const deleteClient = `-- name: DeleteClient :exec
 DELETE FROM clients
 WHERE id = $1
 `
 
-func (q *Queries) DeleteClient(ctx context.Context, id string) error {
+func (q *Queries) DeleteClient(ctx context.Context, id oauth.ClientID) error {
 	_, err := q.db.Exec(ctx, deleteClient, id)
 	return err
 }
 
-const deleteOrphanedAuthorizationPolicies = `-- name: DeleteOrphanedAuthorizationPolicies :exec
-DELETE FROM authorization_policies
-WHERE owner_client_id = $1
-	AND consumer_client_id = ANY ($2::TEXT[])
-`
-
-type DeleteOrphanedAuthorizationPoliciesParams struct {
-	OwnerClientID string
-	OrphanedIds   []string
-}
-
-func (q *Queries) DeleteOrphanedAuthorizationPolicies(ctx context.Context, arg DeleteOrphanedAuthorizationPoliciesParams) error {
-	_, err := q.db.Exec(ctx, deleteOrphanedAuthorizationPolicies, arg.OwnerClientID, arg.OrphanedIds)
-	return err
-}
-
-const getAuthorizationPolicy = `-- name: GetAuthorizationPolicy :one
-SELECT
-	owner_client_id, consumer_client_id, roles
-FROM
-	authorization_policies
-WHERE
-	owner_client_id = $1
-	AND consumer_client_id = $2
-`
-
-type GetAuthorizationPolicyParams struct {
-	OwnerClientID    string
-	ConsumerClientID string
-}
-
-func (q *Queries) GetAuthorizationPolicy(ctx context.Context, arg GetAuthorizationPolicyParams) (AuthorizationPolicy, error) {
-	row := q.db.QueryRow(ctx, getAuthorizationPolicy, arg.OwnerClientID, arg.ConsumerClientID)
-	var i AuthorizationPolicy
-	err := row.Scan(&i.OwnerClientID, &i.ConsumerClientID, &i.Roles)
-	return i, err
-}
-
 const getClient = `-- name: GetClient :one
 SELECT
-	id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at, allow_all, allowed_namespaces
+	id, issuer, environment, namespace, name, authorization_policy, created_at, updated_at
 FROM
 	clients
 WHERE
@@ -91,18 +45,16 @@ func (q *Queries) GetClient(ctx context.Context, arg GetClientParams) (Client, e
 		&i.Environment,
 		&i.Namespace,
 		&i.Name,
-		&i.AllowedScopes,
+		&i.AuthorizationPolicy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.AllowAll,
-		&i.AllowedNamespaces,
 	)
 	return i, err
 }
 
 const getClientByIDForUpdate = `-- name: GetClientByIDForUpdate :one
 SELECT
-	id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at, allow_all, allowed_namespaces
+	id, issuer, environment, namespace, name, authorization_policy, created_at, updated_at
 FROM
 	clients
 WHERE
@@ -110,7 +62,7 @@ WHERE
 FOR UPDATE
 `
 
-func (q *Queries) GetClientByIDForUpdate(ctx context.Context, id string) (Client, error) {
+func (q *Queries) GetClientByIDForUpdate(ctx context.Context, id oauth.ClientID) (Client, error) {
 	row := q.db.QueryRow(ctx, getClientByIDForUpdate, id)
 	var i Client
 	err := row.Scan(
@@ -119,80 +71,16 @@ func (q *Queries) GetClientByIDForUpdate(ctx context.Context, id string) (Client
 		&i.Environment,
 		&i.Namespace,
 		&i.Name,
-		&i.AllowedScopes,
+		&i.AuthorizationPolicy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.AllowAll,
-		&i.AllowedNamespaces,
 	)
 	return i, err
 }
 
-const listAuthorizationPolicies = `-- name: ListAuthorizationPolicies :many
-SELECT
-	owner_client_id, consumer_client_id, roles
-FROM
-	authorization_policies
-ORDER BY
-	owner_client_id,
-	consumer_client_id
-`
-
-func (q *Queries) ListAuthorizationPolicies(ctx context.Context) ([]AuthorizationPolicy, error) {
-	rows, err := q.db.Query(ctx, listAuthorizationPolicies)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AuthorizationPolicy{}
-	for rows.Next() {
-		var i AuthorizationPolicy
-		if err := rows.Scan(&i.OwnerClientID, &i.ConsumerClientID, &i.Roles); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listAuthorizationPoliciesByOwner = `-- name: ListAuthorizationPoliciesByOwner :many
-SELECT
-	owner_client_id, consumer_client_id, roles
-FROM
-	authorization_policies
-WHERE
-	owner_client_id = $1
-ORDER BY
-	owner_client_id,
-	consumer_client_id
-`
-
-func (q *Queries) ListAuthorizationPoliciesByOwner(ctx context.Context, ownerClientID string) ([]AuthorizationPolicy, error) {
-	rows, err := q.db.Query(ctx, listAuthorizationPoliciesByOwner, ownerClientID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AuthorizationPolicy{}
-	for rows.Next() {
-		var i AuthorizationPolicy
-		if err := rows.Scan(&i.OwnerClientID, &i.ConsumerClientID, &i.Roles); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listClients = `-- name: ListClients :many
 SELECT
-	id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at, allow_all, allowed_namespaces
+	id, issuer, environment, namespace, name, authorization_policy, created_at, updated_at
 FROM
 	clients
 ORDER BY
@@ -214,11 +102,9 @@ func (q *Queries) ListClients(ctx context.Context) ([]Client, error) {
 			&i.Environment,
 			&i.Namespace,
 			&i.Name,
-			&i.AllowedScopes,
+			&i.AuthorizationPolicy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.AllowAll,
-			&i.AllowedNamespaces,
 		); err != nil {
 			return nil, err
 		}
@@ -230,35 +116,6 @@ func (q *Queries) ListClients(ctx context.Context) ([]Client, error) {
 	return items, nil
 }
 
-const upsertAuthorizationPolicy = `-- name: UpsertAuthorizationPolicy :exec
-INSERT INTO authorization_policies(
-	owner_client_id,
-	consumer_client_id,
-	roles)
-VALUES (
-	$1,
-	$2,
-	$3::TEXT[])
-ON CONFLICT (
-	owner_client_id,
-	consumer_client_id)
-	DO UPDATE SET
-		roles = EXCLUDED.roles
-	WHERE
-		authorization_policies.roles IS DISTINCT FROM EXCLUDED.roles
-`
-
-type UpsertAuthorizationPolicyParams struct {
-	OwnerClientID    string
-	ConsumerClientID string
-	Roles            []string
-}
-
-func (q *Queries) UpsertAuthorizationPolicy(ctx context.Context, arg UpsertAuthorizationPolicyParams) error {
-	_, err := q.db.Exec(ctx, upsertAuthorizationPolicy, arg.OwnerClientID, arg.ConsumerClientID, arg.Roles)
-	return err
-}
-
 const upsertClient = `-- name: UpsertClient :one
 INSERT INTO clients(
 	id,
@@ -266,25 +123,18 @@ INSERT INTO clients(
 	namespace,
 	name,
 	issuer,
-	allowed_scopes,
-	allow_all,
-	allowed_namespaces)
+	authorization_policy)
 VALUES (
 	$1,
 	$2,
 	$3,
 	$4,
 	$5,
-	$6::TEXT[],
-	$7,
-	COALESCE(
-		$8::TEXT[], '{}'))
+	$6::JSONB)
 ON CONFLICT (
 	id)
 	DO UPDATE SET
-		allowed_scopes = EXCLUDED.allowed_scopes,
-		allow_all = EXCLUDED.allow_all,
-		allowed_namespaces = EXCLUDED.allowed_namespaces,
+		authorization_policy = EXCLUDED.authorization_policy,
 		issuer = EXCLUDED.issuer,
 		updated_at = NOW()
 	WHERE
@@ -292,23 +142,19 @@ ON CONFLICT (
 		AND clients.namespace = EXCLUDED.namespace
 		AND clients.name = EXCLUDED.name
 		AND (
-			clients.allowed_scopes IS DISTINCT FROM EXCLUDED.allowed_scopes
-			OR clients.allow_all IS DISTINCT FROM EXCLUDED.allow_all
-			OR clients.allowed_namespaces IS DISTINCT FROM EXCLUDED.allowed_namespaces
+			clients.authorization_policy IS DISTINCT FROM EXCLUDED.authorization_policy
 			OR clients.issuer IS DISTINCT FROM EXCLUDED.issuer)
 	RETURNING
-		id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at, allow_all, allowed_namespaces
+		id, issuer, environment, namespace, name, authorization_policy, created_at, updated_at
 `
 
 type UpsertClientParams struct {
-	ID                string
-	Environment       string
-	Namespace         string
-	Name              string
-	Issuer            string
-	AllowedScopes     []string
-	AllowAll          bool
-	AllowedNamespaces []string
+	ID                  oauth.ClientID
+	Environment         string
+	Namespace           string
+	Name                string
+	Issuer              string
+	AuthorizationPolicy oauth.AuthorizationPolicy
 }
 
 func (q *Queries) UpsertClient(ctx context.Context, arg UpsertClientParams) (Client, error) {
@@ -318,9 +164,7 @@ func (q *Queries) UpsertClient(ctx context.Context, arg UpsertClientParams) (Cli
 		arg.Namespace,
 		arg.Name,
 		arg.Issuer,
-		arg.AllowedScopes,
-		arg.AllowAll,
-		arg.AllowedNamespaces,
+		arg.AuthorizationPolicy,
 	)
 	var i Client
 	err := row.Scan(
@@ -329,11 +173,9 @@ func (q *Queries) UpsertClient(ctx context.Context, arg UpsertClientParams) (Cli
 		&i.Environment,
 		&i.Namespace,
 		&i.Name,
-		&i.AllowedScopes,
+		&i.AuthorizationPolicy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.AllowAll,
-		&i.AllowedNamespaces,
 	)
 	return i, err
 }

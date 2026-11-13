@@ -225,7 +225,7 @@ func makeSoftwareStatement(oauthClient *stsv1.OAuthClient) stsapi.SoftwareStatem
 	}
 
 	return stsapi.SoftwareStatement{
-		Client:                stsapi.Client{Namespace: oauthClient.Namespace, Name: oauthClient.Name},
-		AuthorizationPolicies: policies,
+		Client:              stsapi.Client{Namespace: oauthClient.Namespace, Name: oauthClient.Name},
+		AuthorizationPolicy: policies,
 	}
 }

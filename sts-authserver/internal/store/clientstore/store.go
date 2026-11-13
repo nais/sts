@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"sync"
 	"time"
 
@@ -93,31 +92,38 @@ func (s *Store) Get(_ context.Context, claims *jwt.AccessTokenClaims) (*oauth.Cl
 		return nil, fmt.Errorf("%w: %s", oauth.ErrClientNotFound, key)
 	}
 
-	row.AllowedScopes = slices.Clone(row.AllowedScopes)
 	return toClient(row), nil
 }
 
-// AuthorizeTarget checks client policies first because only they grant roles,
-// then namespace and allow-all policies. An unknown target never matches.
-// TODO: decide whether namespace and allow-all policies should match the
-// target itself and other clients in its namespace.
 func (s *Store) AuthorizeTarget(_ context.Context, consumer *oauth.Client, target oauth.Target) (oauth.Roles, error) {
 	snapshot, ok := s.snapshot.Current()
 	if !ok {
 		return nil, errors.New("client cache is not initialized")
 	}
 	owner := target.GetValue()
-	key := policyKey{owner: owner, consumer: consumer.ID}
-	if roles, ok := snapshot.policies[key]; ok {
-		return slices.Clone(roles), nil
+
+	targetClient, ok := snapshot.targets[oauth.ClientID(owner)]
+	if !ok {
+		return nil, fmt.Errorf("%w: target %q not found", oauth.ErrTargetUnauthorized, owner)
 	}
-	if _, ok := snapshot.namespacePolicies[namespacePolicyKey{owner: owner, namespace: consumer.Namespace}]; ok {
+
+	for _, c := range targetClient.AuthorizationPolicy.Clients {
+		if c.ClientID == consumer.ID {
+			return c.Roles, nil
+		}
+	}
+
+	for _, n := range targetClient.AuthorizationPolicy.AllowedNamespaces {
+		if n == consumer.Namespace {
+			return nil, nil
+		}
+	}
+
+	if targetClient.AuthorizationPolicy.AllowAll {
 		return nil, nil
 	}
-	if _, ok := snapshot.allowAllOwners[owner]; ok {
-		return nil, nil
-	}
-	return nil, fmt.Errorf("%w: %s", oauth.ErrTargetUnauthorized, key)
+
+	return nil, fmt.Errorf("%w: %s", oauth.ErrTargetUnauthorized, target.GetValue())
 }
 
 // initialize subscribes before loading to avoid missing a write between the

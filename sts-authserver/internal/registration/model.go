@@ -22,13 +22,13 @@ func (s SoftwareStatement) validate() error {
 		return fmt.Errorf("client: %w", err)
 	}
 
-	for i, policy := range s.AuthorizationPolicies {
-		if err := validateClient(policy.Consumer); err != nil {
+	for i, c := range s.AuthorizationPolicy.Clients {
+		if err := validateClient(c.Client); err != nil {
 			return fmt.Errorf("authorization policy %d consumer: %w", i, err)
 		}
 	}
 
-	for i, namespace := range s.AllowedNamespaces {
+	for i, namespace := range s.AuthorizationPolicy.AllowedNamespaces {
 		if err := oauth.Name(namespace).Validate(); err != nil {
 			return fmt.Errorf("allowed namespace %d: %w", i, err)
 		}

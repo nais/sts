@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
-	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/errs"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
@@ -44,17 +44,30 @@ func (c ClientID) Validate() error {
 }
 
 type Client struct {
-	sqlgen.Client
-	// AllowedScopes is "static access", i.e. doesn't require the existence of a target client ID
+	ID                  ClientID
+	Issuer              string
+	Environment         string
+	Namespace           string
+	Name                string
+	AuthorizationPolicy AuthorizationPolicy
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type AuthorizationPolicy struct {
-	Owner    ClientID `json:"owner"`
-	Consumer ClientID `json:"consumer"`
-	Roles    Roles    `json:"roles"`
+	AllowAll          bool               `json:"allow_all,omitempty"`
+	AllowedNamespaces []string           `json:"allowed_namespaces,omitempty"`
+	AllowedScopes     []string           `json:"allowed_scopes,omitempty"`
+	Clients           []AuthorizedClient `json:"clients,omitempty"`
+}
+
+type AuthorizedClient struct {
+	ClientID ClientID `json:"client_id"`
+	Roles    Roles    `json:"roles,omitempty"`
 }
 
 type Target interface {
+	// TODO: should we use ClientID type here?
 	GetValue() string
 	GetType() string
 	AsAudience() oidc.Audience

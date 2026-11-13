@@ -53,7 +53,7 @@ func TestSts(t *testing.T) {
 		otherRegistratorToken := getKubernetesToken(t, oauthServer, "env2", fixtures.RegisteredTarget.Namespace, "registrator2")
 		statement := registration.SoftwareStatement{
 			Client: fixtures.RegisteredTarget.apiClient(),
-			AuthorizationPolicies: []api.AuthorizationPolicy{
+			AuthorizationPolicy: []api.AuthorizationPolicy{
 				{
 					Consumer: fixtures.Client1.apiClient(),
 					Roles:    []string{fixtures.Role},
@@ -89,7 +89,7 @@ func TestSts(t *testing.T) {
 		t.Run("replaces registration", func(t *testing.T) {
 			// Replacing registered-workload's policies removes Client1's grant.
 			withoutGrant := statement
-			withoutGrant.AuthorizationPolicies = nil
+			withoutGrant.AuthorizationPolicy = nil
 			status, response := postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, withoutGrant),
 			})
@@ -120,7 +120,7 @@ func TestSts(t *testing.T) {
 			another := statement
 			another.Client.Name = "another-workload"
 			anotherClientID := "env1:namespace1:another-workload"
-			another.AuthorizationPolicies = []api.AuthorizationPolicy{
+			another.AuthorizationPolicy = []api.AuthorizationPolicy{
 				{
 					Consumer: fixtures.Client3.apiClient(),
 					Roles:    []string{fixtures.Role},
@@ -196,7 +196,7 @@ func TestSts(t *testing.T) {
 			target.Client.Name = "multi-environment-target"
 			targetClientID := "env1:namespace1:multi-environment-target"
 			consumer := newClientFixture("env2", "namespace1", "multi-environment-consumer")
-			target.AuthorizationPolicies = []api.AuthorizationPolicy{{Consumer: consumer.apiClient()}}
+			target.AuthorizationPolicy = []api.AuthorizationPolicy{{Consumer: consumer.apiClient()}}
 
 			status, response := postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{
 				SoftwareStatement: signSoftwareStatement(t, target),
@@ -233,7 +233,7 @@ func TestSts(t *testing.T) {
 			target := statement
 			target.Client.Name = "wildcard-target"
 			targetClientID := "env1:namespace1:wildcard-target"
-			target.AuthorizationPolicies = nil
+			target.AuthorizationPolicy = nil
 			target.AllowedNamespaces = []string{"wildcard-team"}
 			register := func(allowAll bool) {
 				t.Helper()
@@ -283,7 +283,7 @@ func TestSts(t *testing.T) {
 		t.Run("consumer cannot grant itself access to another target", func(t *testing.T) {
 			selfGrant := statement
 			selfGrant.Client.Name = "self-grant-workload"
-			selfGrant.AuthorizationPolicies = []api.AuthorizationPolicy{
+			selfGrant.AuthorizationPolicy = []api.AuthorizationPolicy{
 				{Consumer: fixtures.Client3.apiClient(), Roles: []string{fixtures.Role}},
 			}
 
