@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -102,24 +103,17 @@ func (s *Store) AuthorizeTarget(_ context.Context, consumer *oauth.Client, targe
 	}
 	owner := target.GetValue()
 
-	targetClient, ok := snapshot.targets[oauth.ClientID(owner)]
+	p, ok := snapshot.policies[oauth.ClientID(owner)]
 	if !ok {
 		return nil, fmt.Errorf("%w: target %q not found", oauth.ErrTargetUnauthorized, owner)
 	}
-
-	for _, c := range targetClient.AuthorizationPolicy.Clients {
-		if c.ClientID == consumer.ID {
-			return c.Roles, nil
-		}
+	if roles, ok := p.clients[consumer.ID]; ok {
+		return slices.Clone(roles), nil
 	}
-
-	for _, n := range targetClient.AuthorizationPolicy.AllowedNamespaces {
-		if n == consumer.Namespace {
-			return nil, nil
-		}
+	if _, ok := p.namespaces[consumer.Namespace]; ok {
+		return nil, nil
 	}
-
-	if targetClient.AuthorizationPolicy.AllowAll {
+	if p.allowAll {
 		return nil, nil
 	}
 

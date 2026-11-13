@@ -9,6 +9,7 @@ import (
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
+	"github.com/nais/sts/internal/oauth"
 	"go.opentelemetry.io/otel"
 )
 
@@ -39,36 +40,33 @@ func run(ctx context.Context) error {
 	queries := sqlgen.New(pool)
 	clients := []sqlgen.UpsertClientParams{
 		{
-			ID:            "env1:namespace1:workload1",
-			Environment:   "env1",
-			Namespace:     "namespace1",
-			Name:          "workload1",
-			Issuer:        "http://localhost:3004/env1",
-			AllowedScopes: []string{"env1:namespace1:workload2"},
+			ID:          "env1:namespace1:workload1",
+			Environment: "env1",
+			Namespace:   "namespace1",
+			Name:        "workload1",
+			Issuer:      "http://localhost:3004/env1",
+			AuthorizationPolicy: oauth.AuthorizationPolicy{
+				AllowedScopes: []string{"env1:namespace1:workload2"},
+			},
 		},
 		{
-			ID:            "env1:namespace1:workload2",
-			Environment:   "env1",
-			Namespace:     "namespace1",
-			Name:          "workload2",
-			Issuer:        "http://localhost:3004/env1",
-			AllowedScopes: []string{},
+			ID:          "env1:namespace1:workload2",
+			Environment: "env1",
+			Namespace:   "namespace1",
+			Name:        "workload2",
+			Issuer:      "http://localhost:3004/env1",
+			AuthorizationPolicy: oauth.AuthorizationPolicy{
+				Clients: []oauth.AuthorizedClient{
+					{ClientID: "env1:namespace1:workload1", Roles: oauth.Roles{"reader"}},
+				},
+			},
 		},
 	}
 
 	for _, client := range clients {
-		_, err := queries.UpsertClient(ctx, client)
-		if err != nil {
+		if _, err := queries.UpsertClient(ctx, client); err != nil {
 			return err
 		}
-	}
-
-	if err := queries.UpsertAuthorizationPolicy(ctx, sqlgen.UpsertAuthorizationPolicyParams{
-		OwnerClientID:    "env1:namespace1:workload2",
-		ConsumerClientID: "env1:namespace1:workload1",
-		Roles:            []string{"reader"},
-	}); err != nil {
-		return err
 	}
 
 	return nil

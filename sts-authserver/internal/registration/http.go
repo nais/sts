@@ -114,6 +114,7 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 	policy := oauth.AuthorizationPolicy{
 		AllowAll:          s.AuthorizationPolicy.AllowAll,
 		AllowedNamespaces: s.AuthorizationPolicy.AllowedNamespaces,
+		AllowedScopes:     s.AuthorizationPolicy.AllowedScopes,
 		Clients:           make([]oauth.AuthorizedClient, 0),
 	}
 	for _, c := range s.AuthorizationPolicy.Clients {

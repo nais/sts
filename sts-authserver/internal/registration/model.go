@@ -24,7 +24,7 @@ func (s SoftwareStatement) validate() error {
 
 	for i, c := range s.AuthorizationPolicy.Clients {
 		if err := validateClient(c.Client); err != nil {
-			return fmt.Errorf("authorization policy %d consumer: %w", i, err)
+			return fmt.Errorf("authorized client %d: %w", i, err)
 		}
 	}
 
@@ -33,6 +33,7 @@ func (s SoftwareStatement) validate() error {
 			return fmt.Errorf("allowed namespace %d: %w", i, err)
 		}
 	}
+
 	return nil
 }
 

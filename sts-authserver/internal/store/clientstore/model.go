@@ -9,8 +9,30 @@ import (
 )
 
 type clientSnapshot struct {
-	clients map[clientKey]sqlgen.Client
-	targets map[oauth.ClientID]sqlgen.Client
+	clients  map[clientKey]sqlgen.Client
+	policies map[oauth.ClientID]policy
+}
+
+// policy indexes a target's authorization policy for token requests.
+type policy struct {
+	clients    map[oauth.ClientID]oauth.Roles
+	namespaces map[string]struct{}
+	allowAll   bool
+}
+
+func newPolicy(p oauth.AuthorizationPolicy) policy {
+	result := policy{
+		clients:    make(map[oauth.ClientID]oauth.Roles, len(p.Clients)),
+		namespaces: make(map[string]struct{}, len(p.AllowedNamespaces)),
+		allowAll:   p.AllowAll,
+	}
+	for _, c := range p.Clients {
+		result.clients[c.ClientID] = c.Roles
+	}
+	for _, namespace := range p.AllowedNamespaces {
+		result.namespaces[namespace] = struct{}{}
+	}
+	return result
 }
 
 func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSnapshot, error) {
@@ -20,12 +42,12 @@ func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSn
 	}
 
 	result := &clientSnapshot{
-		clients: make(map[clientKey]sqlgen.Client, len(clients)),
-		targets: make(map[oauth.ClientID]sqlgen.Client, len(clients)),
+		clients:  make(map[clientKey]sqlgen.Client, len(clients)),
+		policies: make(map[oauth.ClientID]policy, len(clients)),
 	}
 	for _, client := range clients {
 		result.clients[clientKeyFromRow(client)] = client
-		result.targets[client.ID] = client
+		result.policies[client.ID] = newPolicy(client.AuthorizationPolicy)
 	}
 	return result, nil
 }

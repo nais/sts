@@ -10,8 +10,8 @@ type ClientRegistrationResponse struct {
 }
 
 type SoftwareStatement struct {
-	Client              Client               `json:"client"`
-	AuthorizationPolicy *AuthorizationPolicy `json:"authorization_policy,omitempty"`
+	Client              Client              `json:"client"`
+	AuthorizationPolicy AuthorizationPolicy `json:"authorization_policy,omitzero"`
 }
 
 type Client struct {
