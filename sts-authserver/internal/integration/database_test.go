@@ -325,7 +325,7 @@ func testAuthorizeTarget(t *testing.T, pool *pgxpool.Pool) {
 	otherNamespace := newClient("env1", "team-b", "other")
 
 	namespaceTarget := newClient("env1", "target", "namespace")
-	namespaceTarget.ConsumerNamespaces = []string{"team-a"}
+	namespaceTarget.AllowedConsumerNamespaces = []string{"team-a"}
 	require.NoError(t, writer.Save(t.Context(), namespaceTarget, []oauth.AuthorizationPolicy{
 		{Consumer: oauth.ClientID(exactWithRoles.ID), Roles: oauth.Roles{"reader"}},
 	}, namespaceTarget.Issuer))
@@ -392,7 +392,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 	run("replaces policies, scopes and allow-all", func(t *testing.T) {
 		client := testClient("old-scope")
 		client.AllowAllConsumers = true
-		client.ConsumerNamespaces = []string{"old-namespace", "retained-namespace"}
+		client.AllowedConsumerNamespaces = []string{"old-namespace", "retained-namespace"}
 		oldPolicies := []oauth.AuthorizationPolicy{
 			{Owner: oauth.ClientID(client.ID), Consumer: oldConsumer, Roles: oauth.Roles{"old-role"}},
 			{Owner: oauth.ClientID(client.ID), Consumer: retainedConsumer, Roles: oauth.Roles{"old-role"}},
@@ -400,7 +400,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		require.NoError(t, clients.Save(t.Context(), client, oldPolicies, client.Issuer))
 
 		replacement := testClient("new-scope")
-		replacement.ConsumerNamespaces = []string{"new-namespace", "retained-namespace"}
+		replacement.AllowedConsumerNamespaces = []string{"new-namespace", "retained-namespace"}
 		newPolicies := []oauth.AuthorizationPolicy{
 			{Owner: oauth.ClientID(client.ID), Consumer: retainedConsumer, Roles: oauth.Roles{"new-role"}},
 			{Owner: oauth.ClientID(client.ID), Consumer: newConsumer, Roles: oauth.Roles{"new-role"}},
@@ -414,7 +414,7 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		stored, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.NoError(t, err)
 		require.False(t, stored.AllowAllConsumers)
-		require.Equal(t, replacement.ConsumerNamespaces, stored.ConsumerNamespaces)
+		require.Equal(t, replacement.AllowedConsumerNamespaces, stored.AllowedConsumerNamespaces)
 	})
 
 	run("rolls back on policy failure", func(t *testing.T) {
@@ -496,11 +496,11 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 			}},
 			{name: "identical registration after removing policies"},
 			{name: "adds consumer namespaces", want: 1, change: func() {
-				client.ConsumerNamespaces = []string{"team-a", "team-b"}
+				client.AllowedConsumerNamespaces = []string{"team-a", "team-b"}
 			}},
 			{name: "identical registration with consumer namespaces"},
 			{name: "removes consumer namespaces", want: 1, change: func() {
-				client.ConsumerNamespaces = nil
+				client.AllowedConsumerNamespaces = nil
 			}},
 			{name: "allows all consumers", want: 1, change: func() {
 				client.AllowAllConsumers = true

@@ -15,16 +15,16 @@ type AuthorizationPolicy struct {
 }
 
 type Client struct {
-	ID                 string
-	Issuer             string
-	Environment        string
-	Namespace          string
-	Name               string
-	AllowedScopes      []string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	AllowAllConsumers  bool
-	ConsumerNamespaces []string
+	ID                        string
+	Issuer                    string
+	Environment               string
+	Namespace                 string
+	Name                      string
+	AllowedScopes             []string
+	CreatedAt                 time.Time
+	UpdatedAt                 time.Time
+	AllowAllConsumers         bool
+	AllowedConsumerNamespaces []string
 }
 
 type RotatableSigningKey struct {

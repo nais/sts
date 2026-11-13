@@ -234,7 +234,7 @@ func TestSts(t *testing.T) {
 			target.Client.Name = "wildcard-target"
 			targetClientID := "env1:namespace1:wildcard-target"
 			target.AuthorizationPolicies = nil
-			target.ConsumerNamespaces = []string{"wildcard-team"}
+			target.AllowedConsumerNamespaces = []string{"wildcard-team"}
 			register := func(allowAll bool) {
 				t.Helper()
 				target.AllowAllConsumers = allowAll

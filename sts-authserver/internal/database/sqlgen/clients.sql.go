@@ -67,7 +67,7 @@ func (q *Queries) GetAuthorizationPolicy(ctx context.Context, arg GetAuthorizati
 
 const getClient = `-- name: GetClient :one
 SELECT
-	id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at, allow_all_consumers, consumer_namespaces
+	id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at, allow_all_consumers, allowed_consumer_namespaces
 FROM
 	clients
 WHERE
@@ -95,14 +95,14 @@ func (q *Queries) GetClient(ctx context.Context, arg GetClientParams) (Client, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AllowAllConsumers,
-		&i.ConsumerNamespaces,
+		&i.AllowedConsumerNamespaces,
 	)
 	return i, err
 }
 
 const getClientByIDForUpdate = `-- name: GetClientByIDForUpdate :one
 SELECT
-	id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at, allow_all_consumers, consumer_namespaces
+	id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at, allow_all_consumers, allowed_consumer_namespaces
 FROM
 	clients
 WHERE
@@ -123,7 +123,7 @@ func (q *Queries) GetClientByIDForUpdate(ctx context.Context, id string) (Client
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AllowAllConsumers,
-		&i.ConsumerNamespaces,
+		&i.AllowedConsumerNamespaces,
 	)
 	return i, err
 }
@@ -192,7 +192,7 @@ func (q *Queries) ListAuthorizationPoliciesByOwner(ctx context.Context, ownerCli
 
 const listClients = `-- name: ListClients :many
 SELECT
-	id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at, allow_all_consumers, consumer_namespaces
+	id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at, allow_all_consumers, allowed_consumer_namespaces
 FROM
 	clients
 ORDER BY
@@ -218,7 +218,7 @@ func (q *Queries) ListClients(ctx context.Context) ([]Client, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.AllowAllConsumers,
-			&i.ConsumerNamespaces,
+			&i.AllowedConsumerNamespaces,
 		); err != nil {
 			return nil, err
 		}
@@ -268,7 +268,7 @@ INSERT INTO clients(
 	issuer,
 	allowed_scopes,
 	allow_all_consumers,
-	consumer_namespaces)
+	allowed_consumer_namespaces)
 VALUES (
 	$1,
 	$2,
@@ -284,7 +284,7 @@ ON CONFLICT (
 	DO UPDATE SET
 		allowed_scopes = EXCLUDED.allowed_scopes,
 		allow_all_consumers = EXCLUDED.allow_all_consumers,
-		consumer_namespaces = EXCLUDED.consumer_namespaces,
+		allowed_consumer_namespaces = EXCLUDED.allowed_consumer_namespaces,
 		issuer = EXCLUDED.issuer,
 		updated_at = NOW()
 	WHERE
@@ -294,21 +294,21 @@ ON CONFLICT (
 		AND (
 			clients.allowed_scopes IS DISTINCT FROM EXCLUDED.allowed_scopes
 			OR clients.allow_all_consumers IS DISTINCT FROM EXCLUDED.allow_all_consumers
-			OR clients.consumer_namespaces IS DISTINCT FROM EXCLUDED.consumer_namespaces
+			OR clients.allowed_consumer_namespaces IS DISTINCT FROM EXCLUDED.allowed_consumer_namespaces
 			OR clients.issuer IS DISTINCT FROM EXCLUDED.issuer)
 	RETURNING
-		id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at, allow_all_consumers, consumer_namespaces
+		id, issuer, environment, namespace, name, allowed_scopes, created_at, updated_at, allow_all_consumers, allowed_consumer_namespaces
 `
 
 type UpsertClientParams struct {
-	ID                 string
-	Environment        string
-	Namespace          string
-	Name               string
-	Issuer             string
-	AllowedScopes      []string
-	AllowAllConsumers  bool
-	ConsumerNamespaces []string
+	ID                        string
+	Environment               string
+	Namespace                 string
+	Name                      string
+	Issuer                    string
+	AllowedScopes             []string
+	AllowAllConsumers         bool
+	AllowedConsumerNamespaces []string
 }
 
 func (q *Queries) UpsertClient(ctx context.Context, arg UpsertClientParams) (Client, error) {
@@ -320,7 +320,7 @@ func (q *Queries) UpsertClient(ctx context.Context, arg UpsertClientParams) (Cli
 		arg.Issuer,
 		arg.AllowedScopes,
 		arg.AllowAllConsumers,
-		arg.ConsumerNamespaces,
+		arg.AllowedConsumerNamespaces,
 	)
 	var i Client
 	err := row.Scan(
@@ -333,7 +333,7 @@ func (q *Queries) UpsertClient(ctx context.Context, arg UpsertClientParams) (Cli
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AllowAllConsumers,
-		&i.ConsumerNamespaces,
+		&i.AllowedConsumerNamespaces,
 	)
 	return i, err
 }
