@@ -405,7 +405,6 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 		_, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.ErrorIs(t, err, pgx.ErrNoRows)
 	})
-
 }
 
 func resetDatabase(t *testing.T, pool *pgxpool.Pool) {
