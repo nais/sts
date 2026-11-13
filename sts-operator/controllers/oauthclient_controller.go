@@ -215,7 +215,11 @@ func failed(oauthClient *stsv1.OAuthClient, message string, err error) error {
 
 func makeSoftwareStatement(oauthClient *stsv1.OAuthClient) stsapi.SoftwareStatement {
 	var clients []stsapi.AuthorizedClient
+	var namespaces []string
 	for _, acl := range oauthClient.Spec.AccessControlList {
+		if acl.AllowAll {
+			namespaces = append(namespaces, acl.Team)
+		}
 		for _, workload := range acl.Workloads {
 			clients = append(clients, stsapi.AuthorizedClient{
 				Client: stsapi.Client{Namespace: acl.Team, Name: workload.Name},
@@ -225,7 +229,11 @@ func makeSoftwareStatement(oauthClient *stsv1.OAuthClient) stsapi.SoftwareStatem
 	}
 
 	return stsapi.SoftwareStatement{
-		Client:              stsapi.Client{Namespace: oauthClient.Namespace, Name: oauthClient.Name},
-		AuthorizationPolicy: stsapi.AuthorizationPolicy{Clients: clients},
+		Client: stsapi.Client{Namespace: oauthClient.Namespace, Name: oauthClient.Name},
+		AuthorizationPolicy: stsapi.AuthorizationPolicy{
+			AllowAll:          oauthClient.Spec.AllowAll,
+			AllowedNamespaces: namespaces,
+			Clients:           clients,
+		},
 	}
 }
