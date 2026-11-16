@@ -223,9 +223,11 @@ func TestOAuthClientReconciler(t *testing.T) {
 		require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &before))
 		previousGeneration := oauthClient.Generation
 
+		oauthClient.Spec.AllowAll = true
 		oauthClient.Spec.AccessControlList = []stsv1.AccessControlList{
 			{
-				Team: "team1",
+				Team:     "team1",
+				AllowAll: true,
 				Workloads: []stsv1.Workload{
 					{Name: "consumer1", Roles: []string{"reader"}},
 					// Roles are optional.
@@ -233,6 +235,7 @@ func TestOAuthClientReconciler(t *testing.T) {
 				},
 			},
 			{Team: "team2", Workloads: []stsv1.Workload{{Name: "consumer1"}}},
+			{Team: "team3", AllowAll: true},
 		}
 		require.NoError(t, k8sClient.Update(ctx, oauthClient))
 		require.Greater(t, oauthClient.Generation, previousGeneration)
@@ -253,6 +256,8 @@ func TestOAuthClientReconciler(t *testing.T) {
 		assert.Equal(t, stsapi.SoftwareStatement{
 			Client: stsapi.Client{Namespace: namespace, Name: appName},
 			AuthorizationPolicy: stsapi.AuthorizationPolicy{
+				AllowAll:          true,
+				AllowedNamespaces: []string{"team1", "team3"},
 				Clients: []stsapi.AuthorizedClient{
 					{Client: stsapi.Client{Namespace: "team1", Name: "consumer1"}, Roles: []string{"reader"}},
 					{Client: stsapi.Client{Namespace: "team1", Name: "consumer2"}},
