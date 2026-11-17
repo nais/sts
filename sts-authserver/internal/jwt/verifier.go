@@ -3,6 +3,7 @@ package jwt
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"time"
 
@@ -62,6 +63,11 @@ func WithMaxTokenLifetime(maxLifetime time.Duration) TokenVerifierOption {
 	return func(t *TokenVerifier) {
 		t.maxTokenLifetime = maxLifetime
 	}
+}
+
+func (t *TokenVerifier) Merge(other *TokenVerifier) *TokenVerifier {
+	maps.Copy(t.issuers, other.issuers)
+	return t
 }
 
 func NewTokenVerifier(ctx context.Context, opts ...TokenVerifierOption) (*TokenVerifier, error) {

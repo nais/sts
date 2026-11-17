@@ -558,6 +558,59 @@ func TestSts(t *testing.T) {
 		assert.Equal(t, "invalid_request", tokenExchange.Code)
 		assert.Equal(t, "subject token is invalid", tokenExchange.Description)
 	})
+
+	// Machine tokens use the workload's service account token as both client assertion and subject token.
+	t.Run("machine token exchange", func(t *testing.T) {
+		consumer := fixtures.Client1
+		target := fixtures.Client2.ID
+
+		serviceAccountToken, serviceAccountClaims := getClientTokenWithClaims(t, oauthServer, consumer)
+		tokenExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(serviceAccountToken, serviceAccountToken, target))
+
+		assert.Equal(t, oidc.BearerToken, tokenExchange.TokenType)
+		assert.Equal(t, oidc.AccessTokenType, tokenExchange.IssuedTokenType)
+		assert.Equal(t, "system:serviceaccount:namespace1:workload1", serviceAccountClaims.Subject)
+		assertExchangedClaims(t, stsAddress, tokenExchange, serviceAccountClaims, consumer.Environment, target, consumer.ID)
+		assertTokenCallChain(t, stsAddress, tokenExchange, target, consumer.ID, nil)
+	})
+
+	t.Run("machine token can be exchanged further", func(t *testing.T) {
+		firstConsumer := fixtures.Client1
+		firstTarget := fixtures.Client2.ID
+
+		serviceAccountToken, serviceAccountClaims := getClientTokenWithClaims(t, oauthServer, firstConsumer)
+		firstExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(serviceAccountToken, serviceAccountToken, firstTarget))
+		firstChain := assertTokenCallChain(t, stsAddress, firstExchange, firstTarget, firstConsumer.ID, nil)
+
+		secondConsumer := fixtures.Client2
+		secondTarget := fixtures.Client3.ID
+
+		secondClientAssertion := getClientToken(t, oauthServer, secondConsumer)
+		secondExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(secondClientAssertion, firstExchange.AccessToken, secondTarget))
+
+		assertExchangedClaims(t, stsAddress, secondExchange, serviceAccountClaims, firstConsumer.Environment, secondTarget, secondConsumer.ID)
+		assertTokenCallChain(t, stsAddress, secondExchange, secondTarget, secondConsumer.ID, firstChain)
+	})
+
+	t.Run("machine token exchange denies service account subject token for another workload", func(t *testing.T) {
+		clientAssertion := getClientToken(t, oauthServer, fixtures.Client1)
+		subjectToken := getClientToken(t, oauthServer, fixtures.Client2)
+		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID))
+
+		assert.Equal(t, "invalid_request", tokenExchange.Code)
+		assert.Equal(t, "subject token is invalid", tokenExchange.Description)
+	})
+
+	t.Run("machine token exchange denies service account subject token from another environment", func(t *testing.T) {
+		consumer := fixtures.Client1
+		clientAssertion := getClientToken(t, oauthServer, consumer)
+		// Same namespace and name, so the subject matches but the issuer does not.
+		subjectToken := getKubernetesToken(t, oauthServer, "env2", consumer.Namespace, consumer.Name)
+		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID))
+
+		assert.Equal(t, "invalid_request", tokenExchange.Code)
+		assert.Equal(t, "subject token is invalid", tokenExchange.Description)
+	})
 }
 
 func assertTokenCallChain(
@@ -590,7 +643,19 @@ func assertTokenExchangeClaims(
 	idpName, ok := stsConfig.AuthServerConfig.SubjectTokenIssuers[jwt.Issuer(subjectClaims.Issuer)]
 	require.True(t, ok, "subject token issuer %q not found in STS configuration", subjectClaims.Issuer)
 
-	stsAddress := stsConfig.Address
+	assertExchangedClaims(t, stsConfig.Address, response, subjectClaims, idpName, targetID, consumerID)
+}
+
+// assertExchangedClaims checks that the issued token keeps the original subject token claims
+// and sets the STS-owned claims, with idpName as the expected urn:nais:idp_name.
+func assertExchangedClaims(
+	t *testing.T,
+	stsAddress testServer,
+	response *oauth.AccessTokenResponse,
+	subjectClaims *jwt.AccessTokenClaims,
+	idpName, targetID, consumerID string,
+) {
+	t.Helper()
 
 	// Parse the issued token as typed STS claims and as a complete raw claim map.
 	var stsClaims *oauth.STSTokenClaims
@@ -709,6 +774,18 @@ func getKubernetesToken(t testing.TB, oauthServer testServer, environment, names
 func getClientToken(t testing.TB, oauthServer testServer, client clientFixture) string {
 	t.Helper()
 	return getKubernetesToken(t, oauthServer, client.Environment, client.Namespace, client.Name)
+}
+
+func getClientTokenWithClaims(t testing.TB, oauthServer testServer, client clientFixture) (string, *jwt.AccessTokenClaims) {
+	t.Helper()
+	token := getClientToken(t, oauthServer, client)
+
+	verifier, err := jwt.NewTokenVerifier(t.Context(), jwt.WithIssuer(jwt.Issuer(oauthServer.Endpoint(client.Environment))))
+	require.NoError(t, err)
+	claims, err := verifier.Verify(t.Context(), token)
+	require.NoError(t, err)
+
+	return token, claims
 }
 
 func getSubjectTokenFromIssuer(t testing.TB, oauthServer testServer, issuer string) (string, *jwt.AccessTokenClaims) {

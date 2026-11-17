@@ -48,7 +48,7 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 		ClientAuthVerifier:        clientAuthVerifier,
 		ClientStore:               clientStore,
 		KeyStore:                  keyStore,
-		TokenExchangeVerifier:     tokenExchangeVerifier,
+		TokenExchangeVerifier:     tokenExchangeVerifier.Merge(clientAuthVerifier),
 		Metrics:                   metrics,
 		AuthorizationServerConfig: cfg,
 	}, nil
