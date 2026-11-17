@@ -18,7 +18,7 @@ func TestMetrics(t *testing.T) {
 	})
 
 	metrics := provider.Metrics()
-	finish := metrics.StartTokenGrant(t.Context(), "client_credentials")
+	finish := metrics.StartTokenGrant(t.Context(), "urn:ietf:params:oauth:grant-type:token-exchange")
 	finish(nil)
 	finish = metrics.StartTokenStep(t.Context(), "get_client")
 	finish(nil)

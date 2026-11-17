@@ -3,7 +3,6 @@ package oauth
 import (
 	nethttp "net/http"
 	"net/url"
-	"strings"
 
 	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/errs"
@@ -14,16 +13,12 @@ import (
 func (a *AuthorizationServer) DiscoveryEndpoint() nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		cfg := a.AuthorizationServerConfig
-		grantTypes := []api.GrantType{api.GrantTypeClientCredentials}
-		if len(cfg.SubjectTokenIssuers) > 0 {
-			grantTypes = append(grantTypes, api.GrantTypeTokenExchange)
-		}
 
 		http.WriteJSON(w, r, &api.DiscoveryMetadata{
 			Issuer:              cfg.Issuer.String(),
 			TokenEndpoint:       cfg.Issuer.TokenEndpoint(),
 			JwksURI:             cfg.Issuer.JWKSEndpoint(),
-			GrantTypesSupported: grantTypes,
+			GrantTypesSupported: []api.GrantType{api.GrantTypeTokenExchange},
 			TokenEndpointAuthMethodsSupported: []api.AuthMethod{
 				api.AuthMethodPrivateKeyJWT,
 			},
@@ -75,8 +70,6 @@ func (a *AuthorizationServer) TokenEndpoint() nethttp.HandlerFunc {
 
 func (a *AuthorizationServer) parseTokenRequest(form url.Values) (TokenRequest, error) {
 	switch grantType := oidc.GrantType(form.Get("grant_type")); grantType {
-	case oidc.GrantTypeClientCredentials:
-		return parseClientCredentialsRequest(form), nil
 	case oidc.GrantTypeTokenExchange:
 		if len(a.SubjectTokenIssuers) == 0 {
 			return nil, errs.UnsupportedGrantType(nil, "%s not supported", grantType)
@@ -93,13 +86,6 @@ func parseClientAuthCredentials(form url.Values) ClientAuthCredentials {
 	return ClientAuthCredentials{
 		ClientAssertion:     form.Get("client_assertion"),
 		ClientAssertionType: form.Get("client_assertion_type"),
-	}
-}
-
-func parseClientCredentialsRequest(form url.Values) *ClientCredentialsRequest {
-	return &ClientCredentialsRequest{
-		ClientAuthCredentials: parseClientAuthCredentials(form),
-		Scope:                 strings.Fields(form.Get("scope")),
 	}
 }
 

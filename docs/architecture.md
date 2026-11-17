@@ -104,7 +104,7 @@ The registered client has a separate ID; STS does not derive it from those field
 The registered target owns its authorization policies.
 Each policy names a **consumer** that can request a token for that **target**, and lists the roles STS grants.
 For example, `env1:namespace1:target` can grant `reader` to `env1:namespace1:consumer`.
-Client credentials and token exchange look up the policy by `(owner=target, consumer=requesting client)`.
+Token exchange looks up the policy by `(owner=target, consumer=requesting client)`.
 
 A registrator can manage clients only for its authenticated issuer.
 Registrators with the same issuer share authority over those clients.
@@ -131,8 +131,7 @@ See [Client registration](registration.md) for replacement, deletion, and reques
 
 ## Token issuance
 
-- **Client credentials:** The consumer is the token subject.
-- **Token exchange:** The original subject remains; the consumer is appended to `urn:nais:call_chain`.
+Token exchange preserves the original subject and appends the consumer to `urn:nais:call_chain`.
 
 ```mermaid
 sequenceDiagram
@@ -141,12 +140,10 @@ sequenceDiagram
   participant P as Client store
   participant K as Key store
   participant T as Target
-  C->>S: POST /token with workload assertion and target
+  C->>S: POST /token with workload assertion, subject token, and target
   S->>S: Verify assertion and resolve workload identity
   S->>P: Find registered consumer
-  opt Token exchange
-    S->>S: Verify subject token from an accepted issuer
-  end
+  S->>S: Verify subject token from an accepted issuer
   S->>P: Find policy owned by target for consumer
   P-->>S: Roles
   S->>K: Get signer
@@ -156,8 +153,8 @@ sequenceDiagram
   T->>T: Validate token and audience
 ```
 
-Both grants authenticate the consumer with a workload token.
-Token exchange also verifies a subject token; without configured subject-token issuers, STS supports only client credentials.
+Token exchange authenticates the consumer with a workload token and verifies a subject token.
+Without configured subject-token issuers, the token endpoint rejects token requests.
 
 See [Client usage](usage.md) for request fields, issued claims, and chained exchange examples.
 

@@ -27,7 +27,6 @@ type config struct {
 	rate     int
 	workers  int
 	duration time.Duration
-	flow     string
 }
 
 type tokenResponse struct {
@@ -35,8 +34,7 @@ type tokenResponse struct {
 }
 
 type requestForms struct {
-	clientCredentials url.Values
-	tokenExchange     url.Values
+	tokenExchange url.Values
 }
 
 type counters struct {
@@ -68,15 +66,9 @@ func parseFlags() config {
 	flag.IntVar(&cfg.rate, "rate", 100, "target requests/second; 0 means unlimited")
 	flag.IntVar(&cfg.workers, "workers", 8, "maximum concurrent workers")
 	flag.DurationVar(&cfg.duration, "duration", 0, "run duration; 0 runs until Ctrl-C")
-	flag.StringVar(&cfg.flow, "flow", "mixed", "traffic flow: mixed, client_credentials, or token_exchange")
 	flag.Parse()
 	if cfg.rate < 0 || cfg.workers < 1 {
 		log.Fatal("rate must be >= 0 and workers must be >= 1")
-	}
-	switch cfg.flow {
-	case "mixed", "client_credentials", "token_exchange":
-	default:
-		log.Fatal("flow must be mixed, client_credentials, or token_exchange")
 	}
 	return cfg
 }
@@ -98,19 +90,19 @@ func run(ctx context.Context, cfg config) error {
 	currentForms.Store(forms)
 
 	stats := &counters{started: time.Now()}
-	jobs := make(chan string, cfg.workers)
+	jobs := make(chan struct{}, cfg.workers)
 	var workers sync.WaitGroup
 	for range cfg.workers {
 		workers.Go(func() {
-			for flow := range jobs {
-				sendRequest(ctx, client, cfg.stsURL+"/token", flow, currentForms.Load(), stats)
+			for range jobs {
+				sendRequest(ctx, client, cfg.stsURL+"/token", currentForms.Load(), stats)
 			}
 		})
 	}
 
 	go refreshForms(ctx, client, cfg, &currentForms)
 	go printStats(ctx, stats)
-	log.Printf("generating %s traffic: rate=%s workers=%d; press Ctrl-C to stop", cfg.flow, formatRate(cfg.rate), cfg.workers)
+	log.Printf("generating token exchange traffic: rate=%s workers=%d; press Ctrl-C to stop", formatRate(cfg.rate), cfg.workers)
 
 	err = produce(ctx, cfg, jobs)
 	close(jobs)
@@ -119,23 +111,11 @@ func run(ctx context.Context, cfg config) error {
 	return err
 }
 
-func produce(ctx context.Context, cfg config, jobs chan<- string) error {
-	var sequence uint64
-	nextFlow := func() string {
-		if cfg.flow != "mixed" {
-			return cfg.flow
-		}
-		sequence++
-		if sequence%2 == 0 {
-			return "token_exchange"
-		}
-		return "client_credentials"
-	}
-
+func produce(ctx context.Context, cfg config, jobs chan<- struct{}) error {
 	if cfg.rate == 0 {
 		for {
 			select {
-			case jobs <- nextFlow():
+			case jobs <- struct{}{}:
 			case <-ctx.Done():
 				return ctx.Err()
 			}
@@ -149,7 +129,7 @@ func produce(ctx context.Context, cfg config, jobs chan<- string) error {
 		select {
 		case <-ticker.C:
 			select {
-			case jobs <- nextFlow():
+			case jobs <- struct{}{}:
 			default: // Do not accumulate an unbounded backlog if STS cannot keep up.
 			}
 		case <-ctx.Done():
@@ -158,12 +138,8 @@ func produce(ctx context.Context, cfg config, jobs chan<- string) error {
 	}
 }
 
-func sendRequest(ctx context.Context, client *http.Client, endpoint, flow string, forms *requestForms, stats *counters) {
-	form := forms.clientCredentials
-	if flow == "token_exchange" {
-		form = forms.tokenExchange
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+func sendRequest(ctx context.Context, client *http.Client, endpoint string, forms *requestForms, stats *counters) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(forms.tokenExchange.Encode()))
 	if err != nil {
 		stats.errors.Add(1)
 		return
@@ -207,10 +183,6 @@ func prepareForms(ctx context.Context, client *http.Client, cfg config) (*reques
 		return nil, err
 	}
 	return &requestForms{
-		clientCredentials: url.Values{
-			"grant_type": {string(oidc.GrantTypeClientCredentials)}, "client_assertion_type": {oidc.ClientAssertionTypeJWTAssertion},
-			"client_assertion": {clientAssertion}, "scope": {"env1:namespace1:workload2"},
-		},
 		tokenExchange: url.Values{
 			"grant_type": {string(oidc.GrantTypeTokenExchange)}, "client_assertion_type": {oidc.ClientAssertionTypeJWTAssertion},
 			"client_assertion": {clientAssertion}, "audience": {"env1:namespace1:workload2"},

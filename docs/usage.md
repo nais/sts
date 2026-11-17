@@ -8,24 +8,22 @@
 | `GET`  | `/jwks`                                   | Serves STS signing public keys.                                   |
 | `POST` | `/token`                                  | Accepts form-encoded requests for an access token for one target. |
 
-The discovery document's `grant_types_supported` field always includes `client_credentials`.
-
-When `authorizationServer.subjectTokenIssuers` is nonempty, it also includes `urn:ietf:params:oauth:grant-type:token-exchange`:
+STS supports only token exchange. The discovery document advertises:
 
 ```json
 {
   "grant_types_supported": [
-    "client_credentials",
     "urn:ietf:params:oauth:grant-type:token-exchange"
   ]
 }
 ```
 
-With no subject-token issuers configured, the array contains only `client_credentials`.
+Token requests require at least one configured `authorizationServer.subjectTokenIssuers` entry.
+Without one, the token endpoint returns `unsupported_grant_type`.
 
 ## Authentication
 
-Both grants require a projected Kubernetes service account token as `client_assertion`.
+Token exchange requires a projected Kubernetes service account token as `client_assertion`.
 STS uses its issuer, namespace, and service account name to find the registered client.
 
 Nais `Application` and `NaisJob` workloads get a token automatically at `NAIS_SERVICE_ACCOUNT_TOKEN_PATH`.
@@ -83,75 +81,11 @@ For reference, a decoded projected service account token can contain:
 
 The timestamps are illustrative; Kubernetes sets them when it issues the token.
 
-## Client credentials
-
-Send exactly one target client ID in `scope`.
-The target must have an authorization policy that lists the requesting client as a consumer.
-The policy supplies the roles in the issued token.
-
-### Request
-
-```http
-POST /token HTTP/1.1
-Content-Type: application/x-www-form-urlencoded
-
-grant_type=client_credentials&
-client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer&
-client_assertion=<projected-service-account-token>&
-scope=env1%3Anamespace1%3Atarget
-```
-
-The body has line breaks for readability. Send the encoded parameters on one line.
-
-| Field                   | Description                                                                  | Example value                                            |
-|-------------------------|------------------------------------------------------------------------------|----------------------------------------------------------|
-| `grant_type`            | Client credentials grant.                                                    | `client_credentials`                                     |
-| `client_assertion_type` | JWT bearer assertion type.                                                   | `urn:ietf:params:oauth:client-assertion-type:jwt-bearer` |
-| `client_assertion`      | The projected service account token.                                         | `<projected-service-account-token>`                      |
-| `scope`                 | One target client ID whose policy lists the requesting client as a consumer. | `env1:namespace1:target`                                 |
-
-### Response
-
-```json
-{
-  "access_token": "<signed-STS-JWT>",
-  "token_type": "Bearer",
-  "expires_in": 900
-}
-```
-
-### Issued token
-
-For example, the decoded access token contains:
-
-```json
-{
-  "iss": "https://sts.example.com",
-  "sub": "env1:namespace1:my-workload",
-  "aud": ["env1:namespace1:target"],
-  "client_id": "env1:namespace1:my-workload",
-  "jti": "a12b4c56-7890-4def-8abc-1234567890ab",
-  "iat": 1790000000,
-  "nbf": 1790000000,
-  "exp": 1790000900,
-  "urn:nais:roles": ["reader"],
-  "urn:nais:grant_type": "client_credentials"
-}
-```
-
-| Claim                      | Description                                               |
-|----------------------------|-----------------------------------------------------------|
-| `iss`                      | STS issuer.                                               |
-| `sub`                      | Requesting client ID.                                     |
-| `aud`                      | Target client ID from `scope`.                            |
-| `client_id`                | Requesting client ID.                                     |
-| `jti`, `iat`, `nbf`, `exp` | Token ID and validity times.                              |
-| `urn:nais:roles`           | Roles from the target's policy for the requesting client. |
-| `urn:nais:grant_type`      | `client_credentials`.                                     |
-
 ## Token exchange
 
 Send a subject JWT from an accepted issuer, or an STS access token from a previous token exchange.
+Send exactly one target client ID in `audience`.
+The target's authorization policy must allow the requesting client; it supplies the roles in the issued token.
 
 STS verifies the subject token's signature, issuer, subject, and timestamps.
 When the subject token is from STS, its `urn:nais:grant_type` must be `urn:ietf:params:oauth:grant-type:token-exchange`.

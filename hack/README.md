@@ -41,12 +41,6 @@ PGPASSWORD="$(kubectl get secret -n nais-system sts-db-app -o jsonpath='{.data.p
   -c "\copy authorization_policies (owner_client_id, consumer_client_id, roles) FROM 'hack/authorization_policies.csv' WITH (FORMAT CSV, HEADER)"
 ```
 
-## create a client credentials token
-
-```shell
-./hack/client-credentials.sh
-```
-
 ## create a token exchange token
 
 The workload token serves as both the client assertion and the subject token.

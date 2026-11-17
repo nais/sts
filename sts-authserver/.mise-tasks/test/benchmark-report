@@ -10,7 +10,7 @@ benchmark_output="${report_dir}/benchmark.txt"
 report_output="${report_dir}/index.html"
 : > "${benchmark_output}"
 
-for benchmark in client_credentials token_exchange; do
+for benchmark in token_exchange; do
   metrics_output="${report_dir}/${benchmark}.prom"
   run_output="${report_dir}/${benchmark}.txt"
 
@@ -30,6 +30,5 @@ done
 
 go run ./cmd/benchmark_report \
   -benchmark "${benchmark_output}" \
-  -metrics "client_credentials=${report_dir}/client_credentials.prom" \
   -metrics "token_exchange=${report_dir}/token_exchange.prom" \
   -output "${report_output}"

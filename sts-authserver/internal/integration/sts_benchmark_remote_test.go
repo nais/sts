@@ -61,8 +61,6 @@ func TestRemoteBenchmarkForms(t *testing.T) {
 			"client_assertion": "assertion", "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
 		}
 		switch r.Form.Get("grant_type") {
-		case "client_credentials":
-			want["scope"] = "target"
 		case "urn:ietf:params:oauth:grant-type:token-exchange":
 			want["subject_token"] = "subject"
 			want["subject_token_type"] = "urn:ietf:params:oauth:token-type:jwt"
@@ -95,6 +93,9 @@ func TestRemoteBenchmarkForms(t *testing.T) {
 	}
 	if config.endpoint != server.URL+"/sts/token" {
 		t.Fatalf("endpoint = %q, want %q", config.endpoint, server.URL+"/sts/token")
+	}
+	if len(config.benchmarks) != 1 || config.benchmarks[0].name != "token_exchange" {
+		t.Fatalf("benchmarks = %+v, want only token_exchange", config.benchmarks)
 	}
 	for _, benchmark := range config.benchmarks {
 		if _, err := benchmarkTokenRequest(t, config.endpoint, benchmark.form); err != nil {
@@ -151,12 +152,9 @@ func TestRemoteBenchmarkTokenFile(t *testing.T) {
 				t.Fatalf("err = %v, want nil", err)
 			}
 			if got := config.benchmarks[0].form.Get("client_assertion"); got != tt.wantToken {
-				t.Errorf("client_credentials client_assertion = %q, want %q", got, tt.wantToken)
-			}
-			if got := config.benchmarks[1].form.Get("client_assertion"); got != tt.wantToken {
 				t.Errorf("token_exchange client_assertion = %q, want %q", got, tt.wantToken)
 			}
-			if got := config.benchmarks[1].form.Get("subject_token"); got != tt.wantToken {
+			if got := config.benchmarks[0].form.Get("subject_token"); got != tt.wantToken {
 				t.Errorf("subject_token = %q, want %q", got, tt.wantToken)
 			}
 		})

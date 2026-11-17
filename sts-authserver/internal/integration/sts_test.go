@@ -41,7 +41,6 @@ func TestSts(t *testing.T) {
 		assert.Equal(t, stsAddress.Endpoint("jwks"), resp.JwksURI)
 
 		assert.Equal(t, []api.GrantType{
-			api.GrantTypeClientCredentials,
 			api.GrantTypeTokenExchange,
 		}, resp.GrantTypesSupported)
 
@@ -49,6 +48,7 @@ func TestSts(t *testing.T) {
 	})
 
 	t.Run("registration", func(t *testing.T) {
+		subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, "subject1")
 		registratorToken := getKubernetesToken(t, oauthServer, fixtures.RegisteredTarget.Environment, fixtures.RegisteredTarget.Namespace, "registrator1")
 		otherRegistratorToken := getKubernetesToken(t, oauthServer, "env2", fixtures.RegisteredTarget.Namespace, "registrator2")
 		statement := registration.SoftwareStatement{
@@ -77,11 +77,6 @@ func TestSts(t *testing.T) {
 			target := statementClientID
 
 			clientAssertion := getClientToken(t, oauthServer, consumer)
-			clientCredentials := stsToken[oauth.AccessTokenResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target))
-			require.NotEmpty(t, clientCredentials.AccessToken)
-
-			const subjectIssuer = "subject1"
-			subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, subjectIssuer)
 			tokenExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
 			require.NotEmpty(t, tokenExchange.AccessToken)
 		})
@@ -103,7 +98,7 @@ func TestSts(t *testing.T) {
 			clientAssertion := getClientToken(t, oauthServer, consumer)
 			assertTokenDenialAfterRefresh(t,
 				stsAddress,
-				clientCredentialsForm(clientAssertion, target),
+				tokenExchangeForm(clientAssertion, subjectToken, target),
 				"invalid_target",
 				fmt.Sprintf("client is not authorized for target %q", target),
 			)
@@ -136,7 +131,7 @@ func TestSts(t *testing.T) {
 			target := anotherClientID
 
 			clientAssertion := getClientToken(t, oauthServer, consumer)
-			token := stsToken[oauth.AccessTokenResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target))
+			token := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
 			require.NotEmpty(t, token.AccessToken)
 
 			status, _ = deleteRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, anotherClientID)
@@ -162,7 +157,7 @@ func TestSts(t *testing.T) {
 				require.Equal(t, http.StatusOK, status, response)
 
 				clientAssertion := getClientToken(t, oauthServer, consumer)
-				denial := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, targetClientID))
+				denial := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, targetClientID))
 				require.Equal(t, "invalid_client", denial.Code)
 
 				status, response = postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{
@@ -170,19 +165,15 @@ func TestSts(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, status, response)
 
-				subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, "subject1")
-				for grant, form := range map[string]url.Values{
-					"client credentials": clientCredentialsForm(clientAssertion, targetClientID),
-					"token exchange":     tokenExchangeForm(clientAssertion, subjectToken, targetClientID),
-				} {
-					t.Run(grant, func(t *testing.T) {
-						token := stsToken[oauth.AccessTokenResponse](t, stsAddress, form)
-						claims := assertTokenClaims(t, stsAddress, token, targetClientID, consumer.ID, func(claims *oauth.STSTokenClaims) {
-							assert.Equal(t, oidc.GrantType(form.Get("grant_type")), claims.GrantType)
-						}, oauth.Roles(nil))
-						assert.NotContains(t, claims.Claims, "urn:nais:roles")
-					})
-				}
+				// Registration updates reach the client snapshot asynchronously.
+				require.Eventually(t, func() bool {
+					return stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, targetClientID)).Code == ""
+				}, 5*time.Second, 10*time.Millisecond)
+				token := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, targetClientID))
+				claims := assertTokenClaims(t, stsAddress, token, targetClientID, consumer.ID, func(claims *oauth.STSTokenClaims) {
+					assert.Equal(t, oidc.GrantTypeTokenExchange, claims.GrantType)
+				}, oauth.Roles(nil))
+				assert.NotContains(t, claims.Claims, "urn:nais:roles")
 
 				for _, id := range []string{targetClientID, consumer.ID} {
 					status, _ := deleteRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, id)
@@ -211,7 +202,7 @@ func TestSts(t *testing.T) {
 			require.Equal(t, consumer.ID, response.ClientID)
 
 			clientAssertion := getClientToken(t, oauthServer, consumer)
-			token := stsToken[oauth.AccessTokenResponse](t, stsAddress, clientCredentialsForm(clientAssertion, targetClientID))
+			token := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, targetClientID))
 			require.NotEmpty(t, token.AccessToken)
 
 			status, _ = deleteRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, targetClientID)
@@ -244,12 +235,12 @@ func TestSts(t *testing.T) {
 			register(api.AuthorizationPolicy{AllowedNamespaces: []string{"wildcard-team"}})
 
 			namespaceAssertion := getClientToken(t, oauthServer, namespaceConsumer)
-			namespaceToken := stsToken[oauth.AccessTokenResponse](t, stsAddress, clientCredentialsForm(namespaceAssertion, targetClientID))
+			namespaceToken := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(namespaceAssertion, subjectToken, targetClientID))
 			claims := assertTokenClaims(t, stsAddress, namespaceToken, targetClientID, namespaceConsumer.ID, func(*oauth.STSTokenClaims) {}, oauth.Roles(nil))
 			assert.NotContains(t, claims.Claims, "urn:nais:roles")
 
 			otherAssertion := getClientToken(t, oauthServer, otherConsumer)
-			denial := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(otherAssertion, targetClientID))
+			denial := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(otherAssertion, subjectToken, targetClientID))
 			require.Equal(t, "invalid_target", denial.Code)
 
 			// Client roles take precedence over allow-all, so Client1 keeps its role.
@@ -259,11 +250,11 @@ func TestSts(t *testing.T) {
 			})
 			assert.Eventually(t, func() bool {
 				// A success response decodes as an error response without a code.
-				return stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(otherAssertion, targetClientID)).Code == ""
+				return stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(otherAssertion, subjectToken, targetClientID)).Code == ""
 			}, 5*time.Second, 10*time.Millisecond)
 
 			client1Assertion := getClientToken(t, oauthServer, fixtures.Client1)
-			client1Token := stsToken[oauth.AccessTokenResponse](t, stsAddress, clientCredentialsForm(client1Assertion, targetClientID))
+			client1Token := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(client1Assertion, subjectToken, targetClientID))
 			assertTokenClaims(t, stsAddress, client1Token, targetClientID, fixtures.Client1.ID, func(*oauth.STSTokenClaims) {})
 
 			status, _ := deleteRegistration[errs.ErrorResponse](t, stsAddress, registratorToken, targetClientID)
@@ -289,15 +280,8 @@ func TestSts(t *testing.T) {
 			consumer := newClientFixture("env1", selfGrant.Client.Namespace, selfGrant.Client.Name)
 			target := fixtures.Client3.ID
 
-			// A policy owned by the consumer cannot authorize client credentials for Client3.
-			clientAssertion := getClientToken(t, oauthServer, consumer)
-			clientCredentials := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target))
-			assert.Equal(t, "invalid_target", clientCredentials.Code)
-			assert.Equal(t, fmt.Sprintf("client is not authorized for target %q", target), clientCredentials.Description)
-
 			// A policy owned by the consumer cannot authorize token exchange for Client3.
-			const subjectIssuer = "subject1"
-			subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, subjectIssuer)
+			clientAssertion := getClientToken(t, oauthServer, consumer)
 			tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
 			assert.Equal(t, "invalid_target", tokenExchange.Code)
 			assert.Equal(t, fmt.Sprintf("client is not authorized for target %q", target), tokenExchange.Description)
@@ -417,7 +401,7 @@ func TestSts(t *testing.T) {
 			clientAssertion := getClientToken(t, oauthServer, consumer)
 			assertTokenDenialAfterRefresh(t,
 				stsAddress,
-				clientCredentialsForm(clientAssertion, target),
+				tokenExchangeForm(clientAssertion, subjectToken, target),
 				"invalid_client",
 				"client authentication failed",
 			)
@@ -429,63 +413,11 @@ func TestSts(t *testing.T) {
 			clientAssertion = getClientToken(t, oauthServer, consumer)
 			assertTokenDenialAfterRefresh(t,
 				stsAddress,
-				clientCredentialsForm(clientAssertion, target),
+				tokenExchangeForm(clientAssertion, subjectToken, target),
 				"invalid_target",
 				fmt.Sprintf("client is not authorized for target %q", target),
 			)
 		})
-	})
-
-	t.Run("client credentials", func(t *testing.T) {
-		consumer := fixtures.Client1
-		target := fixtures.Client2.ID
-
-		clientAssertion := getClientToken(t, oauthServer, consumer)
-		clientCredentials := stsToken[oauth.AccessTokenResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target))
-
-		assert.Equal(t, oidc.BearerToken, clientCredentials.TokenType)
-		assert.Empty(t, clientCredentials.IssuedTokenType)
-		assertTokenClaims(t, stsAddress, clientCredentials, target, consumer.ID, func(claims *oauth.STSTokenClaims) {
-			assert.Equal(t, consumer.ID, claims.Subject)
-			assert.Equal(t, oidc.GrantTypeClientCredentials, claims.GrantType)
-			assert.Empty(t, claims.CallChain)
-		})
-	})
-
-	t.Run("client credentials denies unauthorized scope", func(t *testing.T) {
-		consumer := fixtures.Client1
-		target := "env1:namespace1:unauthorized"
-
-		clientAssertion := getClientToken(t, oauthServer, consumer)
-		clientCredentials := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target))
-
-		assert.Equal(t, "invalid_target", clientCredentials.Code)
-		assert.Equal(t, fmt.Sprintf("client is not authorized for target %q", target), clientCredentials.Description)
-	})
-
-	t.Run("client credentials denies unregistered client", func(t *testing.T) {
-		consumer := clientFixture{
-			Environment: fixtures.Client1.Environment,
-			Namespace:   fixtures.Client1.Namespace,
-			Name:        "unregistered",
-		}
-		target := fixtures.Client2.ID
-
-		clientAssertion := getClientToken(t, oauthServer, consumer)
-		clientCredentials := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, target))
-
-		assert.Equal(t, "invalid_client", clientCredentials.Code)
-		assert.Equal(t, "client authentication failed", clientCredentials.Description)
-	})
-
-	t.Run("client credentials denies untrusted client assertion issuer", func(t *testing.T) {
-		const issuer = "untrusted"
-
-		clientAssertion := getKubernetesToken(t, oauthServer, issuer, fixtures.Client1.Namespace, fixtures.Client1.Name)
-		clientCredentials := stsToken[errs.ErrorResponse](t, stsAddress, clientCredentialsForm(clientAssertion, fixtures.Client2.ID))
-
-		assert.Equal(t, "invalid_client", clientCredentials.Code)
-		assert.Equal(t, "client assertion is invalid", clientCredentials.Description)
 	})
 
 	t.Run("token exchange", func(t *testing.T) {
@@ -571,21 +503,6 @@ func TestSts(t *testing.T) {
 			assert.Equal(t, []oauth.ClientID{oauth.ClientID(firstConsumer.ID), oauth.ClientID(secondConsumer.ID)}, claims.CallChain)
 		})
 		assert.JSONEq(t, string(previous), string(second.Claims["act"]))
-	})
-
-	t.Run("token exchange denies STS client credentials token", func(t *testing.T) {
-		firstConsumer := fixtures.Client1
-		firstTarget := fixtures.Client2.ID
-		firstClientAssertion := getClientToken(t, oauthServer, firstConsumer)
-		clientCredentials := stsToken[oauth.AccessTokenResponse](t, stsAddress, clientCredentialsForm(firstClientAssertion, firstTarget))
-
-		secondConsumer := fixtures.Client2
-		secondTarget := fixtures.Client3.ID
-		secondClientAssertion := getClientToken(t, oauthServer, secondConsumer)
-		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(secondClientAssertion, clientCredentials.AccessToken, secondTarget))
-
-		assert.Equal(t, "invalid_request", tokenExchange.Code)
-		assert.Equal(t, "subject token is invalid", tokenExchange.Description)
 	})
 
 	t.Run("token exchange denies unauthorized audience", func(t *testing.T) {
@@ -748,15 +665,6 @@ func assertTokenClaims(
 
 	fn(claims)
 	return rawClaims
-}
-
-func clientCredentialsForm(clientAssertion, scope string) url.Values {
-	return url.Values{
-		"grant_type":            {string(oidc.GrantTypeClientCredentials)},
-		"client_assertion_type": {oidc.ClientAssertionTypeJWTAssertion},
-		"client_assertion":      {clientAssertion},
-		"scope":                 {scope},
-	}
 }
 
 func tokenExchangeForm(clientAssertion, subjectToken, audience string) url.Values {

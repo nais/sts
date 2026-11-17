@@ -8,7 +8,6 @@ Clients must authenticate with workload identity assertions and have access thro
 
 The service supports:
 
-- [RFC 6749 Client Credentials](https://datatracker.ietf.org/doc/html/rfc6749#section-4.4) for machine-to-machine access
 - [RFC 8693 Token Exchange](https://datatracker.ietf.org/doc/html/rfc8693) for on-behalf-of flows when subject-token issuers are configured
 
 ## How it works
@@ -38,7 +37,7 @@ The service supports:
 4. An **authorization policy** states which target a client can request and
    which roles its token receives.
 5. **STS** authenticates the client, checks its policy, and issues a token for
-   one target. Token exchange also requires a subject token from an accepted issuer.
+   one target. Token exchange requires a subject token from an accepted issuer.
 6. A **target** is the intended audience of the token. The receiving service
    validates the token before accepting it.
 
@@ -48,7 +47,7 @@ The service supports:
 - [Configuration](docs/configuration.md): YAML settings and deployment values
 - [Branch deployments](docs/deployment.md): automatic dev-nais deployments from protected branches
 - [Client registration](docs/registration.md): register clients and policies
-- [Client usage](docs/usage.md): request tokens with client credentials or token exchange
+- [Client usage](docs/usage.md): request tokens with token exchange
 - [Benchmarks](docs/benchmarks.md): run and interpret local benchmarks
 
 ## Local development
@@ -64,9 +63,7 @@ mise run dev  # prepares k3d and PostgreSQL, then runs both services
 
 For IntelliJ, run `mise run dev:setup` first, then run "STS Local".
 
-After `mise run sts-operator:k3d:sample`, try the token flows with Kubernetes service account tokens:
-
-- `mise run sts-authserver:dev:token:m2m`: get a client credentials token.
+After `mise run sts-operator:k3d:sample`, try token exchange with a Kubernetes service account token:
 - `mise run sts-authserver:dev:token:obo`: exchange a subject token from the mock issuer.
 
 See the [operator README](sts-operator/README.md#local-debugging-with-k3d) for details.
@@ -87,9 +84,7 @@ Endpoints:
 - http://localhost:8081/readyz
 - http://localhost:8081/metrics
 
-Try the token flows:
-
-- `mise run sts-authserver:mock:token:m2m`: get a client credentials token.
+Try token exchange:
 - `mise run sts-authserver:mock:token:obo`: exchange a subject token.
 
 Run `mise tasks --all` for all commands.

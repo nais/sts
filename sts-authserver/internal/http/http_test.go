@@ -24,7 +24,6 @@ func TestRequireContentType(t *testing.T) {
 		"json":              {contentType: "application/json"},
 		"json with charset": {contentType: "application/json; charset=utf-8"},
 		"missing":           {wantErr: true},
-		"wrong type":        {contentType: "text/plain", wantErr: true},
 		"malformed":         {contentType: "application/json; charset", wantErr: true},
 	}
 

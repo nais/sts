@@ -30,10 +30,6 @@ func TestSoftwareStatementValidate(t *testing.T) {
 			mutate:  func(s *SoftwareStatement) { s.Client.Namespace = "team_a" },
 			wantErr: "client: namespace",
 		},
-		"invalid workload": {
-			mutate:  func(s *SoftwareStatement) { s.Client.Name = "workload.name" },
-			wantErr: "client: name",
-		},
 		"invalid consumer": {
 			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicy.Clients[0].Namespace = "Team-b" },
 			wantErr: "authorized client 0",

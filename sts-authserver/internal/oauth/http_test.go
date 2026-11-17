@@ -8,25 +8,29 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/http"
+	"github.com/nais/sts/internal/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-func TestDiscoveryOmitsTokenExchangeWhenDisabled(t *testing.T) {
+func TestTokenEndpointRejectsClientCredentials(t *testing.T) {
+	server := &AuthorizationServer{AuthorizationServerConfig: AuthorizationServerConfig{
+		SubjectTokenIssuers: map[jwt.Issuer]string{"https://subject.example": "subject"},
+	}}
+	form := url.Values{"grant_type": {"client_credentials"}}
+	request := httptest.NewRequest(nethttp.MethodPost, "/token", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(nethttp.MethodGet, "/.well-known/oauth-authorization-server", nil)
 
-	server := &AuthorizationServer{AuthorizationServerConfig: AuthorizationServerConfig{Issuer: "https://sts.example"}}
-	server.DiscoveryEndpoint()(recorder, request)
+	server.TokenEndpoint()(recorder, request)
 
-	require.Equal(t, nethttp.StatusOK, recorder.Code)
-	var discovery api.DiscoveryMetadata
-	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&discovery))
-	assert.Equal(t, []api.GrantType{api.GrantTypeClientCredentials}, discovery.GrantTypesSupported)
+	require.Equal(t, nethttp.StatusBadRequest, recorder.Code)
+	var response errs.ErrorResponse
+	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
+	assert.Equal(t, "unsupported_grant_type", response.Code)
 }
 
 func TestTokenEndpointRejectsTokenExchangeWhenDisabled(t *testing.T) {
@@ -62,7 +66,7 @@ func TestTokenEndpointRejectsInvalidRequests(t *testing.T) {
 			description: "invalid request body",
 		},
 		"grant type in query": {
-			query:       "?grant_type=" + string(oidc.GrantTypeClientCredentials),
+			query:       "?grant_type=" + string(oidc.GrantTypeTokenExchange),
 			description: "grant_type missing",
 		},
 	} {

@@ -27,67 +27,50 @@ request() {
   curl -sS -w ' [%{http_code}]\n' "${ISSUER}/token" "$@"
 }
 
+exchange() {
+  local label="$1" assertion="$2" target="$3" subject="$4"
+  request "$label" \
+    -d "grant_type=${TOKEN_EXCHANGE}" \
+    -d "client_assertion_type=${ASSERTION_TYPE}" \
+    -d "client_assertion=${assertion}" \
+    -d "audience=${target}" \
+    -d "subject_token=${subject}" \
+    -d "subject_token_type=${JWT_TYPE}" \
+    -d "requested_token_type=${ACCESS_TOKEN_TYPE}"
+}
+
 CLIENT_ASSERTION=$(workload_token env1 workload1)
 UNTRUSTED_ASSERTION=$(workload_token untrusted workload1)
+REDIRECT_URI="https://unused.example/callback"
+AUTHORIZATION_RESPONSE=$(curl -sS --fail-with-body --get --write-out '%{redirect_url}' \
+  "${MOCK}/subject1/authorize" \
+  -d 'client_id=default_client' \
+  -d 'scope=openid%20somescope' \
+  -d 'response_type=code' \
+  -d "redirect_uri=${REDIRECT_URI}")
+AUTHORIZATION_CODE=$(jq -rR 'capture("[?&]code=(?<code>[^&]+)").code' <<< "${AUTHORIZATION_RESPONSE}")
+SUBJECT_TOKEN=$(curl -sS --fail-with-body "${MOCK}/subject1/token" \
+  -d 'grant_type=authorization_code' \
+  -d "code=${AUTHORIZATION_CODE}" \
+  -d 'client_secret=yolo' \
+  -d 'client_id=default_client' \
+  -d "redirect_uri=${REDIRECT_URI}" | jq -r '.access_token')
 
 request "unsupported grant type" \
-  -d 'grant_type=password'
+  -d 'grant_type=client_credentials'
 
 request "json body" \
   -H 'Content-Type: application/json' \
-  -d '{"grant_type":"client_credentials"}'
+  -d "{\"grant_type\":\"${TOKEN_EXCHANGE}\"}"
 
 request "body too large" \
   --data-binary "grant_type=$(head -c 70000 /dev/zero | tr '\0' a)"
 
-request "missing client assertion" \
-  -d 'grant_type=client_credentials' \
-  -d "scope=${TARGET}"
-
-request "malformed client assertion" \
-  -d 'grant_type=client_credentials' \
-  -d "client_assertion_type=${ASSERTION_TYPE}" \
-  -d 'client_assertion=not-a-jwt' \
-  -d "scope=${TARGET}"
-
-request "untrusted client assertion issuer" \
-  -d 'grant_type=client_credentials' \
-  -d "client_assertion_type=${ASSERTION_TYPE}" \
-  -d "client_assertion=${UNTRUSTED_ASSERTION}" \
-  -d "scope=${TARGET}"
-
-request "tampered client assertion signature" \
-  -d 'grant_type=client_credentials' \
-  -d "client_assertion_type=${ASSERTION_TYPE}" \
-  -d "client_assertion=${CLIENT_ASSERTION%?????}AAAAA" \
-  -d "scope=${TARGET}"
-
-request "unregistered client" \
-  -d 'grant_type=client_credentials' \
-  -d "client_assertion_type=${ASSERTION_TYPE}" \
-  -d "client_assertion=$(workload_token env1 unregistered)" \
-  -d "scope=${TARGET}"
-
-request "unauthorized target" \
-  -d 'grant_type=client_credentials' \
-  -d "client_assertion_type=${ASSERTION_TYPE}" \
-  -d "client_assertion=${CLIENT_ASSERTION}" \
-  -d 'scope=env1:namespace1:unauthorized-target'
-
-request "malformed subject token" \
-  -d "grant_type=${TOKEN_EXCHANGE}" \
-  -d "client_assertion_type=${ASSERTION_TYPE}" \
-  -d "client_assertion=${CLIENT_ASSERTION}" \
-  -d "audience=${TARGET}" \
-  -d 'subject_token=not-a-jwt' \
-  -d "subject_token_type=${JWT_TYPE}" \
-  -d "requested_token_type=${ACCESS_TOKEN_TYPE}"
-
-request "untrusted subject token issuer" \
-  -d "grant_type=${TOKEN_EXCHANGE}" \
-  -d "client_assertion_type=${ASSERTION_TYPE}" \
-  -d "client_assertion=${CLIENT_ASSERTION}" \
-  -d "audience=${TARGET}" \
-  -d "subject_token=${UNTRUSTED_ASSERTION}" \
-  -d "subject_token_type=${JWT_TYPE}" \
-  -d "requested_token_type=${ACCESS_TOKEN_TYPE}"
+exchange "missing client assertion" "" "${TARGET}" "${SUBJECT_TOKEN}"
+exchange "malformed client assertion" "not-a-jwt" "${TARGET}" "${SUBJECT_TOKEN}"
+exchange "untrusted client assertion issuer" "${UNTRUSTED_ASSERTION}" "${TARGET}" "${SUBJECT_TOKEN}"
+exchange "tampered client assertion signature" "${CLIENT_ASSERTION%?????}AAAAA" "${TARGET}" "${SUBJECT_TOKEN}"
+exchange "unregistered client" "$(workload_token env1 unregistered)" "${TARGET}" "${SUBJECT_TOKEN}"
+exchange "unauthorized target" "${CLIENT_ASSERTION}" "env1:namespace1:unauthorized-target" "${SUBJECT_TOKEN}"
+exchange "malformed subject token" "${CLIENT_ASSERTION}" "${TARGET}" "not-a-jwt"
+exchange "untrusted subject token issuer" "${CLIENT_ASSERTION}" "${TARGET}" "${UNTRUSTED_ASSERTION}"

@@ -37,7 +37,6 @@ func BenchmarkSts(b *testing.B) {
 		subjectToken, _ := getSubjectTokenFromIssuer(b, oauthServer, "subject1")
 		endpoint = stsConfig.Address.Endpoint("/token")
 		benchmarks = []benchmarkCase{
-			{name: "client_credentials", form: clientCredentialsForm(clientAssertion, fixtures.Client2.ID)},
 			{name: "token_exchange", form: tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID)},
 		}
 	}
@@ -111,7 +110,6 @@ func remoteBenchmarkConfigFromEnv(getenv func(string) string) (remoteBenchmarkCo
 	return remoteBenchmarkConfig{
 		endpoint: parsedURL.String(),
 		benchmarks: []benchmarkCase{
-			{name: "client_credentials", form: clientCredentialsForm(clientAssertion, target)},
 			{name: "token_exchange", form: tokenExchangeForm(clientAssertion, subjectToken, target)},
 		},
 	}, true, nil

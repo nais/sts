@@ -15,7 +15,7 @@ mise -C sts-authserver run test:benchmark-report
 open sts-authserver/benchmark-report/index.html
 ```
 
-The report task runs each grant separately.
+The report task runs the token exchange benchmark.
 It writes raw Go output, Prometheus snapshots, and the HTML report to `sts-authserver/benchmark-report/`.
 
 Set `STS_BENCHMARK_REPORT_DIR` to use another directory.
@@ -98,7 +98,7 @@ The task uses client namespace `basseng`, service account `workload1`, and targe
 The service account, client registration, and target authorization policy must already exist.
 
 The task shares remote server-metrics collection, which forwards each STS pod locally.
-It runs one Job per grant and attempts to delete both Jobs on exit.
+It runs one token exchange Job and attempts to delete it on exit.
 If deletion fails, the task prints a manual cleanup command.
 Kubernetes also deletes finished Jobs after ten minutes.
 Job logs and the HTML report go to `sts-authserver/benchmark-report/cluster/`.
@@ -176,11 +176,11 @@ mise -C sts-authserver run mock:traffic
 ```
 
 The default is 100 requests per second with eight workers.
-Adjust the rate, workers, duration, or flow:
+Traffic uses token exchange. Adjust the rate, workers, or duration:
 
 ```shell
 mise -C sts-authserver run mock:traffic --rate 500 --workers 16 --duration 5m
-mise -C sts-authserver run mock:traffic --rate 0 --workers 8 --flow token_exchange
+mise -C sts-authserver run mock:traffic --rate 0 --workers 8
 ```
 
 This tool generates local traffic.
