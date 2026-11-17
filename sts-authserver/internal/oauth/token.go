@@ -20,20 +20,15 @@ type STSTokenClaims struct {
 	Audience         oidc.Audience              `json:"aud"`
 	ClientID         string                     `json:"client_id"`
 	JWTID            string                     `json:"jti"`
-	Actor            *ActorClaims               `json:"act,omitempty"`
 	Expiration       oidc.Time                  `json:"exp"`
 	IssuedAt         oidc.Time                  `json:"iat"`
 	NotBefore        oidc.Time                  `json:"nbf"`
+	CallChain        []ClientID                 `json:"urn:nais:call_chain,omitempty"`
 	ApplicationRoles Roles                      `json:"urn:nais:roles,omitempty"`
 	GrantType        oidc.GrantType             `json:"urn:nais:grant_type,omitempty"` // TODO: add human-readable alias (m2m, tokenx/obo)
 	IDP              string                     `json:"urn:nais:idp,omitempty"`
 	IDPName          string                     `json:"urn:nais:idp_name,omitempty"`
 	Claims           map[string]json.RawMessage `json:"-"`
-}
-
-type ActorClaims struct {
-	Actor    json.RawMessage `json:"act,omitempty"`
-	ClientID string          `json:"client_id"`
 }
 
 func (s *STSTokenClaims) ExpiresIn() time.Duration {
@@ -59,7 +54,7 @@ func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[jwt.Issuer]
 	iat := oidc.FromTime(now)
 	nbf := iat
 
-	// TODO: review the claims we want or need to set (act, urn:nais, etc.)
+	// TODO: review the claims we want or need to set (urn:nais, etc.)
 	stsTokenClaims := STSTokenClaims{
 		Issuer:     string(issuer),
 		Subject:    subject,
@@ -77,15 +72,14 @@ func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[jwt.Issuer]
 
 	if result.GrantType == oidc.GrantTypeTokenExchange {
 		subjectIssuer := jwt.Issuer(result.SubjectTokenClaims.Issuer)
-		stsTokenClaims.Actor = &ActorClaims{
-			ClientID: string(result.Client.ID),
-		}
+		stsTokenClaims.CallChain = []ClientID{result.Client.ID}
 
-		// ignore existing `act` claim for externally issued subject tokens
+		// Only extend chains issued by STS; external or malformed chains start over.
 		if subjectIssuer == jwt.Issuer(issuer) {
-			if raw, ok := subjectTokenClaims["act"]; ok {
-				// preserve the chain of `act` claims
-				stsTokenClaims.Actor.Actor = raw
+			var previous []ClientID
+			raw, ok := subjectTokenClaims["urn:nais:call_chain"]
+			if ok && json.Unmarshal(raw, &previous) == nil {
+				stsTokenClaims.CallChain = append(previous, result.Client.ID)
 			}
 		}
 
@@ -100,10 +94,12 @@ func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[jwt.Issuer]
 	if err != nil {
 		return nil, err
 	}
+
 	// Empty policy roles must not inherit roles from the subject token.
 	if len(result.Roles) == 0 {
 		delete(claims, "urn:nais:roles")
 	}
+
 	stsTokenClaims.Claims = claims
 
 	return &stsTokenClaims, nil

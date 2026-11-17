@@ -232,8 +232,10 @@ The decoded tokens compare as follows (timestamps and token IDs are illustrative
   "urn:nais:idp": "https://identity.example.com",
   "urn:nais:idp_name": "identity",
   "act": {
-    "client_id": "env1:namespace1:my-workload"
-  }
+    "sub": "external-actor",
+    "act": { "sub": "earlier-actor" }
+  },
+  "urn:nais:call_chain": ["env1:namespace1:my-workload"]
 }</code></pre></td></tr></tbody>
 </table>
 
@@ -250,17 +252,18 @@ STS starts with the subject token's claims, then sets these values in the exchan
 | `urn:nais:grant_type` | Always `urn:ietf:params:oauth:grant-type:token-exchange`. | Added, or replaces an existing value.                            |
 | `urn:nais:idp`        | Issuer URL of the first subject token exchanged.          | Added on the first exchange; retained on later STS exchanges.    |
 | `urn:nais:idp_name`   | Short, stable alias for that issuer.                      | Added on the first exchange; retained on later STS exchanges.    |
-| `act`                 | Requesting client.                                        | Replaces an external actor chain; nests a prior STS actor chain. |
+| `urn:nais:call_chain` | Client IDs in exchange order, oldest first.               | Added; appends the requesting client ID to a prior STS call chain. |
 
-The `sub` claim and other claims, such as `department` in the example, keep their values.
+The `sub` claim and other claims, such as `department` and `act` in the example, keep their values.
 Workloads can use `urn:nais:idp_name` to distinguish original issuers without depending on their exact URLs.
-STS ignores actor claims from external subject tokens.
-STS preserves actor claims from STS-issued subject tokens as history, not as authorization policy inputs.
+`urn:nais:call_chain` lists the client IDs that performed each exchange, oldest first.
+STS preserves the chain from STS-issued subject tokens as history, not as authorization policy input. It ignores any `urn:nais:call_chain` in external subject tokens. A malformed chain in an STS-issued subject token starts a new chain.
+STS does not add or extend `act`; [RFC 8693](https://www.rfc-editor.org/rfc/rfc8693.html#section-4.1) reserves it for delegation with an `actor_token`, which STS does not support.
 
 ### Chained exchange
 
 Client `env1:namespace1:target` uses the exchanged token above as its `subject_token` to request a token for `env1:namespace1:next-target`.
-The previous `act` claim becomes the nested actor:
+The requesting client is appended to the previous `urn:nais:call_chain` array:
 
 <table>
 <thead><tr><th>Subject token</th><th>Exchanged token</th></tr></thead>
@@ -279,8 +282,10 @@ The previous `act` claim becomes the nested actor:
   "urn:nais:idp": "https://identity.example.com",
   "urn:nais:idp_name": "identity",
   "act": {
-    "client_id": "env1:namespace1:my-workload"
-  }
+    "sub": "external-actor",
+    "act": { "sub": "earlier-actor" }
+  },
+  "urn:nais:call_chain": ["env1:namespace1:my-workload"]
 }</code></pre></td><td><pre><code>{
   "iss": "https://sts.example.com",
   "sub": "user-123",
@@ -296,11 +301,10 @@ The previous `act` claim becomes the nested actor:
   "urn:nais:idp": "https://identity.example.com",
   "urn:nais:idp_name": "identity",
   "act": {
-    "client_id": "env1:namespace1:target",
-    "act": {
-      "client_id": "env1:namespace1:my-workload"
-    }
-  }
+    "sub": "external-actor",
+    "act": { "sub": "earlier-actor" }
+  },
+  "urn:nais:call_chain": ["env1:namespace1:my-workload", "env1:namespace1:target"]
 }</code></pre></td></tr></tbody>
 </table>
 
