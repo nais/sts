@@ -26,11 +26,12 @@ func TestAccessTokenClaimsUnmarshal(t *testing.T) {
 
 func TestAccessTokenClaimsSign(t *testing.T) {
 	source := map[string]json.RawMessage{
-		"iss":            json.RawMessage(`"sts-issuer"`),
-		"sub":            json.RawMessage(`"source-subject"`),
-		"act":            json.RawMessage(`{"iss":"previous-issuer","client_id":"previous-actor"}`),
-		"custom":         json.RawMessage(`{"number":9007199254740993}`),
-		"urn:nais:roles": json.RawMessage(`["source-role"]`),
+		"iss":                 json.RawMessage(`"sts-issuer"`),
+		"sub":                 json.RawMessage(`"source-subject"`),
+		"act":                 json.RawMessage(`{"sub":"external-actor"}`),
+		"urn:nais:call_chain": json.RawMessage(`["older-actor","previous-actor"]`),
+		"custom":              json.RawMessage(`{"number":9007199254740993}`),
+		"urn:nais:roles":      json.RawMessage(`["source-role"]`),
 	}
 	original := cloneClaims(source)
 	result := &AuthorizationResult{
@@ -61,7 +62,8 @@ func TestAccessTokenClaimsSign(t *testing.T) {
 	assertJSONClaim(t, got, "iss", "sts-issuer")
 	assertJSONClaim(t, got, "sub", "source-subject")
 	assertJSONClaim(t, got, "client_id", "client")
-	assertActorClaim(t, got["act"], "client", "previous-actor")
+	assert.JSONEq(t, `["older-actor","previous-actor","client"]`, string(got["urn:nais:call_chain"]))
+	assert.JSONEq(t, `{"sub":"external-actor"}`, string(got["act"]))
 	assert.JSONEq(t, `{"number":9007199254740993}`, string(got["custom"]))
 	assert.NotContains(t, got, "urn:nais:roles")
 }
@@ -73,12 +75,12 @@ func TestCreateAccessTokenIssuerRoles(t *testing.T) {
 	for _, test := range []struct {
 		name          string
 		subjectIssuer jwt.Issuer
-		wantActor     bool
+		wantCallChain []ClientID
 		wantIDP       string
 		wantIDPName   string
 	}{
-		{name: "STS", subjectIssuer: jwt.Issuer(stsIssuer), wantActor: true},
-		{name: "external", subjectIssuer: externalIssuer, wantIDP: string(externalIssuer), wantIDPName: "idp"},
+		{name: "STS", subjectIssuer: jwt.Issuer(stsIssuer), wantCallChain: []ClientID{"previous-actor", "client"}},
+		{name: "external", subjectIssuer: externalIssuer, wantCallChain: []ClientID{"client"}, wantIDP: string(externalIssuer), wantIDPName: "idp"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			claims, err := CreateAccessToken(stsIssuer, map[jwt.Issuer]string{externalIssuer: "idp"}, time.Hour, &AuthorizationResult{
@@ -89,7 +91,8 @@ func TestCreateAccessTokenIssuerRoles(t *testing.T) {
 					Issuer:  string(test.subjectIssuer),
 					Subject: "subject",
 					Claims: map[string]json.RawMessage{
-						"act": json.RawMessage(`{"client_id":"previous-actor"}`),
+						"act":                 json.RawMessage(`{"sub":"external-actor"}`),
+						"urn:nais:call_chain": json.RawMessage(`["previous-actor"]`),
 					},
 				},
 			})
@@ -97,13 +100,32 @@ func TestCreateAccessTokenIssuerRoles(t *testing.T) {
 			assert.Equal(t, string(stsIssuer), claims.Issuer)
 			assert.Equal(t, test.wantIDP, claims.IDP)
 			assert.Equal(t, test.wantIDPName, claims.IDPName)
-			require.NotNil(t, claims.Actor)
-			assert.Equal(t, "client", claims.Actor.ClientID)
-			if test.wantActor {
-				assert.JSONEq(t, `{"client_id":"previous-actor"}`, string(claims.Actor.Actor))
-			} else {
-				assert.Empty(t, claims.Actor.Actor)
-			}
+			assert.JSONEq(t, `{"sub":"external-actor"}`, string(claims.Claims["act"]))
+			assert.Equal(t, test.wantCallChain, claims.CallChain)
+		})
+	}
+}
+
+func TestCreateAccessTokenStartsCallChain(t *testing.T) {
+	const stsIssuer api.STSIssuer = "https://sts.example"
+
+	for name, subjectClaims := range map[string]map[string]json.RawMessage{
+		"missing":   {},
+		"malformed": {"urn:nais:call_chain": json.RawMessage(`{"client_id":"previous-actor"}`)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			claims, err := CreateAccessToken(stsIssuer, nil, time.Hour, &AuthorizationResult{
+				Target:    TargetAudience("audience"),
+				GrantType: oidc.GrantTypeTokenExchange,
+				Client:    &Client{ID: "client"},
+				SubjectTokenClaims: &jwt.AccessTokenClaims{
+					Issuer:  string(stsIssuer),
+					Subject: "subject",
+					Claims:  subjectClaims,
+				},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, []ClientID{"client"}, claims.CallChain)
 		})
 	}
 }
@@ -140,17 +162,4 @@ func assertJSONClaim(t *testing.T, claims map[string]json.RawMessage, name, want
 	var got string
 	require.NoError(t, json.Unmarshal(claims[name], &got))
 	assert.Equal(t, want, got, name)
-}
-
-func assertActorClaim(t *testing.T, raw json.RawMessage, subject, previousSubject string) {
-	t.Helper()
-
-	actor := new(ActorClaims)
-	require.NoError(t, json.Unmarshal(raw, actor))
-	assert.Equal(t, subject, actor.ClientID)
-	require.NotEmpty(t, actor.Actor)
-
-	previous := new(ActorClaims)
-	require.NoError(t, json.Unmarshal(actor.Actor, previous))
-	assert.Equal(t, previousSubject, previous.ClientID)
 }

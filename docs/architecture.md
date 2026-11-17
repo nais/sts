@@ -132,7 +132,7 @@ See [Client registration](registration.md) for replacement, deletion, and reques
 ## Token issuance
 
 - **Client credentials:** The consumer is the token subject.
-- **Token exchange:** The original subject remains; the consumer becomes the current actor in `act`.
+- **Token exchange:** The original subject remains; the consumer is appended to `urn:nais:call_chain`.
 
 ```mermaid
 sequenceDiagram

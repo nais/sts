@@ -448,7 +448,7 @@ func TestSts(t *testing.T) {
 		assertTokenClaims(t, stsAddress, clientCredentials, target, consumer.ID, func(claims *oauth.STSTokenClaims) {
 			assert.Equal(t, consumer.ID, claims.Subject)
 			assert.Equal(t, oidc.GrantTypeClientCredentials, claims.GrantType)
-			assert.Nil(t, claims.Actor)
+			assert.Empty(t, claims.CallChain)
 		})
 	})
 
@@ -500,7 +500,7 @@ func TestSts(t *testing.T) {
 		assert.Equal(t, oidc.BearerToken, tokenExchange.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, tokenExchange.IssuedTokenType)
 		assertTokenExchangeClaims(t, stsConfig, tokenExchange, subjectClaims, target, consumer.ID)
-		assertTokenActor(t, stsAddress, tokenExchange, target, consumer.ID, nil)
+		assertTokenCallChain(t, stsAddress, tokenExchange, target, consumer.ID, nil)
 	})
 
 	t.Run("token exchange with STS issued token", func(t *testing.T) {
@@ -515,7 +515,7 @@ func TestSts(t *testing.T) {
 		assert.Equal(t, oidc.BearerToken, firstExchange.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, firstExchange.IssuedTokenType)
 		assertTokenExchangeClaims(t, stsConfig, firstExchange, subjectClaims, firstTarget, firstConsumer.ID)
-		firstActor := assertTokenActor(t, stsAddress, firstExchange, firstTarget, firstConsumer.ID, nil)
+		firstChain := assertTokenCallChain(t, stsAddress, firstExchange, firstTarget, firstConsumer.ID, nil)
 
 		secondConsumer := fixtures.Client2
 		secondTarget := fixtures.Client3.ID
@@ -526,7 +526,7 @@ func TestSts(t *testing.T) {
 		assert.Equal(t, oidc.BearerToken, secondExchange.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, secondExchange.IssuedTokenType)
 		assertTokenExchangeClaims(t, stsConfig, secondExchange, subjectClaims, secondTarget, secondConsumer.ID)
-		assertTokenActor(t, stsAddress, secondExchange, secondTarget, secondConsumer.ID, firstActor)
+		assertTokenCallChain(t, stsAddress, secondExchange, secondTarget, secondConsumer.ID, firstChain)
 	})
 
 	t.Run("token exchange denies STS token issued to another client", func(t *testing.T) {
@@ -543,7 +543,7 @@ func TestSts(t *testing.T) {
 		assert.Equal(t, "subject token is invalid", secondExchange.Description)
 	})
 
-	t.Run("token exchange ignores external actor chain", func(t *testing.T) {
+	t.Run("token exchange preserves external act and starts call chain", func(t *testing.T) {
 		firstConsumer := fixtures.Client1
 		firstTarget := fixtures.Client2.ID
 		const subjectIssuer = "subject2"
@@ -558,21 +558,19 @@ func TestSts(t *testing.T) {
 
 		firstExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(firstClientAssertion, subjectToken, firstTarget))
 		first := assertTokenClaims(t, stsAddress, firstExchange, firstTarget, firstConsumer.ID, func(claims *oauth.STSTokenClaims) {
-			require.NotNil(t, claims.Actor)
-			assert.Equal(t, firstConsumer.ID, claims.Actor.ClientID)
-			assert.Empty(t, string(claims.Actor.Actor))
+			assert.Equal(t, []oauth.ClientID{oauth.ClientID(firstConsumer.ID)}, claims.CallChain)
 		})
+		assert.JSONEq(t, string(previous), string(first.Claims["act"]))
 
 		secondConsumer := fixtures.Client2
 		secondTarget := fixtures.Client3.ID
 
 		secondClientAssertion := getClientToken(t, oauthServer, secondConsumer)
 		secondExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(secondClientAssertion, firstExchange.AccessToken, secondTarget))
-		assertTokenClaims(t, stsAddress, secondExchange, secondTarget, secondConsumer.ID, func(claims *oauth.STSTokenClaims) {
-			require.NotNil(t, claims.Actor)
-			assert.Equal(t, secondConsumer.ID, claims.Actor.ClientID)
-			assert.JSONEq(t, string(first.Claims["act"]), string(claims.Actor.Actor))
+		second := assertTokenClaims(t, stsAddress, secondExchange, secondTarget, secondConsumer.ID, func(claims *oauth.STSTokenClaims) {
+			assert.Equal(t, []oauth.ClientID{oauth.ClientID(firstConsumer.ID), oauth.ClientID(secondConsumer.ID)}, claims.CallChain)
 		})
+		assert.JSONEq(t, string(previous), string(second.Claims["act"]))
 	})
 
 	t.Run("token exchange denies STS client credentials token", func(t *testing.T) {
@@ -645,28 +643,20 @@ func TestSts(t *testing.T) {
 	})
 }
 
-func assertTokenActor(
+func assertTokenCallChain(
 	t *testing.T,
 	sts testServer,
 	response *oauth.AccessTokenResponse,
 	targetID, consumerID string,
-	previous *oauth.ActorClaims,
-) *oauth.ActorClaims {
+	previous []oauth.ClientID,
+) []oauth.ClientID {
 	t.Helper()
-	var actor *oauth.ActorClaims
+	var chain []oauth.ClientID
 	assertTokenClaims(t, sts, response, targetID, consumerID, func(claims *oauth.STSTokenClaims) {
-		actor = claims.Actor
-		require.NotNil(t, actor)
-		assert.Equal(t, consumerID, actor.ClientID)
-		if previous == nil {
-			assert.Empty(t, actor.Actor)
-		} else {
-			encoded, err := json.Marshal(previous)
-			require.NoError(t, err)
-			assert.JSONEq(t, string(encoded), string(actor.Actor))
-		}
+		chain = claims.CallChain
+		assert.Equal(t, append(previous, oauth.ClientID(consumerID)), chain)
 	})
-	return actor
+	return chain
 }
 
 type claimAssertions func(claims *oauth.STSTokenClaims)
