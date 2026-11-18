@@ -22,7 +22,7 @@ The Helm chart's `config` values map verbatim to this file's fields.
 | `additionalCAFile`                                | empty     |          | Path to a PEM file, or empty.                                 | Supplements system roots for local k3d. Upstream TLS verification stays enabled.               |
 | `authorizationServer.issuer`                      |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | STS issuer URL.                                                                                |
 | `authorizationServer.expectedAudience`            | `nais`    |          | Nonempty.                                                     | Sole audience for client assertions and registration bearer tokens.                            |
-| `authorizationServer.subjectTokenIssuers`         | `{}`      |          |                                                               | Accepted subject-token issuer URLs mapped to aliases. An empty map disables token exchange.    |
+| `authorizationServer.subjectTokenIssuers`         | `{}`      |          |                                                               | External subject-token issuer URLs mapped to aliases other than `nais`.                        |
 | `authorizationServer.maxClientAuthTokenLifetime`  | `1h`      |          | Positive duration.                                            | Maximum client assertion and registration bearer-token lifetime, plus one minute of tolerance. |
 | `authorizationServer.tokenExpiry`                 | `15m`     |          | Positive duration.                                            | Lifetime of access tokens issued by STS.                                                       |
 | `authorizationServer.environments`                |           | Yes      | At least one entry.                                           | Kubernetes clusters whose workloads can register and authenticate.                             |
@@ -70,6 +70,9 @@ Registration expands every authorization policy into one row per configured envi
 After adding or removing an environment, re-register every client to regenerate its policies.
 
 ## Subject token issuers
+
+STS always accepts subject tokens from the environments' Kubernetes issuers and gives them the alias `nais`.
+Configure external issuers in `subjectTokenIssuers`; they must not reuse an environment issuer or the alias `nais`.
 
 For example, this entry assigns the alias `identity` to an issuer:
 

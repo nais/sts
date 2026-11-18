@@ -18,8 +18,10 @@ STS supports only token exchange. The discovery document advertises:
 }
 ```
 
-Token requests require at least one configured `authorizationServer.subjectTokenIssuers` entry.
-Without one, the token endpoint returns `unsupported_grant_type`.
+STS accepts subject tokens from two kinds of issuers:
+
+- Internal issuers: the Kubernetes issuers that STS trusts for client authentication.
+- External issuers: issuers configured in `authorizationServer.subjectTokenIssuers`.
 
 ## Authentication
 
@@ -88,6 +90,7 @@ Send exactly one target client ID in `audience`.
 The target's authorization policy must allow the requesting client; it supplies the roles in the issued token.
 
 STS verifies the subject token's signature, issuer, subject, and timestamps.
+To get a token without user context, send the client's own service account token as both `client_assertion` and `subject_token`.
 When the subject token is from STS, its `urn:nais:grant_type` must be `urn:ietf:params:oauth:grant-type:token-exchange`.
 
 ### Request
@@ -193,6 +196,19 @@ Workloads can use `urn:nais:idp_name` to distinguish original issuers without de
 `urn:nais:call_chain` lists the client IDs that performed each exchange, oldest first.
 STS preserves the chain from STS-issued subject tokens as history, not as authorization policy input. It ignores any `urn:nais:call_chain` in external subject tokens. A malformed chain in an STS-issued subject token starts a new chain.
 STS does not add or extend `act`; [RFC 8693](https://www.rfc-editor.org/rfc/rfc8693.html#section-4.1) reserves it for delegation with an `actor_token`, which STS does not support.
+
+### Trusting exchanged tokens
+
+Only `client_id` and `urn:nais:call_chain` identify the clients that requested tokens.
+STS authenticated each of these clients and checked the target's authorization policy for it.
+Use them to authorize the caller.
+
+The `sub` claim, `urn:nais:idp`, `urn:nais:idp_name`, and other claims copied from the subject token describe the subject token.
+STS verifies that a trusted issuer signed that token, but not that the token belongs to the requesting client.
+Do not use these claims to identify or authorize the caller.
+
+`urn:nais:idp_name` is `nais` when the original subject token came from an internal issuer.
+`urn:nais:idp` then contains that Kubernetes issuer.
 
 ### Chained exchange
 
