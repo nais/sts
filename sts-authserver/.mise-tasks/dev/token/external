@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Exchange a mock subject token at the k3d authserver with a Kubernetes service account"
+#MISE description="Exchange an external subject token at the k3d authserver"
 #USAGE flag "-n --namespace <namespace>" help="Namespace of the client and target" default="sts-demo"
 #USAGE flag "-w --workload <workload>" help="Service account of the client" default="consumer"
 #USAGE flag "-t --target_workload <target_workload>" help="Target workload" default="smoke-client"
