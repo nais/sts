@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -208,20 +207,6 @@ func (a *AuthorizationServer) verifySubjectToken(ctx context.Context, request To
 		// Only check these claims for subject tokens issued by this STS, since we don't control the claims of externally issued subject tokens.
 		if claims.Issuer != string(a.Issuer) {
 			return nil
-		}
-
-		rawGrantType, ok := claims.Claims["urn:nais:grant_type"]
-		if !ok {
-			return errors.New("grant_type claim is missing")
-		}
-
-		var grantType oidc.GrantType
-		if err := json.Unmarshal(rawGrantType, &grantType); err != nil {
-			return errors.New("grant_type claim must be a string")
-		}
-
-		if grantType != oidc.GrantTypeTokenExchange {
-			return fmt.Errorf("grant_type claim is invalid: got %q, want %q", grantType, oidc.GrantTypeTokenExchange)
 		}
 
 		if !slices.Contains(claims.Audience, string(client.ID)) {
