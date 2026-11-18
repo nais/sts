@@ -60,7 +60,7 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 }
 
 type AuthorizationResult struct {
-	Target             Target
+	Target             ClientID
 	SubjectTokenClaims *jwt.AccessTokenClaims
 	Client             *Client
 	Roles              Roles
@@ -76,11 +76,6 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request *Tok
 	finishStep(err)
 	if err != nil {
 		return nil, errs.InvalidClient(err, "client assertion is invalid")
-	}
-
-	target, err := request.Target()
-	if err != nil {
-		return nil, err
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "get_client")
@@ -101,17 +96,17 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request *Tok
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "authorize_target")
-	roles, err := a.ClientStore.AuthorizeTarget(ctx, client, target)
+	roles, err := a.ClientStore.AuthorizeTarget(ctx, client, request.Audience)
 	finishStep(err)
 	if errors.Is(err, ErrTargetUnauthorized) {
-		return nil, errs.InvalidTarget(err, "client is not authorized for target %q", target.GetValue())
+		return nil, errs.InvalidTarget(err, "client is not authorized for target %q", request.Audience)
 	}
 	if err != nil {
 		return nil, err
 	}
 
 	return &AuthorizationResult{
-		Target:             target,
+		Target:             request.Audience,
 		SubjectTokenClaims: subjectTokenClaims,
 		Client:             client,
 		Roles:              roles,
@@ -168,8 +163,7 @@ func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr 
 	subjectIssuer := result.SubjectTokenClaims.Issuer
 	attrs := []slog.Attr{
 		slog.String("client_id", string(result.Client.ID)),
-		slog.String("target_type", result.Target.GetType()),
-		slog.String("target", result.Target.GetValue()),
+		slog.String("target", string(result.Target)),
 		slog.Int("role_count", len(result.Roles)),
 		slog.String("subject_token_issuer", subjectIssuer),
 	}

@@ -96,16 +96,14 @@ func (s *Store) Get(_ context.Context, claims *jwt.AccessTokenClaims) (*oauth.Cl
 	return toClient(row), nil
 }
 
-func (s *Store) AuthorizeTarget(_ context.Context, consumer *oauth.Client, target oauth.Target) (oauth.Roles, error) {
+func (s *Store) AuthorizeTarget(_ context.Context, consumer *oauth.Client, target oauth.ClientID) (oauth.Roles, error) {
 	snapshot, ok := s.snapshot.Current()
 	if !ok {
 		return nil, errors.New("client cache is not initialized")
 	}
-	owner := target.GetValue()
-
-	p, ok := snapshot.policies[oauth.ClientID(owner)]
+	p, ok := snapshot.policies[target]
 	if !ok {
-		return nil, fmt.Errorf("%w: target %q not found", oauth.ErrTargetUnauthorized, owner)
+		return nil, fmt.Errorf("%w: target %q not found", oauth.ErrTargetUnauthorized, target)
 	}
 	if roles, ok := p.clients[consumer.ID]; ok {
 		return slices.Clone(roles), nil
@@ -117,7 +115,7 @@ func (s *Store) AuthorizeTarget(_ context.Context, consumer *oauth.Client, targe
 		return nil, nil
 	}
 
-	return nil, fmt.Errorf("%w: %s", oauth.ErrTargetUnauthorized, target.GetValue())
+	return nil, fmt.Errorf("%w: %s", oauth.ErrTargetUnauthorized, target)
 }
 
 // initialize subscribes before loading to avoid missing a write between the

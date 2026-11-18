@@ -52,7 +52,7 @@ func (a *AuthorizationServer) CreateAccessToken(result *AuthorizationResult) (*S
 	stsTokenClaims := STSTokenClaims{
 		Issuer:     string(a.Issuer),
 		Subject:    result.SubjectTokenClaims.Subject,
-		Audience:   result.Target.AsAudience(),
+		Audience:   result.Target.Audience(),
 		ClientID:   string(result.Client.ID),
 		JWTID:      jti,
 		Expiration: exp,
@@ -63,22 +63,22 @@ func (a *AuthorizationServer) CreateAccessToken(result *AuthorizationResult) (*S
 		ApplicationRoles: result.Roles,
 	}
 
-	subjectIssuer := jwt.Issuer(result.SubjectTokenClaims.Issuer)
+	subjectIssuer := result.SubjectTokenClaims.Issuer
 	stsTokenClaims.CallChain = []ClientID{result.Client.ID}
 
 	// Only extend chains issued by STS; external or malformed chains start over.
-	if subjectIssuer == jwt.Issuer(a.Issuer) {
+	if subjectIssuer == string(a.Issuer) {
 		var previous []ClientID
 		raw, ok := subjectTokenClaims["urn:nais:call_chain"]
 		if ok && json.Unmarshal(raw, &previous) == nil {
 			stsTokenClaims.CallChain = append(previous, result.Client.ID)
 		}
 	} else {
-		issuerAlias, ok := a.GetIssuerAlias(subjectIssuer)
+		issuerAlias, ok := a.GetIssuerAlias(jwt.Issuer(subjectIssuer))
 		if !ok {
 			return nil, fmt.Errorf("issuer alias for %q not found", subjectIssuer)
 		}
-		stsTokenClaims.IDP = string(subjectIssuer)
+		stsTokenClaims.IDP = subjectIssuer
 		stsTokenClaims.IDPAlias = issuerAlias
 	}
 

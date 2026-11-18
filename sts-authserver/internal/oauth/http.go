@@ -93,6 +93,6 @@ func parseTokenExchangeRequest(form url.Values) *TokenExchangeRequest {
 		SubjectTokenType:      form.Get("subject_token_type"),
 		ActorToken:            form.Get("actor_token"),
 		RequestedTokenType:    form.Get("requested_token_type"),
-		Audience:              form.Get("audience"),
+		Audience:              ClientID(form.Get("audience")),
 	}
 }
