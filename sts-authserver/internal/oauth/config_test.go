@@ -19,6 +19,26 @@ func TestAuthorizationServerConfigAllowsNoSubjectTokenIssuers(t *testing.T) {
 	require.NoError(t, cfg.Validate())
 }
 
+func TestAuthorizationServerConfigRejectsInternalSubjectTokenIssuers(t *testing.T) {
+	for name, issuers := range map[string]SubjectTokenIssuers{
+		"reserved name":   {"https://subject.example": InternalIDPName},
+		"internal issuer": {"https://client.example": "subject"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := AuthorizationServerConfig{
+				Issuer:                     "https://sts.example",
+				ExpectedAudience:           "nais",
+				Environments:               validEnvironments(),
+				SubjectTokenIssuers:        issuers,
+				MaxClientAuthTokenLifetime: time.Hour,
+				TokenExpiry:                time.Hour,
+			}
+
+			require.Error(t, cfg.Validate())
+		})
+	}
+}
+
 func validEnvironments() Environments {
 	return Environments{{
 		Name:             "dev",

@@ -5,6 +5,7 @@ import (
 	"maps"
 	"net"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -41,6 +42,14 @@ func (c AuthorizationServerConfig) Validate() error {
 	}
 	if err := c.Environments.Validate(); err != nil {
 		return fmt.Errorf("environments: %w", err)
+	}
+	for issuer, name := range c.SubjectTokenIssuers {
+		if name == InternalIDPName {
+			return fmt.Errorf("subject token issuer %q: name %q is reserved for internal issuers", issuer, name)
+		}
+		if slices.Contains(c.Environments.ClientAuthIssuers(), issuer) {
+			return fmt.Errorf("subject token issuer %q is an internal issuer", issuer)
+		}
 	}
 	if c.ExpectedAudience == "" {
 		return fmt.Errorf("expected audience must not be empty")
