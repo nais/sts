@@ -31,8 +31,7 @@ import (
 func TestSts(t *testing.T) {
 	oauthServer := startMockOAuthServer(t)
 
-	stsConfig := startSts(t, oauthServer)
-	stsAddress := stsConfig.Address
+	stsAddress := startSts(t, oauthServer).Address
 
 	t.Run("discovery", func(t *testing.T) {
 		resp := get[api.DiscoveryMetadata](t, stsAddress.Endpoint(".well-known", "oauth-authorization-server"))
@@ -418,46 +417,46 @@ func TestSts(t *testing.T) {
 		})
 	})
 
-	t.Run("token exchange", func(t *testing.T) {
-		consumer := fixtures.Client1
-		target := fixtures.Client2.ID
-		const subjectIssuer = "subject1"
+	for name, test := range map[string]struct {
+		subjectToken func(t *testing.T) (string, *jwt.AccessTokenClaims)
+		idpAlias     string
+	}{
+		"external": {
+			subjectToken: func(t *testing.T) (string, *jwt.AccessTokenClaims) {
+				return getSubjectTokenFromIssuer(t, oauthServer, "subject1")
+			},
+			idpAlias: "name1",
+		},
+		"internal": {
+			subjectToken: func(t *testing.T) (string, *jwt.AccessTokenClaims) {
+				return getClientTokenWithClaims(t, oauthServer, fixtures.Client1)
+			},
+			idpAlias: "kubernetes",
+		},
+	} {
+		t.Run("token exchange with "+name+" subject token and STS issued token", func(t *testing.T) {
+			firstConsumer := fixtures.Client1
+			firstTarget := fixtures.Client2.ID
 
-		clientAssertion := getClientToken(t, oauthServer, consumer)
-		subjectToken, subjectClaims := getSubjectTokenFromIssuer(t, oauthServer, subjectIssuer)
-		tokenExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, target))
+			subjectToken, subjectClaims := test.subjectToken(t)
+			firstClientAssertion := getClientToken(t, oauthServer, firstConsumer)
+			firstExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(firstClientAssertion, subjectToken, firstTarget))
 
-		assert.Equal(t, oidc.BearerToken, tokenExchange.TokenType)
-		assert.Equal(t, oidc.AccessTokenType, tokenExchange.IssuedTokenType)
-		assertTokenExchangeClaims(t, stsConfig, tokenExchange, subjectClaims, target, consumer.ID)
-		assertTokenCallChain(t, stsAddress, tokenExchange, target, consumer.ID, nil)
-	})
+			assert.Equal(t, oidc.BearerToken, firstExchange.TokenType)
+			assert.Equal(t, oidc.AccessTokenType, firstExchange.IssuedTokenType)
+			assertExchangedClaims(t, stsAddress, firstExchange, subjectClaims, test.idpAlias, firstTarget, firstConsumer.ID)
+			firstChain := assertTokenCallChain(t, stsAddress, firstExchange, firstTarget, firstConsumer.ID, nil)
 
-	t.Run("token exchange with STS issued token", func(t *testing.T) {
-		firstConsumer := fixtures.Client1
-		firstTarget := fixtures.Client2.ID
-		const subjectIssuer = "subject1"
+			secondConsumer := fixtures.Client2
+			secondTarget := fixtures.Client3.ID
 
-		firstClientAssertion := getClientToken(t, oauthServer, firstConsumer)
-		subjectToken, subjectClaims := getSubjectTokenFromIssuer(t, oauthServer, subjectIssuer)
-		firstExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(firstClientAssertion, subjectToken, firstTarget))
+			secondClientAssertion := getClientToken(t, oauthServer, secondConsumer)
+			secondExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(secondClientAssertion, firstExchange.AccessToken, secondTarget))
 
-		assert.Equal(t, oidc.BearerToken, firstExchange.TokenType)
-		assert.Equal(t, oidc.AccessTokenType, firstExchange.IssuedTokenType)
-		assertTokenExchangeClaims(t, stsConfig, firstExchange, subjectClaims, firstTarget, firstConsumer.ID)
-		firstChain := assertTokenCallChain(t, stsAddress, firstExchange, firstTarget, firstConsumer.ID, nil)
-
-		secondConsumer := fixtures.Client2
-		secondTarget := fixtures.Client3.ID
-
-		secondClientAssertion := getClientToken(t, oauthServer, secondConsumer)
-		secondExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(secondClientAssertion, firstExchange.AccessToken, secondTarget))
-
-		assert.Equal(t, oidc.BearerToken, secondExchange.TokenType)
-		assert.Equal(t, oidc.AccessTokenType, secondExchange.IssuedTokenType)
-		assertTokenExchangeClaims(t, stsConfig, secondExchange, subjectClaims, secondTarget, secondConsumer.ID)
-		assertTokenCallChain(t, stsAddress, secondExchange, secondTarget, secondConsumer.ID, firstChain)
-	})
+			assertExchangedClaims(t, stsAddress, secondExchange, subjectClaims, test.idpAlias, secondTarget, secondConsumer.ID)
+			assertTokenCallChain(t, stsAddress, secondExchange, secondTarget, secondConsumer.ID, firstChain)
+		})
+	}
 
 	t.Run("token exchange denies STS token issued to another client", func(t *testing.T) {
 		consumer := fixtures.Client1
@@ -556,37 +555,6 @@ func TestSts(t *testing.T) {
 		assert.Equal(t, "invalid_request", tokenExchange.Code)
 		assert.Equal(t, "subject token is invalid", tokenExchange.Description)
 	})
-
-	t.Run("token exchange with internal subject token", func(t *testing.T) {
-		consumer := fixtures.Client1
-		target := fixtures.Client2.ID
-
-		serviceAccountToken, serviceAccountClaims := getClientTokenWithClaims(t, oauthServer, consumer)
-		tokenExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(serviceAccountToken, serviceAccountToken, target))
-
-		assert.Equal(t, oidc.BearerToken, tokenExchange.TokenType)
-		assert.Equal(t, oidc.AccessTokenType, tokenExchange.IssuedTokenType)
-		assertExchangedClaims(t, stsAddress, tokenExchange, serviceAccountClaims, "kubernetes", target, consumer.ID)
-		assertTokenCallChain(t, stsAddress, tokenExchange, target, consumer.ID, nil)
-	})
-
-	t.Run("token exchange with STS token from internal subject token", func(t *testing.T) {
-		firstConsumer := fixtures.Client1
-		firstTarget := fixtures.Client2.ID
-
-		serviceAccountToken, serviceAccountClaims := getClientTokenWithClaims(t, oauthServer, firstConsumer)
-		firstExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(serviceAccountToken, serviceAccountToken, firstTarget))
-		firstChain := assertTokenCallChain(t, stsAddress, firstExchange, firstTarget, firstConsumer.ID, nil)
-
-		secondConsumer := fixtures.Client2
-		secondTarget := fixtures.Client3.ID
-
-		secondClientAssertion := getClientToken(t, oauthServer, secondConsumer)
-		secondExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(secondClientAssertion, firstExchange.AccessToken, secondTarget))
-
-		assertExchangedClaims(t, stsAddress, secondExchange, serviceAccountClaims, "kubernetes", secondTarget, secondConsumer.ID)
-		assertTokenCallChain(t, stsAddress, secondExchange, secondTarget, secondConsumer.ID, firstChain)
-	})
 }
 
 func TestStsTokenExchangeWithoutExternalIssuers(t *testing.T) {
@@ -620,21 +588,6 @@ func assertTokenCallChain(
 }
 
 type claimAssertions func(claims *oauth.STSTokenClaims)
-
-func assertTokenExchangeClaims(
-	t *testing.T,
-	stsConfig testServerConfig,
-	response *oauth.AccessTokenResponse,
-	subjectClaims *jwt.AccessTokenClaims,
-	targetID, consumerID string,
-) {
-	t.Helper()
-
-	idpAlias, ok := stsConfig.AuthServerConfig.GetIssuerAlias(jwt.Issuer(subjectClaims.Issuer))
-	require.True(t, ok, "subject token issuer %q not found in STS configuration", subjectClaims.Issuer)
-
-	assertExchangedClaims(t, stsConfig.Address, response, subjectClaims, idpAlias, targetID, consumerID)
-}
 
 // assertExchangedClaims checks that the issued token keeps the original subject token claims
 // and sets the STS-owned claims, with idpAlias as the expected urn:nais:idp_alias.

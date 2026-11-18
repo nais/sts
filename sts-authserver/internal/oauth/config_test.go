@@ -20,36 +20,29 @@ func TestDefaultAuthorizationServerConfig(t *testing.T) {
 	assert.Equal(t, "nais", DefaultAuthorizationServerConfig().ExpectedAudience)
 }
 
-func TestAuthorizationServerConfigAllowsNoExternalIssuers(t *testing.T) {
-	cfg := DefaultAuthorizationServerConfig()
-	cfg.Issuer = "https://sts.example"
-	cfg.Environments = validEnvironments()
-
-	require.NoError(t, cfg.Validate())
-}
-
-func TestAuthorizationServerConfigRejectsEnvironmentIssuerConflicts(t *testing.T) {
-	for name, issuers := range map[string]IssuerAliases{
-		"environment alias":  {"https://subject.example": "kubernetes"},
-		"environment issuer": {"https://client.example": "subject"},
+func TestAuthorizationServerConfigValidateExternalIssuers(t *testing.T) {
+	for name, test := range map[string]struct {
+		issuers IssuerAliases
+		wantErr bool
+	}{
+		"none":               {},
+		"alias nais":         {issuers: IssuerAliases{"https://subject.example": "nais"}},
+		"environment alias":  {issuers: IssuerAliases{"https://subject.example": "kubernetes"}, wantErr: true},
+		"environment issuer": {issuers: IssuerAliases{"https://client.example": "subject"}, wantErr: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := DefaultAuthorizationServerConfig()
 			cfg.Issuer = "https://sts.example"
 			cfg.Environments = validEnvironments()
-			cfg.ExternalIssuers = issuers
+			cfg.ExternalIssuers = test.issuers
 
-			require.Error(t, cfg.Validate())
+			if test.wantErr {
+				require.Error(t, cfg.Validate())
+			} else {
+				require.NoError(t, cfg.Validate())
+			}
 		})
 	}
-}
-
-func TestAuthorizationServerConfigAllowsExternalAliasNais(t *testing.T) {
-	cfg := DefaultAuthorizationServerConfig()
-	cfg.Issuer = "https://sts.example"
-	cfg.Environments = validEnvironments()
-	cfg.ExternalIssuers = IssuerAliases{"https://subject.example": "nais"}
-	require.NoError(t, cfg.Validate())
 }
 
 func TestGetIssuerAlias(t *testing.T) {
