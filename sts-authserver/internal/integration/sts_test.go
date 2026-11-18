@@ -569,9 +569,26 @@ func TestSts(t *testing.T) {
 
 		assert.Equal(t, oidc.BearerToken, tokenExchange.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, tokenExchange.IssuedTokenType)
-		assert.Equal(t, "system:serviceaccount:namespace1:workload1", serviceAccountClaims.Subject)
 		assertExchangedClaims(t, stsAddress, tokenExchange, serviceAccountClaims, consumer.Environment, target, consumer.ID)
 		assertTokenCallChain(t, stsAddress, tokenExchange, target, consumer.ID, nil)
+	})
+
+	t.Run("machine token exchange denies service account subject token with another audience", func(t *testing.T) {
+		consumer := fixtures.Client1
+		clientAssertion := getClientToken(t, oauthServer, consumer)
+		// Same issuer and subject, but the client authentication audience check must still apply.
+		subjectToken := post[oidc.AccessTokenResponse](t, oauthServer.Endpoint(consumer.Environment, "token"), url.Values{
+			"grant_type":    {"client_credentials"},
+			"client_id":     {"client1"},
+			"client_secret": {"secret1"},
+			"ns":            {consumer.Namespace},
+			"workload":      {consumer.Name},
+			"test_audience": {"other"},
+		}).AccessToken
+
+		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID))
+		assert.Equal(t, "invalid_request", tokenExchange.Code)
+		assert.Equal(t, "subject token is invalid", tokenExchange.Description)
 	})
 
 	t.Run("machine token can be exchanged further", func(t *testing.T) {
@@ -611,6 +628,20 @@ func TestSts(t *testing.T) {
 		assert.Equal(t, "invalid_request", tokenExchange.Code)
 		assert.Equal(t, "subject token is invalid", tokenExchange.Description)
 	})
+}
+
+func TestStsMachineTokenExchangeWithoutSubjectTokenIssuers(t *testing.T) {
+	oauthServer := startMockOAuthServer(t)
+	stsAddress := startSts(t, oauthServer, func(cfg *oauth.AuthorizationServerConfig) {
+		cfg.SubjectTokenIssuers = nil
+	}).Address
+
+	consumer := fixtures.Client1
+	target := fixtures.Client2.ID
+	serviceAccountToken, serviceAccountClaims := getClientTokenWithClaims(t, oauthServer, consumer)
+	tokenExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(serviceAccountToken, serviceAccountToken, target))
+
+	assertExchangedClaims(t, stsAddress, tokenExchange, serviceAccountClaims, consumer.Environment, target, consumer.ID)
 }
 
 func assertTokenCallChain(

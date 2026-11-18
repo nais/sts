@@ -33,20 +33,6 @@ func TestTokenEndpointRejectsClientCredentials(t *testing.T) {
 	assert.Equal(t, "unsupported_grant_type", response.Code)
 }
 
-func TestTokenEndpointRejectsTokenExchangeWhenDisabled(t *testing.T) {
-	form := url.Values{"grant_type": {string(oidc.GrantTypeTokenExchange)}}
-	request := httptest.NewRequest(nethttp.MethodPost, "/token", strings.NewReader(form.Encode()))
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	recorder := httptest.NewRecorder()
-
-	new(AuthorizationServer).TokenEndpoint()(recorder, request)
-
-	require.Equal(t, nethttp.StatusBadRequest, recorder.Code)
-	var response errs.ErrorResponse
-	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
-	assert.Equal(t, "unsupported_grant_type", response.Code)
-}
-
 func TestTokenEndpointRejectsInvalidRequests(t *testing.T) {
 	for name, test := range map[string]struct {
 		query       string

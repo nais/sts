@@ -120,7 +120,7 @@ func startMockOAuthServer(t testing.TB) testServer {
 	return testServer(addr)
 }
 
-func startSts(t testing.TB, oauthServer testServer) testServerConfig {
+func startSts(t testing.TB, oauthServer testServer, opts ...func(*oauth.AuthorizationServerConfig)) testServerConfig {
 	t.Helper()
 
 	dsn := setupPostgres(t)
@@ -179,6 +179,9 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 			},
 			TokenExpiry: fixtures.TokenExpiry,
 		},
+	}
+	for _, opt := range opts {
+		opt(&cfg.AuthorizationServerConfig)
 	}
 
 	ctx := t.Context()

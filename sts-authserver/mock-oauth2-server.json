@@ -6,6 +6,16 @@
       "tokenExpiry": 3600,
       "requestMappings": [
         {
+          "requestParam": "test_audience",
+          "match": "other",
+          "claims": {
+            "sub": "system:serviceaccount:${ns}:${workload}",
+            "aud": [
+              "other"
+            ]
+          }
+        },
+        {
           "requestParam": "grant_type",
           "match": "client_credentials",
           "claims": {
