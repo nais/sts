@@ -1,8 +1,14 @@
 # Configuration
 
-STS reads one YAML configuration file.
+`sts.LoadConfig()` reads one YAML configuration file into `sts.Config`.
 Set `CONFIG_FILE` to change its path; the default is `config.yaml`.
 Unknown fields and multi-document YAML files are rejected.
+Defaults are declared with `default:"..."` Go struct tags and applied before YAML
+is decoded. Explicit empty strings and zero durations are not replaced with defaults;
+they are rejected where validation requires nonempty or positive values.
+Programmatic callers and tests can start with `oauth.DefaultAuthorizationServerConfig()`
+and then assign required fields and overrides. Plain struct literals do not apply defaults.
+The shared helper lives in `internal/config`; the loader and its tests live in `internal/sts`.
 A nonempty `DATABASE_URL` environment variable overrides the file's `databaseUrl`
 before validation. Otherwise, `databaseUrl` must be supplied in the file.
 

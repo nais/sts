@@ -10,17 +10,29 @@ import (
 	"time"
 
 	"github.com/nais/sts/api"
+	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/jwa"
 	"github.com/nais/sts/internal/jwt"
 )
 
 type AuthorizationServerConfig struct {
 	Issuer                     api.STSIssuer       `yaml:"issuer"`
-	ExpectedAudience           string              `yaml:"expectedAudience"`
+	ExpectedAudience           string              `yaml:"expectedAudience" default:"nais"`
 	Environments               Environments        `yaml:"environments"`
 	SubjectTokenIssuers        SubjectTokenIssuers `yaml:"subjectTokenIssuers"`
-	MaxClientAuthTokenLifetime time.Duration       `yaml:"maxClientAuthTokenLifetime"`
-	TokenExpiry                time.Duration       `yaml:"tokenExpiry"`
+	MaxClientAuthTokenLifetime time.Duration       `yaml:"maxClientAuthTokenLifetime" default:"1h"`
+	TokenExpiry                time.Duration       `yaml:"tokenExpiry" default:"15m"`
+}
+
+// DefaultAuthorizationServerConfig returns a fresh configuration initialized from
+// default tags. Required fields must still be supplied before validation.
+// It panics if a default tag is invalid, which is a programming error.
+func DefaultAuthorizationServerConfig() AuthorizationServerConfig {
+	var cfg AuthorizationServerConfig
+	if err := config.Apply(&cfg); err != nil {
+		panic(fmt.Errorf("apply authorization server defaults: %w", err))
+	}
+	return cfg
 }
 
 type SubjectTokenIssuers map[jwt.Issuer]string

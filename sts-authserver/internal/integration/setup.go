@@ -16,7 +16,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	stsapi "github.com/nais/sts/api"
-	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/jwk"
@@ -143,7 +142,7 @@ func startSts(t testing.TB, oauthServer testServer, opts ...func(*oauth.Authoriz
 		}
 	}))
 
-	cfg := config.Config{
+	cfg := stsserver.Config{
 		BindAddress:         addr,
 		DatabaseURL:         dsn,
 		InternalBindAddress: internalAddr,

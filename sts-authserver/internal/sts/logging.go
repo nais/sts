@@ -6,11 +6,10 @@ import (
 	"os"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/nais/sts/internal/config"
 	"go.opentelemetry.io/otel/trace"
 )
 
-func setupLogger(cfg config.Config) {
+func setupLogger(cfg Config) {
 	options := &slog.HandlerOptions{
 		Level: cfg.LogLevel,
 	}

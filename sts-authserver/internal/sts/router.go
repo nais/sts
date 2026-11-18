@@ -9,7 +9,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/api"
-	"github.com/nais/sts/internal/config"
 	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/registration"
@@ -28,7 +27,7 @@ const (
 
 func stsApi(
 	ctx context.Context,
-	cfg config.Config,
+	cfg Config,
 	clientStore oauth.ClientStore,
 	keyStore oauth.KeyStore,
 	provider *stsmetrics.Provider,

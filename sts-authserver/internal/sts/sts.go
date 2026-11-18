@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/ioconvenience"
 	stsmetrics "github.com/nais/sts/internal/metrics"
@@ -25,7 +24,7 @@ const (
 )
 
 // Run serves the STS until ctx is cancelled or SIGINT/SIGTERM arrives.
-func Run(ctx context.Context, cfg config.Config) error {
+func Run(ctx context.Context, cfg Config) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

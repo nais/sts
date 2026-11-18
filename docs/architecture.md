@@ -71,8 +71,8 @@ sts-authserver/
     local_traffic/     Local load generator
     benchmark_report/  Benchmark report generator
   internal/
-    api/               Server startup, routes, HTTP listeners
-    config/            YAML configuration and defaults
+    sts/               Server startup, routes, HTTP listeners, YAML config and validation
+    config/            Shared default-tag helper
     registration/      Registrator authentication and software statements
     oauth/             Client authentication, grants, authorization, token signing
     store/             PostgreSQL-backed client and signing-key stores
@@ -86,7 +86,7 @@ sts-authserver/
 ```
 
 Code paths in the rest of this document are relative to `sts-authserver/`.
-`internal/api` connects the registration and OAuth handlers to the same client store.
+`internal/sts` connects the registration and OAuth handlers to the same client store.
 The OAuth handler also uses a signing-key store.
 STS owns its routes and grant logic; it uses Zitadel OIDC types and helpers.
 SQL lives in `internal/database/queries/`, with generated code in `internal/database/sqlgen/`.

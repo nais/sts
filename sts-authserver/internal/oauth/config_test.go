@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -75,4 +76,14 @@ func TestEnvironmentsValidate(t *testing.T) {
 			require.Error(t, mutate(validEnvironments()).Validate())
 		})
 	}
+}
+
+func TestDefaultAuthorizationServerConfig(t *testing.T) {
+	cfg := DefaultAuthorizationServerConfig()
+	assert.Equal(t, "nais", cfg.ExpectedAudience)
+	assert.Equal(t, time.Hour, cfg.MaxClientAuthTokenLifetime)
+	assert.Equal(t, 15*time.Minute, cfg.TokenExpiry)
+
+	cfg.ExpectedAudience = "custom"
+	assert.Equal(t, "nais", DefaultAuthorizationServerConfig().ExpectedAudience)
 }
