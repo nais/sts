@@ -71,9 +71,6 @@ func (a *AuthorizationServer) TokenEndpoint() nethttp.HandlerFunc {
 func (a *AuthorizationServer) parseTokenRequest(form url.Values) (TokenRequest, error) {
 	switch grantType := oidc.GrantType(form.Get("grant_type")); grantType {
 	case oidc.GrantTypeTokenExchange:
-		if len(a.SubjectTokenIssuers) == 0 {
-			return nil, errs.UnsupportedGrantType(nil, "%s not supported", grantType)
-		}
 		return parseTokenExchangeRequest(form), nil
 	case "":
 		return nil, errs.InvalidRequest(nil, "grant_type missing")

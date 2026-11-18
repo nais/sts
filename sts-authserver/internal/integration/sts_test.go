@@ -559,8 +559,7 @@ func TestSts(t *testing.T) {
 		assert.Equal(t, "subject token is invalid", tokenExchange.Description)
 	})
 
-	// Machine tokens use the workload's service account token as both client assertion and subject token.
-	t.Run("machine token exchange", func(t *testing.T) {
+	t.Run("token exchange with internal subject token", func(t *testing.T) {
 		consumer := fixtures.Client1
 		target := fixtures.Client2.ID
 
@@ -569,29 +568,11 @@ func TestSts(t *testing.T) {
 
 		assert.Equal(t, oidc.BearerToken, tokenExchange.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, tokenExchange.IssuedTokenType)
-		assertExchangedClaims(t, stsAddress, tokenExchange, serviceAccountClaims, consumer.Environment, target, consumer.ID)
+		assertExchangedClaims(t, stsAddress, tokenExchange, serviceAccountClaims, oauth.InternalIDPName, target, consumer.ID)
 		assertTokenCallChain(t, stsAddress, tokenExchange, target, consumer.ID, nil)
 	})
 
-	t.Run("machine token exchange denies service account subject token with another audience", func(t *testing.T) {
-		consumer := fixtures.Client1
-		clientAssertion := getClientToken(t, oauthServer, consumer)
-		// Same issuer and subject, but the client authentication audience check must still apply.
-		subjectToken := post[oidc.AccessTokenResponse](t, oauthServer.Endpoint(consumer.Environment, "token"), url.Values{
-			"grant_type":    {"client_credentials"},
-			"client_id":     {"client1"},
-			"client_secret": {"secret1"},
-			"ns":            {consumer.Namespace},
-			"workload":      {consumer.Name},
-			"test_audience": {"other"},
-		}).AccessToken
-
-		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID))
-		assert.Equal(t, "invalid_request", tokenExchange.Code)
-		assert.Equal(t, "subject token is invalid", tokenExchange.Description)
-	})
-
-	t.Run("machine token can be exchanged further", func(t *testing.T) {
+	t.Run("token exchange with STS token from internal subject token", func(t *testing.T) {
 		firstConsumer := fixtures.Client1
 		firstTarget := fixtures.Client2.ID
 
@@ -605,32 +586,12 @@ func TestSts(t *testing.T) {
 		secondClientAssertion := getClientToken(t, oauthServer, secondConsumer)
 		secondExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(secondClientAssertion, firstExchange.AccessToken, secondTarget))
 
-		assertExchangedClaims(t, stsAddress, secondExchange, serviceAccountClaims, firstConsumer.Environment, secondTarget, secondConsumer.ID)
+		assertExchangedClaims(t, stsAddress, secondExchange, serviceAccountClaims, oauth.InternalIDPName, secondTarget, secondConsumer.ID)
 		assertTokenCallChain(t, stsAddress, secondExchange, secondTarget, secondConsumer.ID, firstChain)
-	})
-
-	t.Run("machine token exchange denies service account subject token for another workload", func(t *testing.T) {
-		clientAssertion := getClientToken(t, oauthServer, fixtures.Client1)
-		subjectToken := getClientToken(t, oauthServer, fixtures.Client2)
-		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID))
-
-		assert.Equal(t, "invalid_request", tokenExchange.Code)
-		assert.Equal(t, "subject token is invalid", tokenExchange.Description)
-	})
-
-	t.Run("machine token exchange denies service account subject token from another environment", func(t *testing.T) {
-		consumer := fixtures.Client1
-		clientAssertion := getClientToken(t, oauthServer, consumer)
-		// Same namespace and name, so the subject matches but the issuer does not.
-		subjectToken := getKubernetesToken(t, oauthServer, "env2", consumer.Namespace, consumer.Name)
-		tokenExchange := stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, fixtures.Client2.ID))
-
-		assert.Equal(t, "invalid_request", tokenExchange.Code)
-		assert.Equal(t, "subject token is invalid", tokenExchange.Description)
 	})
 }
 
-func TestStsMachineTokenExchangeWithoutSubjectTokenIssuers(t *testing.T) {
+func TestStsTokenExchangeWithoutExternalIssuers(t *testing.T) {
 	oauthServer := startMockOAuthServer(t)
 	stsAddress := startSts(t, oauthServer, func(cfg *oauth.AuthorizationServerConfig) {
 		cfg.SubjectTokenIssuers = nil
@@ -641,7 +602,7 @@ func TestStsMachineTokenExchangeWithoutSubjectTokenIssuers(t *testing.T) {
 	serviceAccountToken, serviceAccountClaims := getClientTokenWithClaims(t, oauthServer, consumer)
 	tokenExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(serviceAccountToken, serviceAccountToken, target))
 
-	assertExchangedClaims(t, stsAddress, tokenExchange, serviceAccountClaims, consumer.Environment, target, consumer.ID)
+	assertExchangedClaims(t, stsAddress, tokenExchange, serviceAccountClaims, oauth.InternalIDPName, target, consumer.ID)
 }
 
 func assertTokenCallChain(

@@ -22,10 +22,17 @@ type AuthorizationServer struct {
 	TokenExchangeVerifier *jwt.TokenVerifier
 	Metrics               *stsmetrics.Metrics
 	AuthorizationServerConfig
+
+	idpNames map[jwt.Issuer]string
 }
 
 func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore, metrics *stsmetrics.Metrics) (*AuthorizationServer, error) {
-	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx, httpClient, cfg.Environments.ClientAuthIssuers(), cfg.ExpectedAudience, cfg.MaxClientAuthTokenLifetime)
+	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx,
+		httpClient,
+		cfg.Environments.ClientAuthIssuers(),
+		cfg.ExpectedAudience,
+		cfg.MaxClientAuthTokenLifetime,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}
@@ -33,6 +40,7 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 	opts := []jwt.TokenVerifierOption{
 		jwt.WithHttpClient(httpClient),
 		jwt.WithIssuerAndKeySet(jwt.Issuer(cfg.Issuer), keyStore, string(InternalSigningAlgorithm)),
+		jwt.WithIssuersFrom(clientAuthVerifier),
 	}
 
 	for _, issuer := range cfg.SubjectTokenIssuers.Issuers() {
@@ -48,9 +56,10 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 		ClientAuthVerifier:        clientAuthVerifier,
 		ClientStore:               clientStore,
 		KeyStore:                  keyStore,
-		TokenExchangeVerifier:     tokenExchangeVerifier.Merge(clientAuthVerifier),
+		TokenExchangeVerifier:     tokenExchangeVerifier,
 		Metrics:                   metrics,
 		AuthorizationServerConfig: cfg,
+		idpNames:                  cfg.IDPNames(),
 	}, nil
 }
 
@@ -138,7 +147,7 @@ func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenReq
 }
 
 func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *AuthorizationResult) (*AccessTokenResponse, error) {
-	accessToken, err := CreateAccessToken(a.Issuer, a.SubjectTokenIssuers, a.TokenExpiry, result)
+	accessToken, err := CreateAccessToken(a.Issuer, a.idpNames, a.TokenExpiry, result)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +190,7 @@ func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr 
 		subjectIssuer := result.SubjectTokenClaims.Issuer
 		attrs = append(attrs, slog.String("subject_token_issuer", subjectIssuer))
 
-		if idpName, ok := a.SubjectTokenIssuers[jwt.Issuer(subjectIssuer)]; ok {
+		if idpName, ok := a.idpNames[jwt.Issuer(subjectIssuer)]; ok {
 			attrs = append(attrs, slog.String("idp_name", idpName))
 		}
 	}
@@ -194,6 +203,7 @@ func (a *AuthorizationServer) verifySubjectToken(ctx context.Context, request To
 	if !ok {
 		return nil, fmt.Errorf("request is %T, want *TokenExchangeRequest", request)
 	}
+
 	claims, err := a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken, func(claims *jwt.AccessTokenClaims) error {
 		// Only check these claims for subject tokens issued by this STS, since we don't control the claims of externally issued subject tokens.
 		if claims.Issuer != string(a.Issuer) {

@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"strings"
@@ -104,6 +105,19 @@ func (e Environments) Validate() error {
 		}
 	}
 	return nil
+}
+
+// InternalIDPName is the urn:nais:idp_name of subject tokens from internal
+// issuers, which are the client authentication issuers.
+const InternalIDPName = "nais"
+
+func (c AuthorizationServerConfig) IDPNames() map[jwt.Issuer]string {
+	names := make(map[jwt.Issuer]string, len(c.SubjectTokenIssuers)+len(c.Environments))
+	maps.Copy(names, c.SubjectTokenIssuers)
+	for _, env := range c.Environments {
+		names[env.ClientAuthIssuer] = InternalIDPName
+	}
+	return names
 }
 
 // ClientAuthIssuers returns the Kubernetes issuers of all environments.

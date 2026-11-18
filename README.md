@@ -8,7 +8,7 @@ Clients must authenticate with workload identity assertions and have access thro
 
 The service supports:
 
-- [RFC 8693 Token Exchange](https://datatracker.ietf.org/doc/html/rfc8693) for on-behalf-of flows when subject-token issuers are configured
+- [RFC 8693 Token Exchange](https://datatracker.ietf.org/doc/html/rfc8693) for exchanging Kubernetes service account tokens or tokens from configured external issuers
 
 ## How it works
 

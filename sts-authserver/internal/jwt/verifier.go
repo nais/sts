@@ -53,6 +53,12 @@ func WithIssuerAndKeySet(issuer Issuer, keySet oidc.KeySet, requiredAlgs ...stri
 	}
 }
 
+func WithIssuersFrom(other *TokenVerifier) TokenVerifierOption {
+	return func(t *TokenVerifier) {
+		maps.Copy(t.issuers, other.issuers)
+	}
+}
+
 func WithExpectedAudience(audience string) TokenVerifierOption {
 	return func(t *TokenVerifier) {
 		t.expectedAudience = audience
@@ -63,11 +69,6 @@ func WithMaxTokenLifetime(maxLifetime time.Duration) TokenVerifierOption {
 	return func(t *TokenVerifier) {
 		t.maxTokenLifetime = maxLifetime
 	}
-}
-
-func (t *TokenVerifier) Merge(other *TokenVerifier) *TokenVerifier {
-	maps.Copy(t.issuers, other.issuers)
-	return t
 }
 
 func NewTokenVerifier(ctx context.Context, opts ...TokenVerifierOption) (*TokenVerifier, error) {

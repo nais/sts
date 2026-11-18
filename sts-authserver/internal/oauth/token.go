@@ -25,7 +25,7 @@ type STSTokenClaims struct {
 	NotBefore        oidc.Time                  `json:"nbf"`
 	CallChain        []ClientID                 `json:"urn:nais:call_chain,omitempty"`
 	ApplicationRoles Roles                      `json:"urn:nais:roles,omitempty"`
-	GrantType        oidc.GrantType             `json:"urn:nais:grant_type,omitempty"` // TODO: add human-readable alias (m2m, tokenx/obo)
+	GrantType        oidc.GrantType             `json:"urn:nais:grant_type,omitempty"` // TODO: add human-readable alias
 	IDP              string                     `json:"urn:nais:idp,omitempty"`
 	IDPName          string                     `json:"urn:nais:idp_name,omitempty"`
 	Claims           map[string]json.RawMessage `json:"-"`
