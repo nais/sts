@@ -21,8 +21,6 @@ type AuthorizationServer struct {
 	TokenExchangeVerifier *jwt.TokenVerifier
 	Metrics               *stsmetrics.Metrics
 	AuthorizationServerConfig
-
-	idpNames map[jwt.Issuer]string
 }
 
 func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore, metrics *stsmetrics.Metrics) (*AuthorizationServer, error) {
@@ -42,7 +40,7 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 		jwt.WithIssuersFrom(clientAuthVerifier),
 	}
 
-	for _, issuer := range cfg.SubjectTokenIssuers.Issuers() {
+	for _, issuer := range cfg.ExternalIssuers.Issuers() {
 		opts = append(opts, jwt.WithIssuer(issuer))
 	}
 
@@ -58,7 +56,6 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 		TokenExchangeVerifier:     tokenExchangeVerifier,
 		Metrics:                   metrics,
 		AuthorizationServerConfig: cfg,
-		idpNames:                  cfg.IDPNames(),
 	}, nil
 }
 
@@ -97,14 +94,11 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		return nil, err
 	}
 
-	var subjectTokenClaims *jwt.AccessTokenClaims
-	if request.GrantType() == oidc.GrantTypeTokenExchange {
-		finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
-		subjectTokenClaims, err = a.verifySubjectToken(ctx, request, client)
-		finishStep(err)
-		if err != nil {
-			return nil, err
-		}
+	finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
+	subjectTokenClaims, err := a.verifySubjectToken(ctx, request, client)
+	finishStep(err)
+	if err != nil {
+		return nil, err
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "authorize_target")
@@ -146,7 +140,7 @@ func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenReq
 }
 
 func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *AuthorizationResult) (*AccessTokenResponse, error) {
-	accessToken, err := CreateAccessToken(a.Issuer, a.idpNames, a.TokenExpiry, result)
+	accessToken, err := a.CreateAccessToken(result)
 	if err != nil {
 		return nil, err
 	}
@@ -188,9 +182,8 @@ func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr 
 	if result.SubjectTokenClaims != nil {
 		subjectIssuer := result.SubjectTokenClaims.Issuer
 		attrs = append(attrs, slog.String("subject_token_issuer", subjectIssuer))
-
-		if idpName, ok := a.idpNames[jwt.Issuer(subjectIssuer)]; ok {
-			attrs = append(attrs, slog.String("idp_name", idpName))
+		if alias, ok := a.GetIssuerAlias(jwt.Issuer(subjectIssuer)); ok {
+			attrs = append(attrs, slog.String("idp_alias", alias))
 		}
 	}
 

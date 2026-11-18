@@ -26,14 +26,15 @@ authorizationServer:
         subject: registrator
         registratorJwksUri: https://registrator.example/jwks
         signingAlg: RS256
-  subjectTokenIssuers: 
+  externalIssuers:
    https://subject.example: issuerName
 `))
 	require.NoError(t, err)
 
 	assert.Equal(t, api.STSIssuer("https://sts.example"), cfg.AuthorizationServerConfig.Issuer)
 	assert.Equal(t, []jwt.Issuer{"https://client.example"}, cfg.AuthorizationServerConfig.Environments.ClientAuthIssuers())
-	assert.Equal(t, oauth.SubjectTokenIssuers{"https://subject.example": "issuerName"}, cfg.AuthorizationServerConfig.SubjectTokenIssuers)
+	assert.Equal(t, "kubernetes", cfg.AuthorizationServerConfig.Environments[0].ClientAuthIssuerAlias)
+	assert.Equal(t, oauth.IssuerAliases{"https://subject.example": "issuerName"}, cfg.AuthorizationServerConfig.ExternalIssuers)
 	assert.Equal(t, ":8080", cfg.BindAddress)
 	assert.Equal(t, ":8081", cfg.InternalBindAddress)
 	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)

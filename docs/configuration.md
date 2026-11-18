@@ -4,11 +4,13 @@
 Set `CONFIG_FILE` to change its path; the default is `config.yaml`.
 Unknown fields and multi-document YAML files are rejected.
 Defaults are declared with `default:"..."` Go struct tags and applied before YAML
-is decoded. Explicit empty strings and zero durations are not replaced with defaults;
+is decoded, including each environment entry. Explicit empty strings and zero durations are not replaced with defaults;
 they are rejected where validation requires nonempty or positive values.
 Programmatic callers and tests can start with `oauth.DefaultAuthorizationServerConfig()`
 and then assign required fields and overrides. Plain struct literals do not apply defaults.
-The shared helper lives in `internal/config`; the loader and its tests live in `internal/sts`.
+For programmatically added environments, set `ClientAuthIssuerAlias` explicitly or
+call `config.Apply(&env)` before assigning overrides. The shared helper lives in
+`internal/config`; the loader and its tests live in `internal/sts`.
 A nonempty `DATABASE_URL` environment variable overrides the file's `databaseUrl`
 before validation. Otherwise, `databaseUrl` must be supplied in the file.
 
@@ -28,12 +30,13 @@ The Helm chart's `config` values map verbatim to this file's fields.
 | `additionalCAFile`                                | empty     |          | Path to a PEM file, or empty.                                 | Supplements system roots for local k3d. Upstream TLS verification stays enabled.               |
 | `authorizationServer.issuer`                      |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | STS issuer URL.                                                                                |
 | `authorizationServer.expectedAudience`            | `nais`    |          | Nonempty.                                                     | Sole audience for client assertions and registration bearer tokens.                            |
-| `authorizationServer.subjectTokenIssuers`         | `{}`      |          |                                                               | External subject-token issuer URLs mapped to aliases other than `nais`.                        |
+| `authorizationServer.externalIssuers`             | `{}`      |          | Must not reuse an environment issuer or alias.                 | External subject-token issuer URLs mapped to aliases.                                         |
 | `authorizationServer.maxClientAuthTokenLifetime`  | `1h`      |          | Positive duration.                                            | Maximum client assertion and registration bearer-token lifetime, plus one minute of tolerance. |
 | `authorizationServer.tokenExpiry`                 | `15m`     |          | Positive duration.                                            | Lifetime of access tokens issued by STS.                                                       |
 | `authorizationServer.environments`                |           | Yes      | At least one entry.                                           | Kubernetes clusters whose workloads can register and authenticate.                             |
 | `environments[].name`                             |           | Yes      | Unique lowercase name.                                        | Human-readable alias for the cluster issuer; the first part of every client ID in the cluster. |
-| `environments[].clientAuthIssuer`                 |           | Yes      | Unique; HTTPS, or HTTP on localhost/loopback.                 | Issuer of the cluster's client assertions and registration bearer tokens.                      |
+| `environments[].clientAuthIssuer`                 |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | Issuer of the cluster's client assertions and registration bearer tokens.                      |
+| `environments[].clientAuthIssuerAlias`            | `kubernetes` |       | Nonempty; must not overlap an external issuer alias.          | Alias assigned to subject tokens from this environment.                                      |
 | `environments[].registrator.subject`              |           | Yes      | Nonempty.                                                     | Subject of the registrator's bearer token.                                                     |
 | `environments[].registrator.registratorJwksUri`   |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | URL of the public keys used to verify software statements.                                     |
 | `environments[].registrator.signingAlg`           |           | Yes      | RS256/384/512, PS256/384/512, or ES256/384/512.               | Required software-statement signing algorithm.                                                 |
@@ -77,14 +80,17 @@ After adding or removing an environment, re-register every client to regenerate 
 
 ## Subject token issuers
 
-STS always accepts subject tokens from the environments' Kubernetes issuers and gives them the alias `nais`.
-Configure external issuers in `subjectTokenIssuers`; they must not reuse an environment issuer or the alias `nais`.
+STS accepts subject tokens from the environments' Kubernetes issuers. Each environment
+sets `clientAuthIssuerAlias`, which defaults to `kubernetes`. Environments may share
+an issuer and alias; use the same alias when sharing an issuer.
+Configure external issuers in `externalIssuers`; they must not reuse any environment
+issuer URL or alias. `nais` is no longer a reserved alias.
 
 For example, this entry assigns the alias `identity` to an issuer:
 
 ```yaml
 authorizationServer:
-  subjectTokenIssuers:
+  externalIssuers:
     https://identity.example.com: identity
 ```
 
@@ -93,8 +99,14 @@ An exchanged token from this issuer contains:
 ```json
 {
   "urn:nais:idp": "https://identity.example.com",
-  "urn:nais:idp_name": "identity"
+  "urn:nais:idp_alias": "identity"
 }
 ```
 
 Keep the alias stable so workloads can distinguish subject-token issuers without depending on their exact URLs.
+Chained STS exchanges retain the original `urn:nais:idp` and `urn:nais:idp_alias`.
+
+When upgrading, rename `subjectTokenIssuers` to `externalIssuers` in YAML and Helm
+values. The old YAML field is rejected. Token consumers must switch from
+`urn:nais:idp_name` to `urn:nais:idp_alias`; the default Kubernetes alias also changes
+from `nais` to `kubernetes`.

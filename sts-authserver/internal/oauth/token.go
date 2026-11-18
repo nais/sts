@@ -2,11 +2,11 @@ package oauth
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"time"
 	"uuid"
 
-	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/jwk"
 	"github.com/nais/sts/internal/jwt"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -15,20 +15,21 @@ import (
 const InternalSigningAlgorithm = jwk.Algorithm
 
 type STSTokenClaims struct {
-	Issuer           string                     `json:"iss"`
-	Subject          string                     `json:"sub"`
-	Audience         oidc.Audience              `json:"aud"`
-	ClientID         string                     `json:"client_id"`
-	JWTID            string                     `json:"jti"`
-	Expiration       oidc.Time                  `json:"exp"`
-	IssuedAt         oidc.Time                  `json:"iat"`
-	NotBefore        oidc.Time                  `json:"nbf"`
-	CallChain        []ClientID                 `json:"urn:nais:call_chain,omitempty"`
-	ApplicationRoles Roles                      `json:"urn:nais:roles,omitempty"`
-	GrantType        oidc.GrantType             `json:"urn:nais:grant_type,omitempty"` // TODO: add human-readable alias
-	IDP              string                     `json:"urn:nais:idp,omitempty"`
-	IDPName          string                     `json:"urn:nais:idp_name,omitempty"`
-	Claims           map[string]json.RawMessage `json:"-"`
+	Issuer           string         `json:"iss"`
+	Subject          string         `json:"sub"`
+	Audience         oidc.Audience  `json:"aud"`
+	ClientID         string         `json:"client_id"`
+	JWTID            string         `json:"jti"`
+	Expiration       oidc.Time      `json:"exp"`
+	IssuedAt         oidc.Time      `json:"iat"`
+	NotBefore        oidc.Time      `json:"nbf"`
+	CallChain        []ClientID     `json:"urn:nais:call_chain,omitempty"`
+	ApplicationRoles Roles          `json:"urn:nais:roles,omitempty"`
+	GrantType        oidc.GrantType `json:"urn:nais:grant_type,omitempty"` // TODO: add human-readable alias
+	// Empty values are omitted so mergeClaims keeps the subject-token claims.
+	IDP      string                     `json:"urn:nais:idp,omitempty"`
+	IDPAlias string                     `json:"urn:nais:idp_alias,omitempty"`
+	Claims   map[string]json.RawMessage `json:"-"`
 }
 
 func (s *STSTokenClaims) ExpiresIn() time.Duration {
@@ -39,7 +40,7 @@ func (s *STSTokenClaims) Sign(signer *jwk.Signer) (string, error) {
 	return signer.SignJWT(s.Claims)
 }
 
-func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[jwt.Issuer]string, expiresIn time.Duration, result *AuthorizationResult) (*STSTokenClaims, error) {
+func (a *AuthorizationServer) CreateAccessToken(result *AuthorizationResult) (*STSTokenClaims, error) {
 	subject := string(result.Client.ID)
 	var subjectTokenClaims map[string]json.RawMessage
 
@@ -50,13 +51,13 @@ func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[jwt.Issuer]
 
 	jti := uuid.New().String()
 	now := time.Now()
-	exp := oidc.FromTime(now.Add(expiresIn))
+	exp := oidc.FromTime(now.Add(a.TokenExpiry))
 	iat := oidc.FromTime(now)
 	nbf := iat
 
 	// TODO: review the claims we want or need to set (urn:nais, etc.)
 	stsTokenClaims := STSTokenClaims{
-		Issuer:     string(issuer),
+		Issuer:     string(a.Issuer),
 		Subject:    subject,
 		Audience:   result.Target.AsAudience(),
 		ClientID:   string(result.Client.ID),
@@ -75,18 +76,19 @@ func CreateAccessToken(issuer api.STSIssuer, subjectTokenIssuers map[jwt.Issuer]
 		stsTokenClaims.CallChain = []ClientID{result.Client.ID}
 
 		// Only extend chains issued by STS; external or malformed chains start over.
-		if subjectIssuer == jwt.Issuer(issuer) {
+		if subjectIssuer == jwt.Issuer(a.Issuer) {
 			var previous []ClientID
 			raw, ok := subjectTokenClaims["urn:nais:call_chain"]
 			if ok && json.Unmarshal(raw, &previous) == nil {
 				stsTokenClaims.CallChain = append(previous, result.Client.ID)
 			}
-		}
-
-		idpName, ok := subjectTokenIssuers[subjectIssuer]
-		if ok {
-			stsTokenClaims.IDP = string(subjectIssuer)
-			stsTokenClaims.IDPName = idpName
+		} else {
+			issuerAlias, ok := a.GetIssuerAlias(jwt.Issuer(result.SubjectTokenClaims.Issuer))
+			if !ok {
+				return nil, fmt.Errorf("issuer alias for %q not found", result.SubjectTokenClaims.Issuer)
+			}
+			stsTokenClaims.IDP = result.SubjectTokenClaims.Issuer
+			stsTokenClaims.IDPAlias = issuerAlias
 		}
 	}
 

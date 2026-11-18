@@ -10,16 +10,15 @@ import (
 
 	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/http"
-	"github.com/nais/sts/internal/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
 func TestTokenEndpointRejectsClientCredentials(t *testing.T) {
-	server := &AuthorizationServer{AuthorizationServerConfig: AuthorizationServerConfig{
-		SubjectTokenIssuers: map[jwt.Issuer]string{"https://subject.example": "subject"},
-	}}
+	cfg := DefaultAuthorizationServerConfig()
+	cfg.ExternalIssuers = IssuerAliases{"https://subject.example": "subject"}
+	server := &AuthorizationServer{AuthorizationServerConfig: cfg}
 	form := url.Values{"grant_type": {"client_credentials"}}
 	request := httptest.NewRequest(nethttp.MethodPost, "/token", strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")

@@ -26,7 +26,10 @@ func TestAccessTokenClaimsUnmarshal(t *testing.T) {
 func TestCreateAccessTokenRestartsMalformedCallChain(t *testing.T) {
 	const stsIssuer api.STSIssuer = "https://sts.example"
 
-	claims, err := CreateAccessToken(stsIssuer, nil, time.Hour, &AuthorizationResult{
+	claims, err := (&AuthorizationServer{AuthorizationServerConfig: AuthorizationServerConfig{
+		Issuer:      stsIssuer,
+		TokenExpiry: time.Hour,
+	}}).CreateAccessToken(&AuthorizationResult{
 		Target:    TargetAudience("audience"),
 		GrantType: oidc.GrantTypeTokenExchange,
 		Client:    &Client{ID: "client"},

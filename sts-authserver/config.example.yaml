@@ -8,7 +8,7 @@ authorizationServer:
   issuer: http://localhost:8080
   # Client assertions and registration bearer tokens use this as their sole audience.
   expectedAudience: nais
-  subjectTokenIssuers:
+  externalIssuers:
     http://localhost:3004/subject1: name1
     http://localhost:3004/subject2: name2
   tokenExpiry: "1h"

@@ -154,7 +154,11 @@ sequenceDiagram
 ```
 
 Token exchange authenticates the consumer with a workload token and verifies a subject token.
-Without configured subject-token issuers, the token endpoint rejects token requests.
+Subject tokens may come from an environment's Kubernetes issuer, a configured
+`externalIssuers` entry, or a previous STS exchange. External issuers are optional.
+Environment aliases default to `kubernetes`; external aliases come from the configuration.
+STS writes the original issuer and alias to `urn:nais:idp` and `urn:nais:idp_alias`
+and retains them on chained exchanges.
 
 See [Client usage](usage.md) for request fields, issued claims, and chained exchange examples.
 

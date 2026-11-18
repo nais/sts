@@ -42,7 +42,8 @@ open sts-authserver/benchmark-report/remote/index.html
 Use an ingress URL for `--sts-url`.
 The report labels this request path as ingress.
 It creates one workload token for both the client assertion and subject token.
-The workload issuer must be configured for both client authentication and subject tokens.
+The workload issuer must be configured in `authorizationServer.environments`.
+STS also accepts that issuer's tokens as subject tokens; no `externalIssuers` entry is needed.
 The client and target authorization policy must already exist.
 
 The task starts a metrics port-forward for each STS pod and stops them on exit.

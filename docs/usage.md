@@ -21,7 +21,7 @@ STS supports only token exchange. The discovery document advertises:
 STS accepts subject tokens from two kinds of issuers:
 
 - Internal issuers: the Kubernetes issuers that STS trusts for client authentication.
-- External issuers: issuers configured in `authorizationServer.subjectTokenIssuers`.
+- External issuers: issuers configured in `authorizationServer.externalIssuers`.
 
 ## Authentication
 
@@ -167,7 +167,7 @@ The decoded tokens compare as follows (timestamps and token IDs are illustrative
   "urn:nais:roles": ["reader"],
   "urn:nais:grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
   "urn:nais:idp": "https://identity.example.com",
-  "urn:nais:idp_name": "identity",
+  "urn:nais:idp_alias": "identity",
   "act": {
     "sub": "external-actor",
     "act": { "sub": "earlier-actor" }
@@ -188,11 +188,11 @@ STS starts with the subject token's claims, then sets these values in the exchan
 | `urn:nais:roles`      | Roles from the target's policy for the requesting client. | Added, or replaces an existing value.                            |
 | `urn:nais:grant_type` | Always `urn:ietf:params:oauth:grant-type:token-exchange`. | Added, or replaces an existing value.                            |
 | `urn:nais:idp`        | Issuer URL of the first subject token exchanged.          | Added on the first exchange; retained on later STS exchanges.    |
-| `urn:nais:idp_name`   | Short, stable alias for that issuer.                      | Added on the first exchange; retained on later STS exchanges.    |
+| `urn:nais:idp_alias`  | Short, stable alias for that issuer.                      | Added on the first exchange; retained on later STS exchanges.    |
 | `urn:nais:call_chain` | Client IDs in exchange order, oldest first.               | Added; appends the requesting client ID to a prior STS call chain. |
 
 The `sub` claim and other claims, such as `department` and `act` in the example, keep their values.
-Workloads can use `urn:nais:idp_name` to distinguish original issuers without depending on their exact URLs.
+Workloads can use `urn:nais:idp_alias` to distinguish original issuers without depending on their exact URLs.
 `urn:nais:call_chain` lists the client IDs that performed each exchange, oldest first.
 STS preserves the chain from STS-issued subject tokens as history, not as authorization policy input. It ignores any `urn:nais:call_chain` in external subject tokens. A malformed chain in an STS-issued subject token starts a new chain.
 STS does not add or extend `act`; [RFC 8693](https://www.rfc-editor.org/rfc/rfc8693.html#section-4.1) reserves it for delegation with an `actor_token`, which STS does not support.
@@ -203,11 +203,12 @@ Only `client_id` and `urn:nais:call_chain` identify the clients that requested t
 STS authenticated each of these clients and checked the target's authorization policy for it.
 Use them to authorize the caller.
 
-The `sub` claim, `urn:nais:idp`, `urn:nais:idp_name`, and other claims copied from the subject token describe the subject token.
+The `sub` claim, `urn:nais:idp`, `urn:nais:idp_alias`, and other claims copied from the subject token describe the subject token.
 STS verifies that a trusted issuer signed that token, but not that the token belongs to the requesting client.
 Do not use these claims to identify or authorize the caller.
 
-`urn:nais:idp_name` is `nais` when the original subject token came from an internal issuer.
+`urn:nais:idp_alias` is the environment's `clientAuthIssuerAlias` (default `kubernetes`)
+when the original subject token came from an internal issuer.
 `urn:nais:idp` then contains that Kubernetes issuer.
 
 ### Chained exchange
@@ -230,7 +231,7 @@ The requesting client is appended to the previous `urn:nais:call_chain` array:
   "urn:nais:roles": ["reader"],
   "urn:nais:grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
   "urn:nais:idp": "https://identity.example.com",
-  "urn:nais:idp_name": "identity",
+  "urn:nais:idp_alias": "identity",
   "act": {
     "sub": "external-actor",
     "act": { "sub": "earlier-actor" }
@@ -249,7 +250,7 @@ The requesting client is appended to the previous `urn:nais:call_chain` array:
   "urn:nais:roles": ["writer"],
   "urn:nais:grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
   "urn:nais:idp": "https://identity.example.com",
-  "urn:nais:idp_name": "identity",
+  "urn:nais:idp_alias": "identity",
   "act": {
     "sub": "external-actor",
     "act": { "sub": "earlier-actor" }

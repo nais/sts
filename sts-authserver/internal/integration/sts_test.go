@@ -568,7 +568,7 @@ func TestSts(t *testing.T) {
 
 		assert.Equal(t, oidc.BearerToken, tokenExchange.TokenType)
 		assert.Equal(t, oidc.AccessTokenType, tokenExchange.IssuedTokenType)
-		assertExchangedClaims(t, stsAddress, tokenExchange, serviceAccountClaims, oauth.InternalIDPName, target, consumer.ID)
+		assertExchangedClaims(t, stsAddress, tokenExchange, serviceAccountClaims, "kubernetes", target, consumer.ID)
 		assertTokenCallChain(t, stsAddress, tokenExchange, target, consumer.ID, nil)
 	})
 
@@ -586,7 +586,7 @@ func TestSts(t *testing.T) {
 		secondClientAssertion := getClientToken(t, oauthServer, secondConsumer)
 		secondExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(secondClientAssertion, firstExchange.AccessToken, secondTarget))
 
-		assertExchangedClaims(t, stsAddress, secondExchange, serviceAccountClaims, oauth.InternalIDPName, secondTarget, secondConsumer.ID)
+		assertExchangedClaims(t, stsAddress, secondExchange, serviceAccountClaims, "kubernetes", secondTarget, secondConsumer.ID)
 		assertTokenCallChain(t, stsAddress, secondExchange, secondTarget, secondConsumer.ID, firstChain)
 	})
 }
@@ -594,7 +594,7 @@ func TestSts(t *testing.T) {
 func TestStsTokenExchangeWithoutExternalIssuers(t *testing.T) {
 	oauthServer := startMockOAuthServer(t)
 	stsAddress := startSts(t, oauthServer, func(cfg *oauth.AuthorizationServerConfig) {
-		cfg.SubjectTokenIssuers = nil
+		cfg.ExternalIssuers = nil
 	}).Address
 
 	consumer := fixtures.Client1
@@ -602,7 +602,7 @@ func TestStsTokenExchangeWithoutExternalIssuers(t *testing.T) {
 	serviceAccountToken, serviceAccountClaims := getClientTokenWithClaims(t, oauthServer, consumer)
 	tokenExchange := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(serviceAccountToken, serviceAccountToken, target))
 
-	assertExchangedClaims(t, stsAddress, tokenExchange, serviceAccountClaims, oauth.InternalIDPName, target, consumer.ID)
+	assertExchangedClaims(t, stsAddress, tokenExchange, serviceAccountClaims, "kubernetes", target, consumer.ID)
 }
 
 func assertTokenCallChain(
@@ -632,20 +632,20 @@ func assertTokenExchangeClaims(
 ) {
 	t.Helper()
 
-	idpName, ok := stsConfig.AuthServerConfig.SubjectTokenIssuers[jwt.Issuer(subjectClaims.Issuer)]
+	idpAlias, ok := stsConfig.AuthServerConfig.GetIssuerAlias(jwt.Issuer(subjectClaims.Issuer))
 	require.True(t, ok, "subject token issuer %q not found in STS configuration", subjectClaims.Issuer)
 
-	assertExchangedClaims(t, stsConfig.Address, response, subjectClaims, idpName, targetID, consumerID)
+	assertExchangedClaims(t, stsConfig.Address, response, subjectClaims, idpAlias, targetID, consumerID)
 }
 
 // assertExchangedClaims checks that the issued token keeps the original subject token claims
-// and sets the STS-owned claims, with idpName as the expected urn:nais:idp_name.
+// and sets the STS-owned claims, with idpAlias as the expected urn:nais:idp_alias.
 func assertExchangedClaims(
 	t *testing.T,
 	stsAddress testServer,
 	response *oauth.AccessTokenResponse,
 	subjectClaims *jwt.AccessTokenClaims,
-	idpName, targetID, consumerID string,
+	idpAlias, targetID, consumerID string,
 ) {
 	t.Helper()
 
@@ -656,7 +656,7 @@ func assertExchangedClaims(
 		assert.Equal(t, subjectClaims.Subject, claims.Subject)
 		assert.Equal(t, oidc.GrantTypeTokenExchange, claims.GrantType)
 		assert.Equal(t, subjectClaims.Issuer, claims.IDP)
-		assert.Equal(t, idpName, claims.IDPName)
+		assert.Equal(t, idpAlias, claims.IDPAlias)
 		assert.NotEqual(t, subjectClaims.Issuer, claims.Issuer)
 		assert.NotEqual(t, subjectClaims.Audience, claims.Audience)
 		assert.NotEqual(t, subjectClaims.ClientID, claims.ClientID)

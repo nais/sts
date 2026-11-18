@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"bytes"
 	"fmt"
 	"maps"
 	"net"
@@ -13,15 +14,16 @@ import (
 	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/jwa"
 	"github.com/nais/sts/internal/jwt"
+	"go.yaml.in/yaml/v3"
 )
 
 type AuthorizationServerConfig struct {
-	Issuer                     api.STSIssuer       `yaml:"issuer"`
-	ExpectedAudience           string              `yaml:"expectedAudience" default:"nais"`
-	Environments               Environments        `yaml:"environments"`
-	SubjectTokenIssuers        SubjectTokenIssuers `yaml:"subjectTokenIssuers"`
-	MaxClientAuthTokenLifetime time.Duration       `yaml:"maxClientAuthTokenLifetime" default:"1h"`
-	TokenExpiry                time.Duration       `yaml:"tokenExpiry" default:"15m"`
+	Issuer                     api.STSIssuer `yaml:"issuer"`
+	ExpectedAudience           string        `yaml:"expectedAudience" default:"nais"`
+	Environments               Environments  `yaml:"environments"`
+	ExternalIssuers            IssuerAliases `yaml:"externalIssuers"`
+	MaxClientAuthTokenLifetime time.Duration `yaml:"maxClientAuthTokenLifetime" default:"1h"`
+	TokenExpiry                time.Duration `yaml:"tokenExpiry" default:"15m"`
 }
 
 // DefaultAuthorizationServerConfig returns a fresh configuration initialized from
@@ -35,14 +37,10 @@ func DefaultAuthorizationServerConfig() AuthorizationServerConfig {
 	return cfg
 }
 
-type SubjectTokenIssuers map[jwt.Issuer]string
+type IssuerAliases map[jwt.Issuer]string
 
-func (s SubjectTokenIssuers) Issuers() []jwt.Issuer {
-	issuers := make([]jwt.Issuer, 0, len(s))
-	for issuer := range s {
-		issuers = append(issuers, issuer)
-	}
-	return issuers
+func (s IssuerAliases) Issuers() []jwt.Issuer {
+	return slices.Collect(maps.Keys(s))
 }
 
 func (c AuthorizationServerConfig) Validate() error {
@@ -55,12 +53,14 @@ func (c AuthorizationServerConfig) Validate() error {
 	if err := c.Environments.Validate(); err != nil {
 		return fmt.Errorf("environments: %w", err)
 	}
-	for issuer, name := range c.SubjectTokenIssuers {
-		if name == InternalIDPName {
-			return fmt.Errorf("subject token issuer %q: name %q is reserved for internal issuers", issuer, name)
-		}
-		if slices.Contains(c.Environments.ClientAuthIssuers(), issuer) {
-			return fmt.Errorf("subject token issuer %q is an internal issuer", issuer)
+	for issuer, name := range c.ExternalIssuers {
+		for _, env := range c.Environments {
+			if env.ClientAuthIssuerAlias == name {
+				return fmt.Errorf("subject token issuer %q: alias %q is already used by environment %q", issuer, name, env.Name)
+			}
+			if env.ClientAuthIssuer == issuer {
+				return fmt.Errorf("subject token issuer %q: issuer %q is already used by environment %q", issuer, issuer, env.Name)
+			}
 		}
 	}
 	if c.ExpectedAudience == "" {
@@ -79,9 +79,38 @@ func (c AuthorizationServerConfig) Validate() error {
 // cluster. The name is part of every client ID in that cluster, so it must stay
 // stable once clients are registered.
 type Environment struct {
-	Name             Name              `yaml:"name"`
-	ClientAuthIssuer jwt.Issuer        `yaml:"clientAuthIssuer"`
-	Registrator      RegistratorConfig `yaml:"registrator"`
+	Name                  Name              `yaml:"name"`
+	ClientAuthIssuer      jwt.Issuer        `yaml:"clientAuthIssuer"`
+	ClientAuthIssuerAlias string            `yaml:"clientAuthIssuerAlias" default:"kubernetes"`
+	Registrator           RegistratorConfig `yaml:"registrator"`
+}
+
+// UnmarshalYAML applies defaults to each environment created during decoding.
+func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
+	// Use a distinct type to avoid calling UnmarshalYAML recursively.
+	type plain Environment
+	var env plain
+	if err := config.Apply(&env); err != nil {
+		return err
+	}
+
+	// Node.Decode does not inherit KnownFields from the outer decoder. Resolve
+	// aliases first, including anchors defined in another environment entry.
+	var values any
+	if err := node.Decode(&values); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(values)
+	if err != nil {
+		return err
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&env); err != nil {
+		return err
+	}
+	*e = Environment(env)
+	return nil
 }
 
 // RegistratorConfig identifies the workload allowed to register clients in an
@@ -99,7 +128,6 @@ func (e Environments) Validate() error {
 		return fmt.Errorf("must not be empty")
 	}
 	names := make(map[Name]struct{}, len(e))
-	issuers := make(map[jwt.Issuer]struct{}, len(e))
 	for i, env := range e {
 		if err := env.Name.Validate(); err != nil {
 			return fmt.Errorf("environment %d name: %w", i, err)
@@ -107,14 +135,14 @@ func (e Environments) Validate() error {
 		if _, ok := names[env.Name]; ok {
 			return fmt.Errorf("environment name %q is duplicated", env.Name)
 		}
+		if env.ClientAuthIssuer == "" || env.ClientAuthIssuerAlias == "" {
+			return fmt.Errorf("environment %q client auth issuer and alias must not be empty", env.Name)
+		}
+
 		names[env.Name] = struct{}{}
 		if err := validateSecureURL(string(env.ClientAuthIssuer)); err != nil {
 			return fmt.Errorf("environment %q client auth issuer: %w", env.Name, err)
 		}
-		if _, ok := issuers[env.ClientAuthIssuer]; ok {
-			return fmt.Errorf("environment %q client auth issuer %q is duplicated", env.Name, env.ClientAuthIssuer)
-		}
-		issuers[env.ClientAuthIssuer] = struct{}{}
 		if env.Registrator.Subject == "" {
 			return fmt.Errorf("environment %q registrator subject must not be empty", env.Name)
 		}
@@ -128,17 +156,14 @@ func (e Environments) Validate() error {
 	return nil
 }
 
-// InternalIDPName is the urn:nais:idp_name of subject tokens from internal
-// issuers, which are the client authentication issuers.
-const InternalIDPName = "nais"
-
-func (c AuthorizationServerConfig) IDPNames() map[jwt.Issuer]string {
-	names := make(map[jwt.Issuer]string, len(c.SubjectTokenIssuers)+len(c.Environments))
-	maps.Copy(names, c.SubjectTokenIssuers)
+func (c AuthorizationServerConfig) GetIssuerAlias(issuer jwt.Issuer) (string, bool) {
+	names := make(map[jwt.Issuer]string, len(c.ExternalIssuers)+len(c.Environments))
+	maps.Copy(names, c.ExternalIssuers)
 	for _, env := range c.Environments {
-		names[env.ClientAuthIssuer] = InternalIDPName
+		names[env.ClientAuthIssuer] = env.ClientAuthIssuerAlias
 	}
-	return names
+	alias, ok := names[issuer]
+	return alias, ok
 }
 
 // ClientAuthIssuers returns the Kubernetes issuers of all environments.
