@@ -89,29 +89,6 @@ func (t TargetAudience) AsAudience() oidc.Audience {
 	return oidc.Audience{string(t)}
 }
 
-type TargetScope string
-
-var _ Target = (*TargetScope)(nil)
-
-func (t TargetScope) GetValue() string {
-	return string(t)
-}
-
-func (t TargetScope) GetType() string {
-	return "scope"
-}
-
-func (t TargetScope) AsAudience() oidc.Audience {
-	return oidc.Audience{string(t)}
-}
-
-type TokenRequest interface {
-	GrantType() oidc.GrantType
-	Target() (Target, error)
-	Validate() error
-	GetClientAuthCredentials() *ClientAuthCredentials
-}
-
 type ClientAuthCredentials struct {
 	ClientAssertion     string
 	ClientAssertionType string
@@ -124,10 +101,6 @@ func (c *ClientAuthCredentials) Validate() error {
 	return nil
 }
 
-func (c *ClientAuthCredentials) GetClientAuthCredentials() *ClientAuthCredentials {
-	return c
-}
-
 type TokenExchangeRequest struct {
 	ClientAuthCredentials
 	SubjectToken       string
@@ -135,12 +108,6 @@ type TokenExchangeRequest struct {
 	ActorToken         string
 	RequestedTokenType string
 	Audience           string
-}
-
-var _ TokenRequest = (*TokenExchangeRequest)(nil)
-
-func (t *TokenExchangeRequest) GrantType() oidc.GrantType {
-	return oidc.GrantTypeTokenExchange
 }
 
 func (t *TokenExchangeRequest) Target() (Target, error) {

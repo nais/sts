@@ -30,9 +30,8 @@ func TestCreateAccessTokenRestartsMalformedCallChain(t *testing.T) {
 		Issuer:      stsIssuer,
 		TokenExpiry: time.Hour,
 	}}).CreateAccessToken(&AuthorizationResult{
-		Target:    TargetAudience("audience"),
-		GrantType: oidc.GrantTypeTokenExchange,
-		Client:    &Client{ID: "client"},
+		Target: TargetAudience("audience"),
+		Client: &Client{ID: "client"},
 		SubjectTokenClaims: &jwt.AccessTokenClaims{
 			Issuer:  string(stsIssuer),
 			Subject: "subject",

@@ -68,7 +68,7 @@ func (a *AuthorizationServer) TokenEndpoint() nethttp.HandlerFunc {
 	})
 }
 
-func (a *AuthorizationServer) parseTokenRequest(form url.Values) (TokenRequest, error) {
+func (a *AuthorizationServer) parseTokenRequest(form url.Values) (*TokenExchangeRequest, error) {
 	switch grantType := oidc.GrantType(form.Get("grant_type")); grantType {
 	case oidc.GrantTypeTokenExchange:
 		return parseTokenExchangeRequest(form), nil

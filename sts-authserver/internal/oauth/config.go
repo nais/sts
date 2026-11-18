@@ -157,12 +157,12 @@ func (e Environments) Validate() error {
 }
 
 func (c AuthorizationServerConfig) GetIssuerAlias(issuer jwt.Issuer) (string, bool) {
-	names := make(map[jwt.Issuer]string, len(c.ExternalIssuers)+len(c.Environments))
-	maps.Copy(names, c.ExternalIssuers)
 	for _, env := range c.Environments {
-		names[env.ClientAuthIssuer] = env.ClientAuthIssuerAlias
+		if env.ClientAuthIssuer == issuer {
+			return env.ClientAuthIssuerAlias, true
+		}
 	}
-	alias, ok := names[issuer]
+	alias, ok := c.ExternalIssuers[issuer]
 	return alias, ok
 }
 
