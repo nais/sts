@@ -170,9 +170,7 @@ func TestSts(t *testing.T) {
 					return stsToken[errs.ErrorResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, targetClientID)).Code == ""
 				}, 5*time.Second, 10*time.Millisecond)
 				token := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(clientAssertion, subjectToken, targetClientID))
-				claims := assertTokenClaims(t, stsAddress, token, targetClientID, consumer.ID, func(claims *oauth.STSTokenClaims) {
-					assert.Equal(t, oidc.GrantTypeTokenExchange, claims.GrantType)
-				}, oauth.Roles(nil))
+				claims := assertTokenClaims(t, stsAddress, token, targetClientID, consumer.ID, func(*oauth.STSTokenClaims) {}, oauth.Roles(nil))
 				assert.NotContains(t, claims.Claims, "urn:nais:roles")
 
 				for _, id := range []string{targetClientID, consumer.ID} {
@@ -654,7 +652,6 @@ func assertExchangedClaims(
 	issuedClaims := assertTokenClaims(t, stsAddress, response, targetID, consumerID, func(claims *oauth.STSTokenClaims) {
 		stsClaims = claims
 		assert.Equal(t, subjectClaims.Subject, claims.Subject)
-		assert.Equal(t, oidc.GrantTypeTokenExchange, claims.GrantType)
 		assert.Equal(t, subjectClaims.Issuer, claims.IDP)
 		assert.Equal(t, idpAlias, claims.IDPAlias)
 		assert.NotEqual(t, subjectClaims.Issuer, claims.Issuer)

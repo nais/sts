@@ -15,17 +15,16 @@ import (
 const InternalSigningAlgorithm = jwk.Algorithm
 
 type STSTokenClaims struct {
-	Issuer           string         `json:"iss"`
-	Subject          string         `json:"sub"`
-	Audience         oidc.Audience  `json:"aud"`
-	ClientID         string         `json:"client_id"`
-	JWTID            string         `json:"jti"`
-	Expiration       oidc.Time      `json:"exp"`
-	IssuedAt         oidc.Time      `json:"iat"`
-	NotBefore        oidc.Time      `json:"nbf"`
-	CallChain        []ClientID     `json:"urn:nais:call_chain,omitempty"`
-	ApplicationRoles Roles          `json:"urn:nais:roles,omitempty"`
-	GrantType        oidc.GrantType `json:"urn:nais:grant_type,omitempty"` // TODO: add human-readable alias
+	Issuer           string        `json:"iss"`
+	Subject          string        `json:"sub"`
+	Audience         oidc.Audience `json:"aud"`
+	ClientID         string        `json:"client_id"`
+	JWTID            string        `json:"jti"`
+	Expiration       oidc.Time     `json:"exp"`
+	IssuedAt         oidc.Time     `json:"iat"`
+	NotBefore        oidc.Time     `json:"nbf"`
+	CallChain        []ClientID    `json:"urn:nais:call_chain,omitempty"`
+	ApplicationRoles Roles         `json:"urn:nais:roles,omitempty"`
 	// Empty values are omitted so mergeClaims keeps the subject-token claims.
 	IDP      string                     `json:"urn:nais:idp,omitempty"`
 	IDPAlias string                     `json:"urn:nais:idp_alias,omitempty"`
@@ -62,7 +61,6 @@ func (a *AuthorizationServer) CreateAccessToken(result *AuthorizationResult) (*S
 
 		// urn:nais:*
 		ApplicationRoles: result.Roles,
-		GrantType:        oidc.GrantTypeTokenExchange,
 	}
 
 	subjectIssuer := jwt.Issuer(result.SubjectTokenClaims.Issuer)

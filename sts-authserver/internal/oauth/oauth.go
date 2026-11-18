@@ -119,7 +119,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request *Tok
 }
 
 func (a *AuthorizationServer) GrantHandler(ctx context.Context, request *TokenExchangeRequest) (*AccessTokenResponse, error) {
-	finishGrant := a.Metrics.StartTokenGrant(ctx, oidc.GrantTypeTokenExchange)
+	finishGrant := a.Metrics.StartTokenGrant(ctx)
 	var err error
 	defer func() { finishGrant(err) }()
 
@@ -167,7 +167,6 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr {
 	subjectIssuer := result.SubjectTokenClaims.Issuer
 	attrs := []slog.Attr{
-		slog.String("grant_type", string(oidc.GrantTypeTokenExchange)),
 		slog.String("client_id", string(result.Client.ID)),
 		slog.String("target_type", result.Target.GetType()),
 		slog.String("target", result.Target.GetValue()),
