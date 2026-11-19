@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="Delete the dedicated development cluster and all its data"
+#MISE dir="{{config_root}}/sts-operator"
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 k3d cluster delete sts-operator-dev
 rm -f .local/kubeconfig .local/kubeconfig.tmp .local/ca.crt

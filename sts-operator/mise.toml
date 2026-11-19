@@ -3,6 +3,4 @@ includes = [".mise-tasks"]
 
 [tools]
 kube-controller-tools = "0.23.0"
-k3d = "5.9.0"
-kubectl = "1.35.10"
 "go:sigs.k8s.io/controller-runtime/tools/setup-envtest" = "0.25.2"
