@@ -7,7 +7,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
-	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"go.opentelemetry.io/otel/attribute"
 	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
@@ -85,11 +84,10 @@ func New(meter metric.Meter) (*Metrics, error) {
 	return &Metrics{grantDuration: grantDuration, stepDuration: stepDuration}, nil
 }
 
-func (m *Metrics) StartTokenGrant(ctx context.Context, grantType oidc.GrantType) func(error) {
+func (m *Metrics) StartTokenGrant(ctx context.Context) func(error) {
 	start := time.Now()
 	return func(err error) {
 		m.grantDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(
-			attribute.String("grant_type", string(grantType)),
 			attribute.String("outcome", outcome(err)),
 		))
 	}

@@ -91,7 +91,7 @@ The target's authorization policy must allow the requesting client; it supplies 
 
 STS verifies the subject token's signature, issuer, subject, and timestamps.
 To get a token without user context, send the client's own service account token as both `client_assertion` and `subject_token`.
-When the subject token is from STS, its `urn:nais:grant_type` must be `urn:ietf:params:oauth:grant-type:token-exchange`.
+When the subject token is from STS, its `aud` must contain the requesting client ID.
 
 ### Request
 
@@ -165,7 +165,6 @@ The decoded tokens compare as follows (timestamps and token IDs are illustrative
   "nbf": 1790000000,
   "exp": 1790000900,
   "urn:nais:roles": ["reader"],
-  "urn:nais:grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
   "urn:nais:idp": "https://identity.example.com",
   "urn:nais:idp_alias": "identity",
   "act": {
@@ -186,7 +185,6 @@ STS starts with the subject token's claims, then sets these values in the exchan
 | `jti`                 | New token ID.                                             | Added, or replaces an existing value.                            |
 | `iat`, `nbf`, `exp`   | New validity times.                                       | Added, or replace existing values.                               |
 | `urn:nais:roles`      | Roles from the target's policy for the requesting client. | Added, or replaces an existing value.                            |
-| `urn:nais:grant_type` | Always `urn:ietf:params:oauth:grant-type:token-exchange`. | Added, or replaces an existing value.                            |
 | `urn:nais:idp`        | Issuer URL of the first subject token exchanged.          | Added on the first exchange; retained on later STS exchanges.    |
 | `urn:nais:idp_alias`  | Short, stable alias for that issuer.                      | Added on the first exchange; retained on later STS exchanges.    |
 | `urn:nais:call_chain` | Client IDs in exchange order, oldest first.               | Added; appends the requesting client ID to a prior STS call chain. |
@@ -229,7 +227,6 @@ The requesting client is appended to the previous `urn:nais:call_chain` array:
   "nbf": 1790000000,
   "exp": 1790000900,
   "urn:nais:roles": ["reader"],
-  "urn:nais:grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
   "urn:nais:idp": "https://identity.example.com",
   "urn:nais:idp_alias": "identity",
   "act": {
@@ -248,7 +245,6 @@ The requesting client is appended to the previous `urn:nais:call_chain` array:
   "nbf": 1790000300,
   "exp": 1790001200,
   "urn:nais:roles": ["writer"],
-  "urn:nais:grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
   "urn:nais:idp": "https://identity.example.com",
   "urn:nais:idp_alias": "identity",
   "act": {

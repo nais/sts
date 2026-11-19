@@ -60,28 +60,22 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 }
 
 type AuthorizationResult struct {
-	Target             Target
-	GrantType          oidc.GrantType
+	Target             ClientID
 	SubjectTokenClaims *jwt.AccessTokenClaims
 	Client             *Client
 	Roles              Roles
 }
 
-func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request TokenRequest) (*AuthorizationResult, error) {
+func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request *TokenExchangeRequest) (*AuthorizationResult, error) {
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
 
 	finishStep := a.Metrics.StartTokenStep(ctx, "verify_client_assertion")
-	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.GetClientAuthCredentials().ClientAssertion)
+	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.ClientAssertion)
 	finishStep(err)
 	if err != nil {
 		return nil, errs.InvalidClient(err, "client assertion is invalid")
-	}
-
-	target, err := request.Target()
-	if err != nil {
-		return nil, err
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "get_client")
@@ -95,33 +89,32 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
-	subjectTokenClaims, err := a.verifySubjectToken(ctx, request, client)
+	subjectTokenClaims, err := a.verifySubjectToken(ctx, request.SubjectToken, client)
 	finishStep(err)
 	if err != nil {
 		return nil, err
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "authorize_target")
-	roles, err := a.ClientStore.AuthorizeTarget(ctx, client, target)
+	roles, err := a.ClientStore.AuthorizeTarget(ctx, client, request.Audience)
 	finishStep(err)
 	if errors.Is(err, ErrTargetUnauthorized) {
-		return nil, errs.InvalidTarget(err, "client is not authorized for target %q", target.GetValue())
+		return nil, errs.InvalidTarget(err, "client is not authorized for target %q", request.Audience)
 	}
 	if err != nil {
 		return nil, err
 	}
 
 	return &AuthorizationResult{
-		Target:             target,
+		Target:             request.Audience,
 		SubjectTokenClaims: subjectTokenClaims,
 		Client:             client,
 		Roles:              roles,
-		GrantType:          request.GrantType(),
 	}, nil
 }
 
-func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenRequest) (*AccessTokenResponse, error) {
-	finishGrant := a.Metrics.StartTokenGrant(ctx, request.GrantType())
+func (a *AuthorizationServer) GrantHandler(ctx context.Context, request *TokenExchangeRequest) (*AccessTokenResponse, error) {
+	finishGrant := a.Metrics.StartTokenGrant(ctx)
 	var err error
 	defer func() { finishGrant(err) }()
 
@@ -158,45 +151,32 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 	if err != nil {
 		return nil, err
 	}
-	ret := &AccessTokenResponse{
-		AccessToken: signed,
-		TokenType:   oidc.BearerToken,
-		ExpiresIn:   uint64(accessToken.ExpiresIn().Seconds()),
-	}
-
-	if result.GrantType == oidc.GrantTypeTokenExchange {
-		ret.IssuedTokenType = oidc.AccessTokenType
-	}
-	return ret, nil
+	return &AccessTokenResponse{
+		AccessToken:     signed,
+		IssuedTokenType: oidc.AccessTokenType,
+		TokenType:       oidc.BearerToken,
+		ExpiresIn:       uint64(accessToken.ExpiresIn().Seconds()),
+	}, nil
 }
 
 func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr {
+	subjectIssuer := result.SubjectTokenClaims.Issuer
 	attrs := []slog.Attr{
-		slog.String("grant_type", string(result.GrantType)),
 		slog.String("client_id", string(result.Client.ID)),
-		slog.String("target_type", result.Target.GetType()),
-		slog.String("target", result.Target.GetValue()),
+		slog.String("target", string(result.Target)),
 		slog.Int("role_count", len(result.Roles)),
+		slog.String("subject_token_issuer", subjectIssuer),
 	}
 
-	if result.SubjectTokenClaims != nil {
-		subjectIssuer := result.SubjectTokenClaims.Issuer
-		attrs = append(attrs, slog.String("subject_token_issuer", subjectIssuer))
-		if alias, ok := a.GetIssuerAlias(jwt.Issuer(subjectIssuer)); ok {
-			attrs = append(attrs, slog.String("idp_alias", alias))
-		}
+	if alias, ok := a.GetIssuerAlias(jwt.Issuer(subjectIssuer)); ok {
+		attrs = append(attrs, slog.String("idp_alias", alias))
 	}
 
 	return attrs
 }
 
-func (a *AuthorizationServer) verifySubjectToken(ctx context.Context, request TokenRequest, client *Client) (*jwt.AccessTokenClaims, error) {
-	te, ok := request.(*TokenExchangeRequest)
-	if !ok {
-		return nil, fmt.Errorf("request is %T, want *TokenExchangeRequest", request)
-	}
-
-	claims, err := a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken, func(claims *jwt.AccessTokenClaims) error {
+func (a *AuthorizationServer) verifySubjectToken(ctx context.Context, subjectToken string, client *Client) (*jwt.AccessTokenClaims, error) {
+	claims, err := a.TokenExchangeVerifier.Verify(ctx, subjectToken, func(claims *jwt.AccessTokenClaims) error {
 		// Only check these claims for subject tokens issued by this STS, since we don't control the claims of externally issued subject tokens.
 		if claims.Issuer != string(a.Issuer) {
 			return nil

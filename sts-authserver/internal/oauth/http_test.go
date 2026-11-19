@@ -15,29 +15,13 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-func TestTokenEndpointRejectsClientCredentials(t *testing.T) {
-	cfg := DefaultAuthorizationServerConfig()
-	cfg.ExternalIssuers = IssuerAliases{"https://subject.example": "subject"}
-	server := &AuthorizationServer{AuthorizationServerConfig: cfg}
-	form := url.Values{"grant_type": {"client_credentials"}}
-	request := httptest.NewRequest(nethttp.MethodPost, "/token", strings.NewReader(form.Encode()))
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	recorder := httptest.NewRecorder()
-
-	server.TokenEndpoint()(recorder, request)
-
-	require.Equal(t, nethttp.StatusBadRequest, recorder.Code)
-	var response errs.ErrorResponse
-	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
-	assert.Equal(t, "unsupported_grant_type", response.Code)
-}
-
 func TestTokenEndpointRejectsInvalidRequests(t *testing.T) {
 	for name, test := range map[string]struct {
 		query       string
 		contentType string
 		form        url.Values
 		status      int
+		code        string
 		description string
 	}{
 		"json content type": {
@@ -49,6 +33,11 @@ func TestTokenEndpointRejectsInvalidRequests(t *testing.T) {
 			form:        url.Values{"grant_type": {strings.Repeat("a", http.MaxRequestBodySize)}},
 			status:      nethttp.StatusBadRequest,
 			description: "invalid request body",
+		},
+		"client credentials": {
+			form:        url.Values{"grant_type": {"client_credentials"}},
+			code:        "unsupported_grant_type",
+			description: "client_credentials not supported",
 		},
 		"grant type in query": {
 			query:       "?grant_type=" + string(oidc.GrantTypeTokenExchange),
@@ -73,7 +62,11 @@ func TestTokenEndpointRejectsInvalidRequests(t *testing.T) {
 			require.Equal(t, status, recorder.Code)
 			var response errs.ErrorResponse
 			require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
-			assert.Equal(t, "invalid_request", response.Code)
+			code := test.code
+			if code == "" {
+				code = "invalid_request"
+			}
+			assert.Equal(t, code, response.Code)
 			assert.Equal(t, test.description, response.Description)
 		})
 	}

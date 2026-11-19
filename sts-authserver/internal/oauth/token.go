@@ -15,17 +15,16 @@ import (
 const InternalSigningAlgorithm = jwk.Algorithm
 
 type STSTokenClaims struct {
-	Issuer           string         `json:"iss"`
-	Subject          string         `json:"sub"`
-	Audience         oidc.Audience  `json:"aud"`
-	ClientID         string         `json:"client_id"`
-	JWTID            string         `json:"jti"`
-	Expiration       oidc.Time      `json:"exp"`
-	IssuedAt         oidc.Time      `json:"iat"`
-	NotBefore        oidc.Time      `json:"nbf"`
-	CallChain        []ClientID     `json:"urn:nais:call_chain,omitempty"`
-	ApplicationRoles Roles          `json:"urn:nais:roles,omitempty"`
-	GrantType        oidc.GrantType `json:"urn:nais:grant_type,omitempty"` // TODO: add human-readable alias
+	Issuer           string        `json:"iss"`
+	Subject          string        `json:"sub"`
+	Audience         oidc.Audience `json:"aud"`
+	ClientID         string        `json:"client_id"`
+	JWTID            string        `json:"jti"`
+	Expiration       oidc.Time     `json:"exp"`
+	IssuedAt         oidc.Time     `json:"iat"`
+	NotBefore        oidc.Time     `json:"nbf"`
+	CallChain        []ClientID    `json:"urn:nais:call_chain,omitempty"`
+	ApplicationRoles Roles         `json:"urn:nais:roles,omitempty"`
 	// Empty values are omitted so mergeClaims keeps the subject-token claims.
 	IDP      string                     `json:"urn:nais:idp,omitempty"`
 	IDPAlias string                     `json:"urn:nais:idp_alias,omitempty"`
@@ -41,13 +40,7 @@ func (s *STSTokenClaims) Sign(signer *jwk.Signer) (string, error) {
 }
 
 func (a *AuthorizationServer) CreateAccessToken(result *AuthorizationResult) (*STSTokenClaims, error) {
-	subject := string(result.Client.ID)
-	var subjectTokenClaims map[string]json.RawMessage
-
-	if result.SubjectTokenClaims != nil {
-		subject = result.SubjectTokenClaims.Subject
-		subjectTokenClaims = result.SubjectTokenClaims.Claims
-	}
+	subjectTokenClaims := result.SubjectTokenClaims.Claims
 
 	jti := uuid.New().String()
 	now := time.Now()
@@ -58,8 +51,8 @@ func (a *AuthorizationServer) CreateAccessToken(result *AuthorizationResult) (*S
 	// TODO: review the claims we want or need to set (urn:nais, etc.)
 	stsTokenClaims := STSTokenClaims{
 		Issuer:     string(a.Issuer),
-		Subject:    subject,
-		Audience:   result.Target.AsAudience(),
+		Subject:    result.SubjectTokenClaims.Subject,
+		Audience:   result.Target.Audience(),
 		ClientID:   string(result.Client.ID),
 		JWTID:      jti,
 		Expiration: exp,
@@ -68,28 +61,25 @@ func (a *AuthorizationServer) CreateAccessToken(result *AuthorizationResult) (*S
 
 		// urn:nais:*
 		ApplicationRoles: result.Roles,
-		GrantType:        result.GrantType,
 	}
 
-	if result.GrantType == oidc.GrantTypeTokenExchange {
-		subjectIssuer := jwt.Issuer(result.SubjectTokenClaims.Issuer)
-		stsTokenClaims.CallChain = []ClientID{result.Client.ID}
+	subjectIssuer := result.SubjectTokenClaims.Issuer
+	stsTokenClaims.CallChain = []ClientID{result.Client.ID}
 
-		// Only extend chains issued by STS; external or malformed chains start over.
-		if subjectIssuer == jwt.Issuer(a.Issuer) {
-			var previous []ClientID
-			raw, ok := subjectTokenClaims["urn:nais:call_chain"]
-			if ok && json.Unmarshal(raw, &previous) == nil {
-				stsTokenClaims.CallChain = append(previous, result.Client.ID)
-			}
-		} else {
-			issuerAlias, ok := a.GetIssuerAlias(jwt.Issuer(result.SubjectTokenClaims.Issuer))
-			if !ok {
-				return nil, fmt.Errorf("issuer alias for %q not found", result.SubjectTokenClaims.Issuer)
-			}
-			stsTokenClaims.IDP = result.SubjectTokenClaims.Issuer
-			stsTokenClaims.IDPAlias = issuerAlias
+	// Only extend chains issued by STS; external or malformed chains start over.
+	if subjectIssuer == string(a.Issuer) {
+		var previous []ClientID
+		raw, ok := subjectTokenClaims["urn:nais:call_chain"]
+		if ok && json.Unmarshal(raw, &previous) == nil {
+			stsTokenClaims.CallChain = append(previous, result.Client.ID)
 		}
+	} else {
+		issuerAlias, ok := a.GetIssuerAlias(jwt.Issuer(subjectIssuer))
+		if !ok {
+			return nil, fmt.Errorf("issuer alias for %q not found", subjectIssuer)
+		}
+		stsTokenClaims.IDP = subjectIssuer
+		stsTokenClaims.IDPAlias = issuerAlias
 	}
 
 	claims, err := mergeClaims(subjectTokenClaims, stsTokenClaims)

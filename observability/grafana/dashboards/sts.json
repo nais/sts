@@ -101,8 +101,8 @@
       "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" } }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "expr": "sum by (grant_type) (rate(sts_token_grant_duration_seconds_sum{outcome=\"success\"}[$__rate_interval])) / sum by (grant_type) (rate(sts_token_grant_duration_seconds_count{outcome=\"success\"}[$__rate_interval]))", "legendFormat": "average {{grant_type}}", "refId": "A" },
-        { "expr": "histogram_quantile(0.95, sum by (le, grant_type) (rate(sts_token_grant_duration_seconds_bucket{outcome=\"success\"}[$__rate_interval])))", "legendFormat": "p95 {{grant_type}}", "refId": "B" }
+        { "expr": "sum(rate(sts_token_grant_duration_seconds_sum{outcome=\"success\"}[$__rate_interval])) / sum(rate(sts_token_grant_duration_seconds_count{outcome=\"success\"}[$__rate_interval]))", "legendFormat": "average", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(sts_token_grant_duration_seconds_bucket{outcome=\"success\"}[$__rate_interval])))", "legendFormat": "p95", "refId": "B" }
       ]
     }
   ],

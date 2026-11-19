@@ -16,7 +16,7 @@ var (
 )
 
 type ClientStore interface {
-	AuthorizeTarget(ctx context.Context, consumer *Client, target Target) (Roles, error)
+	AuthorizeTarget(ctx context.Context, consumer *Client, target ClientID) (Roles, error)
 	Delete(ctx context.Context, clientID ClientID, authoritativeIssuer string) error
 	Get(ctx context.Context, claims *jwt.AccessTokenClaims) (*Client, error)
 	Save(ctx context.Context, client *Client, authoritativeIssuer string) error

@@ -30,6 +30,10 @@ func NewClientID(environment, namespace, name Name) ClientID {
 	return ClientID(string(environment) + ":" + string(namespace) + ":" + string(name))
 }
 
+func (c ClientID) Audience() oidc.Audience {
+	return oidc.Audience{string(c)}
+}
+
 func (c ClientID) Validate() error {
 	parts := strings.Split(string(c), ":")
 	if len(parts) != 3 {
@@ -66,52 +70,6 @@ type AuthorizedClient struct {
 	Roles    Roles    `json:"roles,omitempty"`
 }
 
-type Target interface {
-	// TODO: should we use ClientID type here?
-	GetValue() string
-	GetType() string
-	AsAudience() oidc.Audience
-}
-
-type TargetAudience string
-
-var _ Target = (*TargetAudience)(nil)
-
-func (t TargetAudience) GetValue() string {
-	return string(t)
-}
-
-func (t TargetAudience) GetType() string {
-	return "audience"
-}
-
-func (t TargetAudience) AsAudience() oidc.Audience {
-	return oidc.Audience{string(t)}
-}
-
-type TargetScope string
-
-var _ Target = (*TargetScope)(nil)
-
-func (t TargetScope) GetValue() string {
-	return string(t)
-}
-
-func (t TargetScope) GetType() string {
-	return "scope"
-}
-
-func (t TargetScope) AsAudience() oidc.Audience {
-	return oidc.Audience{string(t)}
-}
-
-type TokenRequest interface {
-	GrantType() oidc.GrantType
-	Target() (Target, error)
-	Validate() error
-	GetClientAuthCredentials() *ClientAuthCredentials
-}
-
 type ClientAuthCredentials struct {
 	ClientAssertion     string
 	ClientAssertionType string
@@ -124,30 +82,13 @@ func (c *ClientAuthCredentials) Validate() error {
 	return nil
 }
 
-func (c *ClientAuthCredentials) GetClientAuthCredentials() *ClientAuthCredentials {
-	return c
-}
-
 type TokenExchangeRequest struct {
 	ClientAuthCredentials
 	SubjectToken       string
 	SubjectTokenType   string
 	ActorToken         string
 	RequestedTokenType string
-	Audience           string
-}
-
-var _ TokenRequest = (*TokenExchangeRequest)(nil)
-
-func (t *TokenExchangeRequest) GrantType() oidc.GrantType {
-	return oidc.GrantTypeTokenExchange
-}
-
-func (t *TokenExchangeRequest) Target() (Target, error) {
-	if t.Audience == "" {
-		return nil, errs.InvalidTarget(nil, "audience must contain exactly one audience")
-	}
-	return TargetAudience(t.Audience), nil
+	Audience           ClientID
 }
 
 func (t *TokenExchangeRequest) Validate() error {
@@ -166,8 +107,10 @@ func (t *TokenExchangeRequest) Validate() error {
 	if t.RequestedTokenType != string(oidc.AccessTokenType) {
 		return errs.InvalidRequest(nil, "requested_token_type must be %s", oidc.AccessTokenType)
 	}
-	_, err := t.Target()
-	return err
+	if t.Audience == "" {
+		return errs.InvalidTarget(nil, "audience must contain exactly one audience")
+	}
+	return nil
 }
 
 type AccessTokenResponse struct {
