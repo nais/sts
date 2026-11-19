@@ -1,13 +1,29 @@
 #!/usr/bin/env bash
-#MISE description="Exchange a token at the k3d authserver"
-#USAGE flag "-n --namespace <namespace>" help="Namespace of the client and target" default="sts-demo"
-#USAGE flag "-w --workload <workload>" help="Service account of the client" default="consumer"
-#USAGE flag "-t --target_workload <target_workload>" help="Target workload" default="smoke-client"
+#MISE description="Exchange a token at the local authserver"
+#USAGE flag "--k3d" help="Get the client assertion from k3d instead of the mock issuer"
+#USAGE flag "-e --environment <environment>" help="Mock environment" default="env1"
+#USAGE flag "-n --namespace <namespace>" help="Namespace of the client and target"
+#USAGE flag "-w --workload <workload>" help="Service account of the client"
+#USAGE flag "-t --target_workload <target_workload>" help="Target workload"
 #USAGE flag "--exchange" help="Exchange a subject token from the mock external issuer instead of the workload's own token"
 set -euo pipefail
 source "$(dirname "$0")/_common"
 
-WORKLOAD_TOKEN=$(workload_token "${usage_namespace}" "${usage_workload}")
+if [[ "${usage_k3d:-false}" == "true" ]]; then
+  ENV=sts-operator-dev
+  NAMESPACE="${usage_namespace:-sts-demo}"
+  TARGET="${usage_target_workload:-smoke-client}"
+  STS_URL=http://localhost:8080
+  WORKLOAD_TOKEN=$(kubectl --kubeconfig=../sts-operator/.local/kubeconfig -n "${NAMESPACE}" \
+    create token "${usage_workload:-consumer}" --audience nais --duration 10m)
+else
+  ENV="${usage_environment}"
+  NAMESPACE="${usage_namespace:-namespace1}"
+  TARGET="${usage_target_workload:-workload2}"
+  STS_URL=$(yq -er '.authorizationServer.issuer' config.yaml)
+  WORKLOAD_TOKEN=$(mock_workload_token "${ENV}" "${NAMESPACE}" "${usage_workload:-workload1}")
+fi
+
 printf '%s\n' "Authenticating with token:"
 inspect <<< "${WORKLOAD_TOKEN}"
 
@@ -20,7 +36,7 @@ post_token \
   -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
   -d 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
   -d "client_assertion=${WORKLOAD_TOKEN}" \
-  -d "audience=${CLUSTER}:${usage_namespace}:${usage_target_workload}" \
+  -d "audience=${ENV}:${NAMESPACE}:${TARGET}" \
   -d "subject_token=${SUBJECT_TOKEN}" \
   -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \
   -d 'requested_token_type=urn:ietf:params:oauth:token-type:access_token'

@@ -162,26 +162,26 @@ Treat the metrics as process-level context, not timed-iteration measurements.
 
 ## Local observability and traffic
 
-With `mise run sts-authserver:mock` active, start [Grafana](http://localhost:3000/d/sts-local-performance) and [Prometheus](http://localhost:9090):
+With `mise run sts-authserver:dev` active, start [Grafana](http://localhost:3000/d/sts-local-performance) and [Prometheus](http://localhost:9090):
 
 ```shell
-mise -C sts-authserver run dev:observability
+mise run sts-authserver:observability
 ```
 
 Normal local startup does not start them.
 
-Generate fixture-based token requests until Ctrl-C:
+Generate fixture-based token requests against the mock setup until Ctrl-C:
 
 ```shell
-mise -C sts-authserver run mock:traffic
+mise -C sts-authserver run dev:traffic
 ```
 
 The default is 100 requests per second with eight workers.
 Traffic uses token exchange. Adjust the rate, workers, or duration:
 
 ```shell
-mise -C sts-authserver run mock:traffic --rate 500 --workers 16 --duration 5m
-mise -C sts-authserver run mock:traffic --rate 0 --workers 8
+mise -C sts-authserver run dev:traffic --rate 500 --workers 16 --duration 5m
+mise -C sts-authserver run dev:traffic --rate 0 --workers 8
 ```
 
 This tool generates local traffic.

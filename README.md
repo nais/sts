@@ -55,26 +55,27 @@ The service supports:
 Install [mise](https://mise.jdx.dev/) and start Docker.
 Run the commands in this section from the repository root.
 
-### Authserver and operator against k3d
+### Full stack on k3d
 
 ```shell
-mise run dev  # prepares k3d and PostgreSQL, then runs both services
+mise run dev  # prepares k3d and PostgreSQL, then runs authserver and operator
 ```
 
 For IntelliJ, run `mise run dev:setup` first, then run "STS Local".
 
-After `mise run sts-operator:k3d:sample`, try token exchange with a Kubernetes service account token:
-- `mise run sts-authserver:dev:token`: exchange the workload's own service account token. Add `--exchange` to exchange a subject token from the mock external issuer instead.
+Run `mise run sts-operator:k3d:sample` to apply the sample workloads. Once the operator registers both clients, run
+`mise run sts-authserver:dev:token --k3d` to exchange the workload's own service account token.
 
 See the [operator README](sts-operator/README.md#local-debugging-with-k3d) for details.
 
-### Standalone authserver with mock issuers
+### Standalone authserver with mock services
 
 ```shell
-mise run sts-authserver:mock
+mise run sts-authserver:dev  # starts Docker mock services, seeds fixtures, runs authserver
 ```
 
-This starts PostgreSQL and a mock OAuth server, seeds fixtures and runs the authserver with `sts-authserver/config.yaml`, copied from `config.example.yaml` if absent.
+This starts PostgreSQL and a mock OAuth server in Docker, seeds fixtures and runs the authserver with `sts-authserver/config.yaml`, copied from `config.example.yaml` if absent.
+Add `--k3d` to prepare the k3d environment and run only the authserver against it.
 It uses the same ports as the k3d workflow, so run only one at a time.
 
 Endpoints:
@@ -85,6 +86,7 @@ Endpoints:
 - http://localhost:8081/metrics
 
 Try token exchange:
-- `mise run sts-authserver:mock:token`: exchange the workload's own service account token. Add `--exchange` to exchange a subject token from the mock external issuer instead.
+- `mise run sts-authserver:dev:token`: exchange the workload's own service account token against the standalone mock setup. Add `--k3d` to target the full k3d stack instead.
+- Add `--exchange` to either form to exchange a subject token from the mock external issuer instead.
 
 Run `mise tasks --all` for all commands.

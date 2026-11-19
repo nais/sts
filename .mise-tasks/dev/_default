@@ -4,4 +4,4 @@
 set -e
 
 # Run after setup completes; listing these as depends would start them in parallel with setup.
-exec mise run //sts-authserver:dev ::: //sts-operator:dev
+STS_DEV_SETUP_DONE=1 exec mise run //sts-authserver:dev --k3d ::: //sts-operator:dev

@@ -1,7 +1,22 @@
 #!/usr/bin/env bash
-#MISE description="Run the authserver against k3d (needs dev:setup)"
+#MISE description="Run the authserver with mock issuers by default"
+#USAGE flag "--k3d" help="Prepare and run against the local k3d environment"
 set -euo pipefail
+
+if [[ "${usage_k3d:-false}" == "true" ]]; then
+  if [[ "${STS_DEV_SETUP_DONE:-}" != 1 ]]; then
+    mise run //:dev:setup
+  fi
+  export CONFIG_FILE=config.k3d.yaml
+else
+  export CONFIG_FILE=config.yaml
+  if [[ ! -e "${CONFIG_FILE}" ]]; then
+    cp config.example.yaml "${CONFIG_FILE}"
+  fi
+  docker compose up -d --wait
+  go run ./cmd/setup_local_env
+fi
 
 # Build and exec instead of `go run`, so Mise signals the server itself and no orphan survives.
 go build -o bin/sts-dev ./cmd/sts
-CONFIG_FILE=config.k3d.yaml exec bin/sts-dev
+exec bin/sts-dev
