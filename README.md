@@ -64,8 +64,7 @@ mise run dev  # prepares k3d and PostgreSQL, then runs both services
 For IntelliJ, run `mise run dev:setup` first, then run "STS Local".
 
 After `mise run sts-operator:k3d:sample`, try token exchange with a Kubernetes service account token:
-- `mise run sts-authserver:dev:token:internal`: exchange the workload's service account token.
-- `mise run sts-authserver:dev:token:external`: exchange a subject token from the mock external issuer.
+- `mise run sts-authserver:dev:token`: exchange the workload's own service account token. Add `--exchange` to exchange a subject token from the mock external issuer instead.
 
 See the [operator README](sts-operator/README.md#local-debugging-with-k3d) for details.
 
@@ -86,7 +85,6 @@ Endpoints:
 - http://localhost:8081/metrics
 
 Try token exchange:
-- `mise run sts-authserver:mock:token:internal`: exchange the workload's service account token.
-- `mise run sts-authserver:mock:token:external`: exchange a subject token from the mock external issuer.
+- `mise run sts-authserver:mock:token`: exchange the workload's own service account token. Add `--exchange` to exchange a subject token from the mock external issuer instead.
 
 Run `mise tasks --all` for all commands.
