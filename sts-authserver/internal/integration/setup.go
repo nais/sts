@@ -167,8 +167,8 @@ func startSts(t testing.TB, oauthServer testServer, opts ...func(*oauth.Authoriz
 		},
 	}
 	authCfg.ExternalIssuers = oauth.IssuerAliases{
-		jwt.Issuer(oauthServer.Endpoint("subject1")): "name1",
-		jwt.Issuer(oauthServer.Endpoint("subject2")): "name2",
+		"name1": jwt.Issuer(oauthServer.Endpoint("subject1")),
+		"name2": jwt.Issuer(oauthServer.Endpoint("subject2")),
 	}
 	authCfg.TokenExpiry = fixtures.TokenExpiry
 

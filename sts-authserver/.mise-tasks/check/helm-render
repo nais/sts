@@ -44,13 +44,14 @@ render_config > "$config_dir/default.json"
 render_config \
   --set config.authorizationServer.maxClientAuthTokenLifetime=5m \
   --set-string config.authorizationServer.expectedAudience=true \
-  --set-json 'config.authorizationServer.externalIssuers={"https://identity.example.com":"identity"}' \
+  --set-json 'config.authorizationServer.externalIssuers={"identity":"https://identity.example.com"}' \
   --set-json 'config.authorizationServer.environments=[
     {"name":"dev-gcp","clientAuthIssuer":"https://issuer.example.com/dev","registrator":{"subject":"system:serviceaccount:custom:operator # literal","registratorJwksUri":"https://operator.dev.example.com/jwks","signingAlg":"ES256"}},
     {"name":"prod-gcp","clientAuthIssuer":"https://issuer.example.com/prod","registrator":{"subject":"system:serviceaccount:nais-system:sts-operator","registratorJwksUri":"https://operator.prod.example.com/jwks","signingAlg":"RS256"}}
   ]' | tee "$config_dir/custom.json" | jq -e '
     .authorizationServer as $auth |
     $auth.expectedAudience == "true" and
+    $auth.externalIssuers == {"identity":"https://identity.example.com"} and
     ($auth.environments | length) == 2 and
     $auth.environments[0].registrator.subject == "system:serviceaccount:custom:operator # literal"
   ' >/dev/null

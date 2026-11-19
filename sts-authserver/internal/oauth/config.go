@@ -37,10 +37,10 @@ func DefaultAuthorizationServerConfig() AuthorizationServerConfig {
 	return cfg
 }
 
-type IssuerAliases map[jwt.Issuer]string
+type IssuerAliases map[string]jwt.Issuer
 
 func (s IssuerAliases) Issuers() []jwt.Issuer {
-	return slices.Collect(maps.Keys(s))
+	return slices.Collect(maps.Values(s))
 }
 
 func (c AuthorizationServerConfig) Validate() error {
@@ -53,7 +53,7 @@ func (c AuthorizationServerConfig) Validate() error {
 	if err := c.Environments.Validate(); err != nil {
 		return fmt.Errorf("environments: %w", err)
 	}
-	for issuer, name := range c.ExternalIssuers {
+	for name, issuer := range c.ExternalIssuers {
 		for _, env := range c.Environments {
 			if env.ClientAuthIssuerAlias == name {
 				return fmt.Errorf("subject token issuer %q: alias %q is already used by environment %q", issuer, name, env.Name)
@@ -162,8 +162,12 @@ func (c AuthorizationServerConfig) GetIssuerAlias(issuer jwt.Issuer) (string, bo
 			return env.ClientAuthIssuerAlias, true
 		}
 	}
-	alias, ok := c.ExternalIssuers[issuer]
-	return alias, ok
+	for name, iss := range c.ExternalIssuers {
+		if iss == issuer {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 // ClientAuthIssuers returns the Kubernetes issuers of all environments.

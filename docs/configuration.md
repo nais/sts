@@ -30,7 +30,7 @@ The Helm chart's `config` values map verbatim to this file's fields.
 | `additionalCAFile`                                | empty     |          | Path to a PEM file, or empty.                                 | Supplements system roots for local k3d. Upstream TLS verification stays enabled.               |
 | `authorizationServer.issuer`                      |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | STS issuer URL.                                                                                |
 | `authorizationServer.expectedAudience`            | `nais`    |          | Nonempty.                                                     | Sole audience for client assertions and registration bearer tokens.                            |
-| `authorizationServer.externalIssuers`             | `{}`      |          | Must not reuse an environment issuer or alias.                 | External subject-token issuer URLs mapped to aliases.                                         |
+| `authorizationServer.externalIssuers`             | `{}`      |          | Must not reuse an environment issuer or alias.                 | External subject-token aliases mapped to issuer URLs.                                         |
 | `authorizationServer.maxClientAuthTokenLifetime`  | `1h`      |          | Positive duration.                                            | Maximum client assertion and registration bearer-token lifetime, plus one minute of tolerance. |
 | `authorizationServer.tokenExpiry`                 | `15m`     |          | Positive duration.                                            | Lifetime of access tokens issued by STS.                                                       |
 | `authorizationServer.environments`                |           | Yes      | At least one entry.                                           | Kubernetes clusters whose workloads can register and authenticate.                             |
@@ -44,7 +44,7 @@ The Helm chart's `config` values map verbatim to this file's fields.
 ## Helm database credentials
 
 The authserver chart depends on [`nais-postgresql`](https://github.com/nais/helm-charts/tree/main/charts/nais-postgresql), published from `nais/helm-charts`.
-Its dependency alias remains `postgresql`, so configure it under that values key.
+Its dependency alias is `postgresql`, so configure it under that values key.
 After changing the dependency version, run `helm dependency update charts/sts-authserver` and commit `Chart.lock`.
 The selected version must be published before STS can build its dependencies.
 
@@ -56,18 +56,16 @@ be a valid Cluster name of at most 50 characters. The parent does not call the
 subchart's naming helper. No database password is copied into the configuration
 Secret or Helm values.
 
-Keep `postgresql.fullnameOverride` equal to the existing Cluster name when
-upgrading; changing it creates a different Cluster. Multiple releases in the
-same namespace need distinct overrides.
+`postgresql.fullnameOverride` identifies the database Cluster. Multiple releases
+in the same namespace need distinct overrides.
 
 With `postgresqlEnabled: false`, the chart does not set `DATABASE_URL`; configure
 `config.databaseUrl` for an external database instead. Kubernetes waits for the
 CNPG Secret before starting the application. Environment variables are read at
 startup; restart application pods after credential rotation.
 
-This requires an application image with `DATABASE_URL` support. The generated URI
-does not by itself guarantee server certificate verification; configure TLS trust
-and connection settings according to your deployment requirements.
+The generated URI does not by itself guarantee server certificate verification;
+configure TLS trust and connection settings according to your deployment requirements.
 
 ## Environments
 
@@ -83,15 +81,15 @@ After adding or removing an environment, re-register every client to regenerate 
 STS accepts subject tokens from the environments' Kubernetes issuers. Each environment
 sets `clientAuthIssuerAlias`, which defaults to `kubernetes`. Environments may share
 an issuer and alias; use the same alias when sharing an issuer.
-Configure external issuers in `externalIssuers`; they must not reuse any environment
-issuer URL or alias. `nais` is no longer a reserved alias.
+Configure external issuers in `externalIssuers` with aliases as keys and issuer URLs
+as values; they must not reuse any environment issuer URL or alias.
 
 For example, this entry assigns the alias `identity` to an issuer:
 
 ```yaml
 authorizationServer:
   externalIssuers:
-    https://identity.example.com: identity
+    identity: https://identity.example.com
 ```
 
 An exchanged token from this issuer contains:
@@ -105,8 +103,3 @@ An exchanged token from this issuer contains:
 
 Keep the alias stable so workloads can distinguish subject-token issuers without depending on their exact URLs.
 Chained STS exchanges retain the original `urn:nais:idp` and `urn:nais:idp_alias`.
-
-When upgrading, rename `subjectTokenIssuers` to `externalIssuers` in YAML and Helm
-values. The old YAML field is rejected. Token consumers must switch from
-`urn:nais:idp_name` to `urn:nais:idp_alias`; the default Kubernetes alias also changes
-from `nais` to `kubernetes`.

@@ -26,9 +26,9 @@ func TestAuthorizationServerConfigValidateExternalIssuers(t *testing.T) {
 		wantErr bool
 	}{
 		"none":               {},
-		"alias nais":         {issuers: IssuerAliases{"https://subject.example": "nais"}},
-		"environment alias":  {issuers: IssuerAliases{"https://subject.example": "kubernetes"}, wantErr: true},
-		"environment issuer": {issuers: IssuerAliases{"https://client.example": "subject"}, wantErr: true},
+		"alias nais":         {issuers: IssuerAliases{"nais": "https://subject.example"}},
+		"environment alias":  {issuers: IssuerAliases{"kubernetes": "https://subject.example"}, wantErr: true},
+		"environment issuer": {issuers: IssuerAliases{"subject": "https://client.example"}, wantErr: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := DefaultAuthorizationServerConfig()
@@ -49,7 +49,7 @@ func TestGetIssuerAlias(t *testing.T) {
 	cfg := DefaultAuthorizationServerConfig()
 	cfg.Environments = validEnvironments()
 	cfg.Environments[0].ClientAuthIssuerAlias = "cluster"
-	cfg.ExternalIssuers = IssuerAliases{"https://subject.example": "identity"}
+	cfg.ExternalIssuers = IssuerAliases{"identity": "https://subject.example"}
 
 	for _, tt := range []struct {
 		issuer jwt.Issuer

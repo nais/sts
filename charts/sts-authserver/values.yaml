@@ -10,6 +10,7 @@ config:
     issuer: https://sts.environment.tenant.cloud.nais.io
     # Client assertions and registration bearer tokens use this as their sole audience.
     expectedAudience: nais
+    # Subject-token aliases mapped to issuer URLs, e.g. identity: https://identity.example.com
     externalIssuers: {}
     tokenExpiry: "1h"
     maxClientAuthTokenLifetime: "10m"
