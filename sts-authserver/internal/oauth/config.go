@@ -55,10 +55,10 @@ func (c AuthorizationServerConfig) Validate() error {
 	}
 	for name, issuer := range c.ExternalIssuers {
 		for _, env := range c.Environments {
-			if env.ClientAuthIssuerAlias == name {
+			if env.ClientAuthConfig.Alias == name {
 				return fmt.Errorf("subject token issuer %q: alias %q is already used by environment %q", issuer, name, env.Name)
 			}
-			if env.ClientAuthIssuer == issuer {
+			if env.ClientAuthConfig.Issuer == issuer {
 				return fmt.Errorf("subject token issuer %q: issuer %q is already used by environment %q", issuer, issuer, env.Name)
 			}
 		}
@@ -79,10 +79,18 @@ func (c AuthorizationServerConfig) Validate() error {
 // cluster. The name is part of every client ID in that cluster, so it must stay
 // stable once clients are registered.
 type Environment struct {
-	Name                  Name              `yaml:"name"`
-	ClientAuthIssuer      jwt.Issuer        `yaml:"clientAuthIssuer"`
-	ClientAuthIssuerAlias string            `yaml:"clientAuthIssuerAlias" default:"kubernetes"`
-	Registrator           RegistratorConfig `yaml:"registrator"`
+	Name             Name              `yaml:"name"`
+	ClientAuthConfig ClientAuthConfig  `yaml:"clientAuthConfig"`
+	Registrator      RegistratorConfig `yaml:"registrator"`
+}
+
+type ClaimFrom = string
+type ClaimTo = string
+
+type ClientAuthConfig struct {
+	Issuer jwt.Issuer `yaml:"issuer"`
+	Alias  string     `yaml:"alias"`
+	//ClaimMappings      map[ClaimFrom]ClaimTo `yaml:"claimMappings"`
 }
 
 // UnmarshalYAML applies defaults to each environment created during decoding.
@@ -135,12 +143,12 @@ func (e Environments) Validate() error {
 		if _, ok := names[env.Name]; ok {
 			return fmt.Errorf("environment name %q is duplicated", env.Name)
 		}
-		if env.ClientAuthIssuer == "" || env.ClientAuthIssuerAlias == "" {
+		if env.ClientAuthConfig.Issuer == "" || env.ClientAuthConfig.Alias == "" {
 			return fmt.Errorf("environment %q client auth issuer and alias must not be empty", env.Name)
 		}
 
 		names[env.Name] = struct{}{}
-		if err := validateSecureURL(string(env.ClientAuthIssuer)); err != nil {
+		if err := validateSecureURL(string(env.ClientAuthConfig.Issuer)); err != nil {
 			return fmt.Errorf("environment %q client auth issuer: %w", env.Name, err)
 		}
 		if env.Registrator.Subject == "" {
@@ -156,10 +164,19 @@ func (e Environments) Validate() error {
 	return nil
 }
 
+func (c AuthorizationServerConfig) GetClientAuthConfig(issuer jwt.Issuer) (ClientAuthConfig, bool) {
+	for _, env := range c.Environments {
+		if env.ClientAuthConfig.Issuer == issuer {
+			return env.ClientAuthConfig, true
+		}
+	}
+	return ClientAuthConfig{}, false
+}
+
 func (c AuthorizationServerConfig) GetIssuerAlias(issuer jwt.Issuer) (string, bool) {
 	for _, env := range c.Environments {
-		if env.ClientAuthIssuer == issuer {
-			return env.ClientAuthIssuerAlias, true
+		if env.ClientAuthConfig.Issuer == issuer {
+			return env.ClientAuthConfig.Alias, true
 		}
 	}
 	for name, iss := range c.ExternalIssuers {
@@ -174,7 +191,7 @@ func (c AuthorizationServerConfig) GetIssuerAlias(issuer jwt.Issuer) (string, bo
 func (e Environments) ClientAuthIssuers() []jwt.Issuer {
 	issuers := make([]jwt.Issuer, len(e))
 	for i, env := range e {
-		issuers[i] = env.ClientAuthIssuer
+		issuers[i] = env.ClientAuthConfig.Issuer
 	}
 	return issuers
 }

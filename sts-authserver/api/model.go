@@ -24,6 +24,8 @@ type AuthorizationPolicy struct {
 	AllowedNamespaces []string           `json:"allowed_namespaces,omitempty"`
 	AllowedScopes     []string           `json:"allowed_scopes,omitempty"`
 	Clients           []AuthorizedClient `json:"clients,omitempty"`
+	// AllowedImpersonators is a list of users who are allowed to impersonate the client.
+	AllowedImpersonators []string `json:"allowed_impersonators,omitempty"`
 }
 
 type AuthorizedClient struct {

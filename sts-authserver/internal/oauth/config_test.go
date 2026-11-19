@@ -112,7 +112,7 @@ func TestEnvironmentsAllowSharedIssuer(t *testing.T) {
 func validEnvironments() Environments {
 	return Environments{{
 		Name:                  "dev",
-		ClientAuthIssuer:      "https://client.example",
+		ClientAuthConfig:      "https://client.example",
 		ClientAuthIssuerAlias: "kubernetes",
 		Registrator: RegistratorConfig{
 			Subject:            "registrator",
@@ -128,8 +128,8 @@ func TestEnvironmentsValidate(t *testing.T) {
 	for name, mutate := range map[string]func(Environments) Environments{
 		"empty":           func(Environments) Environments { return nil },
 		"invalid name":    func(e Environments) Environments { e[0].Name = "Dev"; return e },
-		"insecure issuer": func(e Environments) Environments { e[0].ClientAuthIssuer = "http://client.example"; return e },
-		"missing issuer":  func(e Environments) Environments { e[0].ClientAuthIssuer = ""; return e },
+		"insecure issuer": func(e Environments) Environments { e[0].ClientAuthConfig = "http://client.example"; return e },
+		"missing issuer":  func(e Environments) Environments { e[0].ClientAuthConfig = ""; return e },
 		"missing alias":   func(e Environments) Environments { e[0].ClientAuthIssuerAlias = ""; return e },
 		"missing subject": func(e Environments) Environments { e[0].Registrator.Subject = ""; return e },
 		"insecure JWKS URI": func(e Environments) Environments {
@@ -139,7 +139,7 @@ func TestEnvironmentsValidate(t *testing.T) {
 		"unsupported alg": func(e Environments) Environments { e[0].Registrator.SigningAlg = "EdDSA"; return e },
 		"duplicate name": func(e Environments) Environments {
 			other := e[0]
-			other.ClientAuthIssuer = "https://other.example"
+			other.ClientAuthConfig = "https://other.example"
 			return append(e, other)
 		},
 	} {

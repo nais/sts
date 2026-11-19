@@ -42,7 +42,7 @@ func NewRegistrators(ctx context.Context, httpClient *nethttp.Client, authServer
 	names := make([]oauth.Name, len(environments))
 	for i, env := range environments {
 		names[i] = env.Name
-		issuer := string(env.ClientAuthIssuer)
+		issuer := string(env.ClientAuthConfig.Issuer)
 		registrators[registratorIdentity{issuer: issuer, subject: env.Registrator.Subject}] = &Registrator{
 			Environment:  env.Name,
 			AuthIssuer:   issuer,

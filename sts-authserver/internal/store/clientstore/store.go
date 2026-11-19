@@ -75,6 +75,8 @@ func (s *Store) Close() {
 	s.listener.Close()
 }
 
+// TODO: use namespace, name, and issuer to identify a client instead of the claims. getting the kubernetes claims
+// is the responsbility of the "authenticator"
 func (s *Store) Get(_ context.Context, claims *jwt.AccessTokenClaims) (*oauth.Client, error) {
 	// TODO: should we move the KubernetesClaims type here, i.e. to the store package?
 	workload, err := claims.Kubernetes()
