@@ -63,8 +63,8 @@ mise run dev  # prepares k3d and PostgreSQL, then runs authserver and operator
 
 For IntelliJ, run `mise run dev:setup` first, then run "STS Local".
 
-Run `mise run sts-operator:k3d:sample` to apply the sample workloads. Once the operator registers both clients, run
-`mise run sts-authserver:dev:token --k3d` to exchange the workload's own service account token.
+Setup installs the sample workloads. Once the operator registers both sample clients, run
+`mise run dev:token` to exchange the workload's own service account token.
 
 See the [operator README](sts-operator/README.md#local-debugging-with-k3d) for details.
 
