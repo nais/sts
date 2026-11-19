@@ -146,9 +146,11 @@ func startSts(t testing.TB, oauthServer testServer, opts ...func(*oauth.Authoriz
 	authCfg.Issuer = stsapi.STSIssuer(server.Endpoint())
 	authCfg.Environments = oauth.Environments{
 		{
-			Name:                  "env1",
-			ClientAuthIssuer:      jwt.Issuer(oauthServer.Endpoint("env1")),
-			ClientAuthIssuerAlias: "kubernetes",
+			Name: "env1",
+			ClientAuthConfig: oauth.ClientAuthConfig{
+				Issuer: jwt.Issuer(oauthServer.Endpoint("env1")),
+				Alias:  "kubernetes",
+			},
 			Registrator: oauth.RegistratorConfig{
 				Subject:            "system:serviceaccount:namespace1:registrator1",
 				RegistratorJwksUri: registratorServer.URL,
@@ -156,9 +158,11 @@ func startSts(t testing.TB, oauthServer testServer, opts ...func(*oauth.Authoriz
 			},
 		},
 		{
-			Name:                  "env2",
-			ClientAuthIssuer:      jwt.Issuer(oauthServer.Endpoint("env2")),
-			ClientAuthIssuerAlias: "kubernetes",
+			Name: "env2",
+			ClientAuthConfig: oauth.ClientAuthConfig{
+				Issuer: jwt.Issuer(oauthServer.Endpoint("env2")),
+				Alias:  "kubernetes",
+			},
 			Registrator: oauth.RegistratorConfig{
 				Subject:            "system:serviceaccount:namespace1:registrator2",
 				RegistratorJwksUri: registratorServer.URL,
