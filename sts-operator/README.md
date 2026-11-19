@@ -150,7 +150,7 @@ mise run dev
 
 `dev` first runs `dev:setup`, which is safe to repeat, and then starts both services.
 
-`dev:setup` starts PostgreSQL and the mock subject issuer, and runs `sts-operator:k3d`, which creates the cluster, installs the CRD and creates the registrator service account.
+`dev:setup` runs the root `dev:k3d` task to create the cluster, install the CRD and create the registrator service account. It then applies the sample workloads and starts PostgreSQL and the mock subject issuer.
 It writes a dedicated kubeconfig and CA certificate to `sts-operator/.local/` without changing your default Kubernetes context.
 The API listens on `127.0.0.1:6553` and is the token issuer.
 Set `K3D_API_PORT` before cluster creation to change the port, and update `clientAuthIssuer` in `config.k3d.yaml` to match.
@@ -165,15 +165,14 @@ Endpoints:
 - Authserver: `http://localhost:8080`
 - Operator JWKS: `http://localhost:8182/jwks`
 
-Apply and inspect sample clients from `sts-operator/`:
+Inspect the sample clients from `sts-operator/`:
 
 ```shell
-mise run k3d:sample
 kubectl --kubeconfig=.local/kubeconfig -n sts-demo get oauthclients,configmaps
 ```
 
-Delete only the development cluster when finished:
+From the repository root, delete only the development cluster when finished:
 
 ```shell
-mise run sts-operator:k3d:down
+mise run dev:k3d:down
 ```

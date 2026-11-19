@@ -1,13 +1,14 @@
-# Sourced by dev token tasks; not a task itself.
-STS_URL=http://localhost:8080
-KUBECONFIG_FILE=../sts-operator/.local/kubeconfig
-CLUSTER=sts-operator-dev
-
 inspect() { step crypto jwt inspect --insecure | jq -r .; }
 
-# Requests a real Kubernetes service account token for the client assertion.
-workload_token() {
-  kubectl --kubeconfig="${KUBECONFIG_FILE}" -n "$1" create token "$2" --audience nais --duration 10m
+mock_workload_token() {
+  local response
+  if ! response=$(curl -sS --fail-with-body "http://localhost:3004/$1/token" \
+    -d 'grant_type=client_credentials' -d 'client_secret=yolo' -d 'client_id=default_client' \
+    -d "ns=$2" -d "workload=$3"); then
+    printf '%s\n' "${response}" >&2
+    exit 1
+  fi
+  jq -r '.access_token' <<< "${response}"
 }
 
 post_token() {
@@ -17,4 +18,25 @@ post_token() {
     exit 1
   fi
   jq -r '.access_token' <<< "${response}" | inspect
+}
+
+# Requests a subject token from the mock external issuer with the authorization code flow.
+external_token() {
+  local redirect_uri="https://unused.example/callback" authorization code response
+  if ! authorization=$(curl -sS --fail-with-body --get --write-out '%{redirect_url}' \
+    "http://localhost:3004/subject1/authorize" \
+    -d 'client_id=default_client' -d 'scope=openid%20somescope' -d 'response_type=code' \
+    -d 'response_mode=query' -d 'state=1234' -d 'nonce=5678' -d "redirect_uri=${redirect_uri}"); then
+    printf '%s\n' "${authorization}" >&2
+    exit 1
+  fi
+  code=$(jq -rR 'capture("[?&]code=(?<code>[^&]+)").code' <<< "${authorization}")
+
+  if ! response=$(curl -sS --fail-with-body "http://localhost:3004/subject1/token" \
+    -d 'grant_type=authorization_code' -d "code=${code}" -d 'client_secret=yolo' \
+    -d 'client_id=default_client' -d "redirect_uri=${redirect_uri}"); then
+    printf '%s\n' "${response}" >&2
+    exit 1
+  fi
+  jq -r '.access_token' <<< "${response}"
 }

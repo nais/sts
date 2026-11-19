@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-#MISE description="Prepare k3d, PostgreSQL and the mock subject issuer for local development"
+#MISE description="Prepare k3d with sample workloads, PostgreSQL and the mock subject issuer"
 set -euo pipefail
 
-mise run //sts-operator:k3d
+mise run //:dev:k3d
+mise run //sts-operator:k3d:sample
 docker compose -f sts-authserver/docker-compose.yaml up -d --wait postgres mock-oauth-server
 
 # The mock image has no healthcheck, so wait until the subject issuer answers discovery.

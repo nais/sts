@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+#MISE description="Exchange a token against the local k3d stack"
+
+exec mise run //sts-authserver:dev:token --k3d "$@"
