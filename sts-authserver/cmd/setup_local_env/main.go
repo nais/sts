@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/oauth"
+	"github.com/nais/sts/internal/sts"
 	"go.opentelemetry.io/otel"
 )
 
@@ -22,7 +22,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	cfg, err := config.Load()
+	cfg, err := sts.LoadConfig()
 	if err != nil {
 		return err
 	}

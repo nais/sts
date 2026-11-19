@@ -128,32 +128,6 @@ func (c *ClientAuthCredentials) GetClientAuthCredentials() *ClientAuthCredential
 	return c
 }
 
-type ClientCredentialsRequest struct {
-	ClientAuthCredentials
-	Scope []string
-}
-
-var _ TokenRequest = (*ClientCredentialsRequest)(nil)
-
-func (c *ClientCredentialsRequest) GrantType() oidc.GrantType {
-	return oidc.GrantTypeClientCredentials
-}
-
-func (c *ClientCredentialsRequest) Target() (Target, error) {
-	if len(c.Scope) != 1 {
-		return nil, errs.InvalidTarget(nil, "scope must contain exactly one target scope")
-	}
-	return TargetScope(c.Scope[0]), nil
-}
-
-func (c *ClientCredentialsRequest) Validate() error {
-	if err := c.ClientAuthCredentials.Validate(); err != nil {
-		return err
-	}
-	_, err := c.Target()
-	return err
-}
-
 type TokenExchangeRequest struct {
 	ClientAuthCredentials
 	SubjectToken       string

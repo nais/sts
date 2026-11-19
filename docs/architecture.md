@@ -71,8 +71,8 @@ sts-authserver/
     local_traffic/     Local load generator
     benchmark_report/  Benchmark report generator
   internal/
-    api/               Server startup, routes, HTTP listeners
-    config/            YAML configuration and defaults
+    sts/               Server startup, routes, HTTP listeners, YAML config and validation
+    config/            Shared default-tag helper
     registration/      Registrator authentication and software statements
     oauth/             Client authentication, grants, authorization, token signing
     store/             PostgreSQL-backed client and signing-key stores
@@ -86,7 +86,7 @@ sts-authserver/
 ```
 
 Code paths in the rest of this document are relative to `sts-authserver/`.
-`internal/api` connects the registration and OAuth handlers to the same client store.
+`internal/sts` connects the registration and OAuth handlers to the same client store.
 The OAuth handler also uses a signing-key store.
 STS owns its routes and grant logic; it uses Zitadel OIDC types and helpers.
 SQL lives in `internal/database/queries/`, with generated code in `internal/database/sqlgen/`.
@@ -104,7 +104,7 @@ The registered client has a separate ID; STS does not derive it from those field
 The registered target owns its authorization policies.
 Each policy names a **consumer** that can request a token for that **target**, and lists the roles STS grants.
 For example, `env1:namespace1:target` can grant `reader` to `env1:namespace1:consumer`.
-Client credentials and token exchange look up the policy by `(owner=target, consumer=requesting client)`.
+Token exchange looks up the policy by `(owner=target, consumer=requesting client)`.
 
 A registrator can manage clients only for its authenticated issuer.
 Registrators with the same issuer share authority over those clients.
@@ -131,8 +131,7 @@ See [Client registration](registration.md) for replacement, deletion, and reques
 
 ## Token issuance
 
-- **Client credentials:** The consumer is the token subject.
-- **Token exchange:** The original subject remains; the consumer is appended to `urn:nais:call_chain`.
+Token exchange preserves the original subject and appends the consumer to `urn:nais:call_chain`.
 
 ```mermaid
 sequenceDiagram
@@ -141,12 +140,10 @@ sequenceDiagram
   participant P as Client store
   participant K as Key store
   participant T as Target
-  C->>S: POST /token with workload assertion and target
+  C->>S: POST /token with workload assertion, subject token, and target
   S->>S: Verify assertion and resolve workload identity
   S->>P: Find registered consumer
-  opt Token exchange
-    S->>S: Verify subject token from an accepted issuer
-  end
+  S->>S: Verify subject token from an accepted issuer
   S->>P: Find policy owned by target for consumer
   P-->>S: Roles
   S->>K: Get signer
@@ -156,8 +153,12 @@ sequenceDiagram
   T->>T: Validate token and audience
 ```
 
-Both grants authenticate the consumer with a workload token.
-Token exchange also verifies a subject token; without configured subject-token issuers, STS supports only client credentials.
+Token exchange authenticates the consumer with a workload token and verifies a subject token.
+Subject tokens may come from an environment's Kubernetes issuer, a configured
+`externalIssuers` entry, or a previous STS exchange. External issuers are optional.
+Environment aliases default to `kubernetes`; external aliases come from the configuration.
+STS writes the original issuer and alias to `urn:nais:idp` and `urn:nais:idp_alias`
+and retains them on chained exchanges.
 
 See [Client usage](usage.md) for request fields, issued claims, and chained exchange examples.
 

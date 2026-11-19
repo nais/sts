@@ -137,7 +137,7 @@ run_cluster_benchmark() {
   done
 }
 
-for grant in client_credentials token_exchange; do
+for grant in token_exchange; do
   if [[ "$(pod_snapshot)" != "$initial" ]]; then incomplete="STS pods or restart counts changed during the run."; fi
   for i in "${!pods[@]}"; do
     before="$report_dir/$grant-${pods[$i]}-before.prom"

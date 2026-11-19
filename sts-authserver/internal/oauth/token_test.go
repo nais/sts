@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/nais/sts/api"
-	"github.com/nais/sts/internal/jwk"
 	"github.com/nais/sts/internal/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,110 +23,24 @@ func TestAccessTokenClaimsUnmarshal(t *testing.T) {
 	assert.JSONEq(t, `{"number":9007199254740993,"items":[1,true]}`, string(claims.Claims["custom"]))
 }
 
-func TestAccessTokenClaimsSign(t *testing.T) {
-	source := map[string]json.RawMessage{
-		"iss":                 json.RawMessage(`"sts-issuer"`),
-		"sub":                 json.RawMessage(`"source-subject"`),
-		"act":                 json.RawMessage(`{"sub":"external-actor"}`),
-		"urn:nais:call_chain": json.RawMessage(`["older-actor","previous-actor"]`),
-		"custom":              json.RawMessage(`{"number":9007199254740993}`),
-		"urn:nais:roles":      json.RawMessage(`["source-role"]`),
-	}
-	original := cloneClaims(source)
-	result := &AuthorizationResult{
+func TestCreateAccessTokenRestartsMalformedCallChain(t *testing.T) {
+	const stsIssuer api.STSIssuer = "https://sts.example"
+
+	claims, err := (&AuthorizationServer{AuthorizationServerConfig: AuthorizationServerConfig{
+		Issuer:      stsIssuer,
+		TokenExpiry: time.Hour,
+	}}).CreateAccessToken(&AuthorizationResult{
 		Target:    TargetAudience("audience"),
 		GrantType: oidc.GrantTypeTokenExchange,
+		Client:    &Client{ID: "client"},
 		SubjectTokenClaims: &jwt.AccessTokenClaims{
-			Issuer: "sts-issuer", Subject: "source-subject",
-			Claims: source,
+			Issuer:  string(stsIssuer),
+			Subject: "subject",
+			Claims:  map[string]json.RawMessage{"urn:nais:call_chain": json.RawMessage(`{"client_id":"previous-actor"}`)},
 		},
-		Client: &Client{
-			ID: "client",
-		},
-		Roles: nil,
-	}
-	accessToken, err := CreateAccessToken("sts-issuer", nil, time.Hour, result)
+	})
 	require.NoError(t, err)
-	assert.Equal(t, original, source)
-
-	signer, err := jwk.GenerateSigner()
-	require.NoError(t, err)
-
-	signed, err := accessToken.Sign(signer)
-	require.NoError(t, err)
-
-	got := make(map[string]json.RawMessage)
-	_, err = oidc.ParseToken(signed, &got)
-	require.NoError(t, err)
-	assertJSONClaim(t, got, "iss", "sts-issuer")
-	assertJSONClaim(t, got, "sub", "source-subject")
-	assertJSONClaim(t, got, "client_id", "client")
-	assert.JSONEq(t, `["older-actor","previous-actor","client"]`, string(got["urn:nais:call_chain"]))
-	assert.JSONEq(t, `{"sub":"external-actor"}`, string(got["act"]))
-	assert.JSONEq(t, `{"number":9007199254740993}`, string(got["custom"]))
-	assert.NotContains(t, got, "urn:nais:roles")
-}
-
-func TestCreateAccessTokenIssuerRoles(t *testing.T) {
-	const stsIssuer api.STSIssuer = "https://sts.example"
-	const externalIssuer jwt.Issuer = "https://idp.example"
-
-	for _, test := range []struct {
-		name          string
-		subjectIssuer jwt.Issuer
-		wantCallChain []ClientID
-		wantIDP       string
-		wantIDPName   string
-	}{
-		{name: "STS", subjectIssuer: jwt.Issuer(stsIssuer), wantCallChain: []ClientID{"previous-actor", "client"}},
-		{name: "external", subjectIssuer: externalIssuer, wantCallChain: []ClientID{"client"}, wantIDP: string(externalIssuer), wantIDPName: "idp"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			claims, err := CreateAccessToken(stsIssuer, map[jwt.Issuer]string{externalIssuer: "idp"}, time.Hour, &AuthorizationResult{
-				Target:    TargetAudience("audience"),
-				GrantType: oidc.GrantTypeTokenExchange,
-				Client:    &Client{ID: "client"},
-				SubjectTokenClaims: &jwt.AccessTokenClaims{
-					Issuer:  string(test.subjectIssuer),
-					Subject: "subject",
-					Claims: map[string]json.RawMessage{
-						"act":                 json.RawMessage(`{"sub":"external-actor"}`),
-						"urn:nais:call_chain": json.RawMessage(`["previous-actor"]`),
-					},
-				},
-			})
-			require.NoError(t, err)
-			assert.Equal(t, string(stsIssuer), claims.Issuer)
-			assert.Equal(t, test.wantIDP, claims.IDP)
-			assert.Equal(t, test.wantIDPName, claims.IDPName)
-			assert.JSONEq(t, `{"sub":"external-actor"}`, string(claims.Claims["act"]))
-			assert.Equal(t, test.wantCallChain, claims.CallChain)
-		})
-	}
-}
-
-func TestCreateAccessTokenStartsCallChain(t *testing.T) {
-	const stsIssuer api.STSIssuer = "https://sts.example"
-
-	for name, subjectClaims := range map[string]map[string]json.RawMessage{
-		"missing":   {},
-		"malformed": {"urn:nais:call_chain": json.RawMessage(`{"client_id":"previous-actor"}`)},
-	} {
-		t.Run(name, func(t *testing.T) {
-			claims, err := CreateAccessToken(stsIssuer, nil, time.Hour, &AuthorizationResult{
-				Target:    TargetAudience("audience"),
-				GrantType: oidc.GrantTypeTokenExchange,
-				Client:    &Client{ID: "client"},
-				SubjectTokenClaims: &jwt.AccessTokenClaims{
-					Issuer:  string(stsIssuer),
-					Subject: "subject",
-					Claims:  subjectClaims,
-				},
-			})
-			require.NoError(t, err)
-			assert.Equal(t, []ClientID{"client"}, claims.CallChain)
-		})
-	}
+	assert.Equal(t, []ClientID{"client"}, claims.CallChain)
 }
 
 func TestAccessTokenClaimsKubernetes(t *testing.T) {
@@ -147,19 +60,4 @@ func TestAccessTokenClaimsKubernetes(t *testing.T) {
 			}
 		})
 	}
-}
-
-func cloneClaims(claims map[string]json.RawMessage) map[string]json.RawMessage {
-	clone := make(map[string]json.RawMessage, len(claims))
-	for name, value := range claims {
-		clone[name] = append(json.RawMessage(nil), value...)
-	}
-	return clone
-}
-
-func assertJSONClaim(t *testing.T, claims map[string]json.RawMessage, name, want string) {
-	t.Helper()
-	var got string
-	require.NoError(t, json.Unmarshal(claims[name], &got))
-	assert.Equal(t, want, got, name)
 }

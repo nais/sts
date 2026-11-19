@@ -16,7 +16,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	stsapi "github.com/nais/sts/api"
-	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/jwk"
@@ -120,7 +119,7 @@ func startMockOAuthServer(t testing.TB) testServer {
 	return testServer(addr)
 }
 
-func startSts(t testing.TB, oauthServer testServer) testServerConfig {
+func startSts(t testing.TB, oauthServer testServer, opts ...func(*oauth.AuthorizationServerConfig)) testServerConfig {
 	t.Helper()
 
 	dsn := setupPostgres(t)
@@ -143,42 +142,46 @@ func startSts(t testing.TB, oauthServer testServer) testServerConfig {
 		}
 	}))
 
-	cfg := config.Config{
-		BindAddress:         addr,
-		DatabaseURL:         dsn,
-		InternalBindAddress: internalAddr,
-		LogLevel:            slog.LevelDebug,
-		LogFormat:           "text",
-		AuthorizationServerConfig: oauth.AuthorizationServerConfig{
-			Issuer:                     stsapi.STSIssuer(server.Endpoint()),
-			ExpectedAudience:           "nais",
-			MaxClientAuthTokenLifetime: time.Hour,
-			Environments: oauth.Environments{
-				{
-					Name:             "env1",
-					ClientAuthIssuer: jwt.Issuer(oauthServer.Endpoint("env1")),
-					Registrator: oauth.RegistratorConfig{
-						Subject:            "system:serviceaccount:namespace1:registrator1",
-						RegistratorJwksUri: registratorServer.URL,
-						SigningAlg:         signer.Algorithm(),
-					},
-				},
-				{
-					Name:             "env2",
-					ClientAuthIssuer: jwt.Issuer(oauthServer.Endpoint("env2")),
-					Registrator: oauth.RegistratorConfig{
-						Subject:            "system:serviceaccount:namespace1:registrator2",
-						RegistratorJwksUri: registratorServer.URL,
-						SigningAlg:         signer.Algorithm(),
-					},
-				},
+	authCfg := oauth.DefaultAuthorizationServerConfig()
+	authCfg.Issuer = stsapi.STSIssuer(server.Endpoint())
+	authCfg.Environments = oauth.Environments{
+		{
+			Name:                  "env1",
+			ClientAuthIssuer:      jwt.Issuer(oauthServer.Endpoint("env1")),
+			ClientAuthIssuerAlias: "kubernetes",
+			Registrator: oauth.RegistratorConfig{
+				Subject:            "system:serviceaccount:namespace1:registrator1",
+				RegistratorJwksUri: registratorServer.URL,
+				SigningAlg:         signer.Algorithm(),
 			},
-			SubjectTokenIssuers: map[jwt.Issuer]string{
-				jwt.Issuer(oauthServer.Endpoint("subject1")): "name1",
-				jwt.Issuer(oauthServer.Endpoint("subject2")): "name2",
-			},
-			TokenExpiry: fixtures.TokenExpiry,
 		},
+		{
+			Name:                  "env2",
+			ClientAuthIssuer:      jwt.Issuer(oauthServer.Endpoint("env2")),
+			ClientAuthIssuerAlias: "kubernetes",
+			Registrator: oauth.RegistratorConfig{
+				Subject:            "system:serviceaccount:namespace1:registrator2",
+				RegistratorJwksUri: registratorServer.URL,
+				SigningAlg:         signer.Algorithm(),
+			},
+		},
+	}
+	authCfg.ExternalIssuers = oauth.IssuerAliases{
+		jwt.Issuer(oauthServer.Endpoint("subject1")): "name1",
+		jwt.Issuer(oauthServer.Endpoint("subject2")): "name2",
+	}
+	authCfg.TokenExpiry = fixtures.TokenExpiry
+
+	cfg := stsserver.Config{
+		BindAddress:               addr,
+		DatabaseURL:               dsn,
+		InternalBindAddress:       internalAddr,
+		LogLevel:                  slog.LevelDebug,
+		LogFormat:                 "text",
+		AuthorizationServerConfig: authCfg,
+	}
+	for _, opt := range opts {
+		opt(&cfg.AuthorizationServerConfig)
 	}
 
 	ctx := t.Context()

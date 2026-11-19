@@ -4,25 +4,123 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nais/sts/internal/jwt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.yaml.in/yaml/v3"
 )
 
-func TestAuthorizationServerConfigAllowsNoSubjectTokenIssuers(t *testing.T) {
-	cfg := AuthorizationServerConfig{
-		Issuer:                     "https://sts.example",
-		ExpectedAudience:           "nais",
-		Environments:               validEnvironments(),
-		MaxClientAuthTokenLifetime: time.Hour,
-		TokenExpiry:                time.Hour,
-	}
+func TestDefaultAuthorizationServerConfig(t *testing.T) {
+	cfg := DefaultAuthorizationServerConfig()
+	assert.Equal(t, "nais", cfg.ExpectedAudience)
+	assert.Equal(t, time.Hour, cfg.MaxClientAuthTokenLifetime)
+	assert.Equal(t, 15*time.Minute, cfg.TokenExpiry)
+
+	cfg.ExpectedAudience = "custom"
+	assert.Equal(t, "nais", DefaultAuthorizationServerConfig().ExpectedAudience)
+}
+
+func TestAuthorizationServerConfigAllowsNoExternalIssuers(t *testing.T) {
+	cfg := DefaultAuthorizationServerConfig()
+	cfg.Issuer = "https://sts.example"
+	cfg.Environments = validEnvironments()
 
 	require.NoError(t, cfg.Validate())
 }
 
+func TestAuthorizationServerConfigRejectsEnvironmentIssuerConflicts(t *testing.T) {
+	for name, issuers := range map[string]IssuerAliases{
+		"environment alias":  {"https://subject.example": "kubernetes"},
+		"environment issuer": {"https://client.example": "subject"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := DefaultAuthorizationServerConfig()
+			cfg.Issuer = "https://sts.example"
+			cfg.Environments = validEnvironments()
+			cfg.ExternalIssuers = issuers
+
+			require.Error(t, cfg.Validate())
+		})
+	}
+}
+
+func TestAuthorizationServerConfigAllowsExternalAliasNais(t *testing.T) {
+	cfg := DefaultAuthorizationServerConfig()
+	cfg.Issuer = "https://sts.example"
+	cfg.Environments = validEnvironments()
+	cfg.ExternalIssuers = IssuerAliases{"https://subject.example": "nais"}
+	require.NoError(t, cfg.Validate())
+}
+
+func TestGetIssuerAlias(t *testing.T) {
+	cfg := DefaultAuthorizationServerConfig()
+	cfg.Environments = validEnvironments()
+	cfg.Environments[0].ClientAuthIssuerAlias = "cluster"
+	cfg.ExternalIssuers = IssuerAliases{"https://subject.example": "identity"}
+
+	for _, tt := range []struct {
+		issuer jwt.Issuer
+		alias  string
+		found  bool
+	}{
+		{"https://client.example", "cluster", true},
+		{"https://subject.example", "identity", true},
+		{"https://unknown.example", "", false},
+	} {
+		t.Run(string(tt.issuer), func(t *testing.T) {
+			alias, ok := cfg.GetIssuerAlias(tt.issuer)
+			assert.Equal(t, tt.alias, alias)
+			assert.Equal(t, tt.found, ok)
+		})
+	}
+}
+
+func TestEnvironmentYAMLDefaults(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		yaml  string
+		alias string
+	}{
+		{"omitted", "name: dev", "kubernetes"},
+		{"override", "name: dev\nclientAuthIssuerAlias: cluster", "cluster"},
+		{"explicit empty", "name: dev\nclientAuthIssuerAlias: ''", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var env Environment
+			require.NoError(t, yaml.Unmarshal([]byte(tt.yaml), &env))
+			assert.Equal(t, tt.alias, env.ClientAuthIssuerAlias)
+		})
+	}
+}
+
+func TestEnvironmentYAMLAnchors(t *testing.T) {
+	var envs Environments
+	require.NoError(t, yaml.Unmarshal([]byte(`
+- name: dev
+  registrator: &registrator
+    subject: operator
+    registratorJwksUri: https://operator.example/jwks
+    signingAlg: ES256
+- name: prod
+  registrator: *registrator
+`), &envs))
+	require.Len(t, envs, 2)
+	assert.Equal(t, envs[0].Registrator, envs[1].Registrator)
+	assert.Equal(t, "kubernetes", envs[1].ClientAuthIssuerAlias)
+}
+
+func TestEnvironmentsAllowSharedIssuer(t *testing.T) {
+	envs := validEnvironments()
+	other := envs[0]
+	other.Name = "other"
+	require.NoError(t, append(envs, other).Validate())
+}
+
 func validEnvironments() Environments {
 	return Environments{{
-		Name:             "dev",
-		ClientAuthIssuer: "https://client.example",
+		Name:                  "dev",
+		ClientAuthIssuer:      "https://client.example",
+		ClientAuthIssuerAlias: "kubernetes",
 		Registrator: RegistratorConfig{
 			Subject:            "registrator",
 			RegistratorJwksUri: "https://registrator.example/jwks",
@@ -38,6 +136,8 @@ func TestEnvironmentsValidate(t *testing.T) {
 		"empty":           func(Environments) Environments { return nil },
 		"invalid name":    func(e Environments) Environments { e[0].Name = "Dev"; return e },
 		"insecure issuer": func(e Environments) Environments { e[0].ClientAuthIssuer = "http://client.example"; return e },
+		"missing issuer":  func(e Environments) Environments { e[0].ClientAuthIssuer = ""; return e },
+		"missing alias":   func(e Environments) Environments { e[0].ClientAuthIssuerAlias = ""; return e },
 		"missing subject": func(e Environments) Environments { e[0].Registrator.Subject = ""; return e },
 		"insecure JWKS URI": func(e Environments) Environments {
 			e[0].Registrator.RegistratorJwksUri = "http://registrator.example"
@@ -49,7 +149,6 @@ func TestEnvironmentsValidate(t *testing.T) {
 			other.ClientAuthIssuer = "https://other.example"
 			return append(e, other)
 		},
-		"duplicate issuer": func(e Environments) Environments { other := e[0]; other.Name = "other"; return append(e, other) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Error(t, mutate(validEnvironments()).Validate())

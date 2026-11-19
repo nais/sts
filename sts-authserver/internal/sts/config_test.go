@@ -1,4 +1,4 @@
-package config
+package sts
 
 import (
 	"log/slog"
@@ -26,14 +26,15 @@ authorizationServer:
         subject: registrator
         registratorJwksUri: https://registrator.example/jwks
         signingAlg: RS256
-  subjectTokenIssuers: 
+  externalIssuers:
    https://subject.example: issuerName
 `))
 	require.NoError(t, err)
 
 	assert.Equal(t, api.STSIssuer("https://sts.example"), cfg.AuthorizationServerConfig.Issuer)
 	assert.Equal(t, []jwt.Issuer{"https://client.example"}, cfg.AuthorizationServerConfig.Environments.ClientAuthIssuers())
-	assert.Equal(t, oauth.SubjectTokenIssuers{"https://subject.example": "issuerName"}, cfg.AuthorizationServerConfig.SubjectTokenIssuers)
+	assert.Equal(t, "kubernetes", cfg.AuthorizationServerConfig.Environments[0].ClientAuthIssuerAlias)
+	assert.Equal(t, oauth.IssuerAliases{"https://subject.example": "issuerName"}, cfg.AuthorizationServerConfig.ExternalIssuers)
 	assert.Equal(t, ":8080", cfg.BindAddress)
 	assert.Equal(t, ":8081", cfg.InternalBindAddress)
 	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
@@ -41,6 +42,32 @@ authorizationServer:
 	assert.Equal(t, "nais", cfg.AuthorizationServerConfig.ExpectedAudience)
 	assert.Equal(t, time.Hour, cfg.AuthorizationServerConfig.MaxClientAuthTokenLifetime)
 	assert.Equal(t, 15*time.Minute, cfg.AuthorizationServerConfig.TokenExpiry)
+}
+
+func TestLoadFileOverridesDefaults(t *testing.T) {
+	base := "databaseUrl: postgres://localhost/sts\nauthorizationServer:\n  issuer: https://sts.example\n  environments:\n    - name: dev\n      clientAuthIssuer: https://client.example\n      registrator:\n        subject: registrator\n        registratorJwksUri: https://registrator.example/jwks\n        signingAlg: RS256\n"
+
+	t.Run("explicit values", func(t *testing.T) {
+		cfg, err := loadFile(writeConfig(t, base+"  expectedAudience: custom\n  maxClientAuthTokenLifetime: 30m\n  tokenExpiry: 5m\n"))
+		require.NoError(t, err)
+		assert.Equal(t, "custom", cfg.AuthorizationServerConfig.ExpectedAudience)
+		assert.Equal(t, 30*time.Minute, cfg.AuthorizationServerConfig.MaxClientAuthTokenLifetime)
+		assert.Equal(t, 5*time.Minute, cfg.AuthorizationServerConfig.TokenExpiry)
+	})
+
+	for _, tt := range []struct {
+		field string
+		want  string
+	}{
+		{`expectedAudience: ""`, "expected audience must not be empty"},
+		{"maxClientAuthTokenLifetime: 0s", "maximum client auth token lifetime must be positive"},
+		{"tokenExpiry: 0s", "token expiry must be positive"},
+	} {
+		t.Run(tt.field, func(t *testing.T) {
+			_, err := loadFile(writeConfig(t, base+"  "+tt.field+"\n"))
+			require.ErrorContains(t, err, tt.want)
+		})
+	}
 }
 
 func TestLoadFileDatabaseURL(t *testing.T) {
@@ -70,13 +97,20 @@ func TestLoadFileDatabaseURL(t *testing.T) {
 }
 
 func TestLoadFileRejectsUnknownFields(t *testing.T) {
-	_, err := loadFile(writeConfig(t, "unknown: value\n"))
-	require.ErrorContains(t, err, "field unknown not found")
+	for _, contents := range []string{
+		"unknown: value\n",
+		"authorizationServer:\n  unknown: value\n",
+		"authorizationServer:\n  environments:\n    - unknown: value\n",
+		"authorizationServer:\n  environments:\n    - registrator:\n        unknown: value\n",
+	} {
+		_, err := loadFile(writeConfig(t, contents))
+		require.ErrorContains(t, err, "field unknown not found")
+	}
 }
 
 func TestLoadExampleConfig(t *testing.T) {
 	t.Setenv("CONFIG_FILE", filepath.Join("..", "..", "config.example.yaml"))
-	cfg, err := Load()
+	cfg, err := LoadConfig()
 	require.NoError(t, err)
 	for _, env := range cfg.AuthorizationServerConfig.Environments {
 		assert.Equal(t, string(api.SoftwareStatementSigningAlgorithm), env.Registrator.SigningAlg)

@@ -44,7 +44,7 @@ render_config > "$config_dir/default.json"
 render_config \
   --set config.authorizationServer.maxClientAuthTokenLifetime=5m \
   --set-string config.authorizationServer.expectedAudience=true \
-  --set-json 'config.authorizationServer.subjectTokenIssuers={"https://identity.example.com":"identity"}' \
+  --set-json 'config.authorizationServer.externalIssuers={"https://identity.example.com":"identity"}' \
   --set-json 'config.authorizationServer.environments=[
     {"name":"dev-gcp","clientAuthIssuer":"https://issuer.example.com/dev","registrator":{"subject":"system:serviceaccount:custom:operator # literal","registratorJwksUri":"https://operator.dev.example.com/jwks","signingAlg":"ES256"}},
     {"name":"prod-gcp","clientAuthIssuer":"https://issuer.example.com/prod","registrator":{"subject":"system:serviceaccount:nais-system:sts-operator","registratorJwksUri":"https://operator.prod.example.com/jwks","signingAlg":"RS256"}}
@@ -56,7 +56,7 @@ render_config \
   ' >/dev/null
 
 # Check the rendered configuration with the same defaults and validation as startup.
-STS_TEST_CONFIG_DIR="$config_dir" go test -count=1 ./internal/config -run '^TestLoadRenderedConfigs$'
+STS_TEST_CONFIG_DIR="$config_dir" go test -count=1 ./internal/sts -run '^TestLoadRenderedConfigs$'
 
 # FQDN egress: one bare hostname per registrator JWKS host, deduplicated, and
 # only when enabled and the GKE API is available.

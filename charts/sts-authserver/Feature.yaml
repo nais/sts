@@ -23,11 +23,6 @@ values:
     displayName: STS issuer
     computed:
       template: 'https://{{ subdomain . "sts" }}'
-  # TODO: make configurable
-  config.authorizationServer.subjectTokenIssuers:
-    displayName: Subject Token Issuers
-    computed:
-      template: '{ {{ .Env.apiserver_oidc_issuer }}: {{ .Env.name }} }'
   config.authorizationServer.environments:
     displayName: Trust domains
     computed:

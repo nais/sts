@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -25,7 +24,12 @@ type AuthorizationServer struct {
 }
 
 func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore, metrics *stsmetrics.Metrics) (*AuthorizationServer, error) {
-	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx, httpClient, cfg.Environments.ClientAuthIssuers(), cfg.ExpectedAudience, cfg.MaxClientAuthTokenLifetime)
+	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx,
+		httpClient,
+		cfg.Environments.ClientAuthIssuers(),
+		cfg.ExpectedAudience,
+		cfg.MaxClientAuthTokenLifetime,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}
@@ -33,9 +37,10 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 	opts := []jwt.TokenVerifierOption{
 		jwt.WithHttpClient(httpClient),
 		jwt.WithIssuerAndKeySet(jwt.Issuer(cfg.Issuer), keyStore, string(InternalSigningAlgorithm)),
+		jwt.WithIssuersFrom(clientAuthVerifier),
 	}
 
-	for _, issuer := range cfg.SubjectTokenIssuers.Issuers() {
+	for _, issuer := range cfg.ExternalIssuers.Issuers() {
 		opts = append(opts, jwt.WithIssuer(issuer))
 	}
 
@@ -89,14 +94,11 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request Toke
 		return nil, err
 	}
 
-	var subjectTokenClaims *jwt.AccessTokenClaims
-	if request.GrantType() == oidc.GrantTypeTokenExchange {
-		finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
-		subjectTokenClaims, err = a.verifySubjectToken(ctx, request, client)
-		finishStep(err)
-		if err != nil {
-			return nil, err
-		}
+	finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
+	subjectTokenClaims, err := a.verifySubjectToken(ctx, request, client)
+	finishStep(err)
+	if err != nil {
+		return nil, err
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "authorize_target")
@@ -138,7 +140,7 @@ func (a *AuthorizationServer) GrantHandler(ctx context.Context, request TokenReq
 }
 
 func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *AuthorizationResult) (*AccessTokenResponse, error) {
-	accessToken, err := CreateAccessToken(a.Issuer, a.SubjectTokenIssuers, a.TokenExpiry, result)
+	accessToken, err := a.CreateAccessToken(result)
 	if err != nil {
 		return nil, err
 	}
@@ -180,9 +182,8 @@ func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr 
 	if result.SubjectTokenClaims != nil {
 		subjectIssuer := result.SubjectTokenClaims.Issuer
 		attrs = append(attrs, slog.String("subject_token_issuer", subjectIssuer))
-
-		if idpName, ok := a.SubjectTokenIssuers[jwt.Issuer(subjectIssuer)]; ok {
-			attrs = append(attrs, slog.String("idp_name", idpName))
+		if alias, ok := a.GetIssuerAlias(jwt.Issuer(subjectIssuer)); ok {
+			attrs = append(attrs, slog.String("idp_alias", alias))
 		}
 	}
 
@@ -194,24 +195,11 @@ func (a *AuthorizationServer) verifySubjectToken(ctx context.Context, request To
 	if !ok {
 		return nil, fmt.Errorf("request is %T, want *TokenExchangeRequest", request)
 	}
+
 	claims, err := a.TokenExchangeVerifier.Verify(ctx, te.SubjectToken, func(claims *jwt.AccessTokenClaims) error {
 		// Only check these claims for subject tokens issued by this STS, since we don't control the claims of externally issued subject tokens.
 		if claims.Issuer != string(a.Issuer) {
 			return nil
-		}
-
-		rawGrantType, ok := claims.Claims["urn:nais:grant_type"]
-		if !ok {
-			return errors.New("grant_type claim is missing")
-		}
-
-		var grantType oidc.GrantType
-		if err := json.Unmarshal(rawGrantType, &grantType); err != nil {
-			return errors.New("grant_type claim must be a string")
-		}
-
-		if grantType != oidc.GrantTypeTokenExchange {
-			return fmt.Errorf("grant_type claim is invalid: got %q, want %q", grantType, oidc.GrantTypeTokenExchange)
 		}
 
 		if !slices.Contains(claims.Audience, string(client.ID)) {

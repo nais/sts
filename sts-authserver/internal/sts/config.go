@@ -1,28 +1,28 @@
-package config
+package sts
 
 import (
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
-	"time"
 
+	"github.com/nais/sts/internal/config"
 	"github.com/nais/sts/internal/ioconvenience"
 	"github.com/nais/sts/internal/oauth"
 	"go.yaml.in/yaml/v3"
 )
 
 type Config struct {
-	BindAddress               string                          `yaml:"bindAddress"`
+	BindAddress               string                          `yaml:"bindAddress" default:":8080"`
 	DatabaseURL               string                          `yaml:"databaseUrl"`
-	InternalBindAddress       string                          `yaml:"internalBindAddress"`
-	LogLevel                  slog.Level                      `yaml:"logLevel"`
-	LogFormat                 string                          `yaml:"logFormat"`
+	InternalBindAddress       string                          `yaml:"internalBindAddress" default:":8081"`
+	LogLevel                  slog.Level                      `yaml:"logLevel" default:"info"`
+	LogFormat                 string                          `yaml:"logFormat" default:"text"`
 	AdditionalCAFile          string                          `yaml:"additionalCAFile"`
 	AuthorizationServerConfig oauth.AuthorizationServerConfig `yaml:"authorizationServer"`
 }
 
-func Load() (Config, error) {
+func LoadConfig() (Config, error) {
 	path := os.Getenv("CONFIG_FILE")
 	if path == "" {
 		path = "config.yaml"
@@ -38,7 +38,10 @@ func loadFile(path string) (Config, error) {
 	}
 	defer ioconvenience.Close(file)
 
-	cfg := defaultConfig()
+	var cfg Config
+	if err := config.Apply(&cfg); err != nil {
+		return Config{}, fmt.Errorf("apply config defaults: %w", err)
+	}
 
 	decoder := yaml.NewDecoder(file)
 	decoder.KnownFields(true)
@@ -61,21 +64,8 @@ func loadFile(path string) (Config, error) {
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
 	}
-	return cfg, nil
-}
 
-func defaultConfig() Config {
-	return Config{
-		BindAddress:         ":8080",
-		InternalBindAddress: ":8081",
-		LogLevel:            slog.LevelInfo,
-		LogFormat:           "text",
-		AuthorizationServerConfig: oauth.AuthorizationServerConfig{
-			ExpectedAudience:           "nais",
-			MaxClientAuthTokenLifetime: time.Hour,
-			TokenExpiry:                15 * time.Minute,
-		},
-	}
+	return cfg, nil
 }
 
 func (c Config) validate() error {

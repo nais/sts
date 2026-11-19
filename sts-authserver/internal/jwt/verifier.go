@@ -3,6 +3,7 @@ package jwt
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"time"
 
@@ -49,6 +50,12 @@ func WithIssuerAndKeySet(issuer Issuer, keySet oidc.KeySet, requiredAlgs ...stri
 			keyset:       keySet,
 			requiredAlgs: requiredAlgs,
 		}
+	}
+}
+
+func WithIssuersFrom(other *TokenVerifier) TokenVerifierOption {
+	return func(t *TokenVerifier) {
+		maps.Copy(t.issuers, other.issuers)
 	}
 }
 
