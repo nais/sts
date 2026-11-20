@@ -58,11 +58,14 @@ type Client struct {
 	UpdatedAt           time.Time
 }
 
+// TODO: why did we choose to copy between api and oauth models? there was a good reason...
 type AuthorizationPolicy struct {
 	AllowAll          bool               `json:"allow_all,omitempty"`
 	AllowedNamespaces []string           `json:"allowed_namespaces,omitempty"`
 	AllowedScopes     []string           `json:"allowed_scopes,omitempty"`
 	Clients           []AuthorizedClient `json:"clients,omitempty"`
+	// AllowedImpersonators is a list of users who are allowed to impersonate the client.
+	AllowedImpersonators []string `json:"allowed_impersonators,omitempty"`
 }
 
 type AuthorizedClient struct {
@@ -84,6 +87,7 @@ func (c *ClientAuthCredentials) Validate() error {
 
 type TokenExchangeRequest struct {
 	ClientAuthCredentials
+	ClientID           ClientID
 	SubjectToken       string
 	SubjectTokenType   string
 	ActorToken         string
