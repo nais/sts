@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -27,7 +26,7 @@ type AuthorizationServer struct {
 func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore, metrics *stsmetrics.Metrics) (*AuthorizationServer, error) {
 	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx,
 		httpClient,
-		cfg.Environments.ClientAuthIssuers(),
+		cfg.ClientAuthIssuerURLs(),
 		cfg.ExpectedAudience,
 		cfg.MaxClientAuthTokenLifetime,
 	)
@@ -61,6 +60,8 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 }
 
 type AuthorizationResult struct {
+	// Caller is authenticated by the client assertion, independently of SubjectTokenClaims.
+	Caller             CallerIdentity
 	Target             ClientID
 	SubjectTokenClaims *jwt.AccessTokenClaims
 	Client             *Client
@@ -72,53 +73,22 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request *Tok
 		return nil, err
 	}
 
-	finishStep := a.Metrics.StartTokenStep(ctx, "verify_client_assertion")
-	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.ClientAssertion)
-	finishStep(err)
+	caller, err := a.authenticateClient(ctx, request)
 	if err != nil {
-		return nil, errs.InvalidClient(err, "client assertion is invalid")
+		return nil, err
 	}
+	client := caller.Client
 
-	authIssuer := clientAuthClaims.Issuer
-	authCfg, ok := a.GetClientAuthConfig(jwt.Issuer(authIssuer))
-	if !ok {
-		return nil, errs.InvalidClient(nil, "client authentication configuration not found for issuer %q", authIssuer)
-	}
-	finishStep = a.Metrics.StartTokenStep(ctx, "get_client")
-
-	var client *Client
-	if authCfg.RequireClientID {
-		if request.ClientID == "" {
-			return nil, errs.InvalidClient(nil, "client_id is required for issuer %q", authIssuer)
-		}
-		client, err = a.ClientStore.GetByID(request.ClientID)
-		if errors.Is(err, ErrClientNotFound) {
-			return nil, errs.InvalidClient(err, "client authentication failed")
-		}
-	} else {
-		namespace, name, err := getNamespaceAndName(clientAuthClaims, authCfg)
-		if err != nil {
-			return nil, errs.InvalidClient(err, "failed to extract namespace and name from client assertion claims")
-		}
-
-		client, err = a.ClientStore.Get(authIssuer, namespace, name)
-		finishStep(err)
-		if errors.Is(err, ErrClientNotFound) {
-			return nil, errs.InvalidClient(err, "client authentication failed")
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// TODO: verify allowed impersonators for the client
-	// TODO: copy claims fra client auth token
-
-	finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
+	finishStep := a.Metrics.StartTokenStep(ctx, "verify_subject_token")
 	subjectTokenClaims, err := a.verifySubjectToken(ctx, request.SubjectToken, client)
 	finishStep(err)
 	if err != nil {
 		return nil, err
+	}
+
+	// Impersonation only starts a chain, so urn:nais:call_chain[0] is the impersonated client.
+	if caller.Impersonator != nil && subjectTokenClaims.Issuer == string(a.Issuer) {
+		return nil, errs.InvalidRequest(nil, "impersonation requires a subject token not issued by STS")
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "authorize_target")
@@ -132,6 +102,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request *Tok
 	}
 
 	return &AuthorizationResult{
+		Caller:             caller,
 		Target:             request.Audience,
 		SubjectTokenClaims: subjectTokenClaims,
 		Client:             client,
@@ -219,26 +190,3 @@ func (a *AuthorizationServer) verifySubjectToken(ctx context.Context, subjectTok
 
 	return claims, nil
 }
-
-// TODO: must support jsonpath in order to work with current config
-func getNamespaceAndName(claims *jwt.AccessTokenClaims, cfg ClientAuthConfig) (namespace, name string, err error) {
-	nameClaim := cfg.ClientIDClaims["name"]
-	if nameClaim == "" {
-		return "", "" , errors.New("client_id_claims.name is required for this issuer")
-	}
-	namespaceClaim := cfg.ClientIDClaims["namespace"]
-	if namespaceClaim == "" {
-		return "", "" , errors.New("client_id_claims.namespace is required for this issuer")
-	}
-
-	// TODO: support jsonpath expressions for claims, e.g. "kubernetes.serviceaccount.name" instead of just "name"
-	if err := json.Unmarshal(claims.Claims[nameClaim], &name); err != nil {
-		return "", "" , fmt.Errorf("unmarshal %q claim: %w", nameClaim, err)
-	}
-	if err := json.Unmarshal(claims.Claims[namespaceClaim], &namespace); err != nil {
-		return "", "" , fmt.Errorf("unmarshal %q claim: %w", namespaceClaim, err)
-	}
-
-	return namespace, name, nil
-}
-

@@ -89,7 +89,7 @@ func parseClientAuthCredentials(form url.Values) ClientAuthCredentials {
 func parseTokenExchangeRequest(form url.Values) *TokenExchangeRequest {
 	return &TokenExchangeRequest{
 		ClientAuthCredentials: parseClientAuthCredentials(form),
-		ClientID:              form.Get("client_id"),
+		ClientID:              ClientID(form.Get("client_id")),
 		SubjectToken:          form.Get("subject_token"),
 		SubjectTokenType:      form.Get("subject_token_type"),
 		ActorToken:            form.Get("actor_token"),

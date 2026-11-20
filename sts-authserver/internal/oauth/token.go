@@ -26,9 +26,11 @@ type STSTokenClaims struct {
 	CallChain        []ClientID    `json:"urn:nais:call_chain,omitempty"`
 	ApplicationRoles Roles         `json:"urn:nais:roles,omitempty"`
 	// Empty values are omitted so mergeClaims keeps the subject-token claims.
-	IDP      string                     `json:"urn:nais:idp,omitempty"`
-	IDPAlias string                     `json:"urn:nais:idp_alias,omitempty"`
-	Claims   map[string]json.RawMessage `json:"-"`
+	IDP      string `json:"urn:nais:idp,omitempty"`
+	IDPAlias string `json:"urn:nais:idp_alias,omitempty"`
+	// Impersonator records the impersonation that started an STS exchange chain.
+	Impersonator *Impersonator              `json:"urn:nais:impersonator,omitempty"`
+	Claims       map[string]json.RawMessage `json:"-"`
 }
 
 func (s *STSTokenClaims) ExpiresIn() time.Duration {
@@ -65,6 +67,7 @@ func (a *AuthorizationServer) CreateAccessToken(result *AuthorizationResult) (*S
 
 	subjectIssuer := result.SubjectTokenClaims.Issuer
 	stsTokenClaims.CallChain = []ClientID{result.Client.ID}
+	stsTokenClaims.Impersonator = result.Caller.Impersonator
 
 	// Only extend chains issued by STS; external or malformed chains start over.
 	if subjectIssuer == string(a.Issuer) {
@@ -72,6 +75,13 @@ func (a *AuthorizationServer) CreateAccessToken(result *AuthorizationResult) (*S
 		raw, ok := subjectTokenClaims["urn:nais:call_chain"]
 		if ok && json.Unmarshal(raw, &previous) == nil {
 			stsTokenClaims.CallChain = append(previous, result.Client.ID)
+		}
+
+		// Impersonation is only allowed on the first exchange, so later exchanges keep it as history.
+		var impersonator Impersonator
+		raw, ok = subjectTokenClaims["urn:nais:impersonator"]
+		if ok && json.Unmarshal(raw, &impersonator) == nil && impersonator.Issuer != "" && impersonator.Subject != "" {
+			stsTokenClaims.Impersonator = &impersonator
 		}
 	} else {
 		issuerAlias, ok := a.GetIssuerAlias(jwt.Issuer(subjectIssuer))
@@ -90,6 +100,10 @@ func (a *AuthorizationServer) CreateAccessToken(result *AuthorizationResult) (*S
 	// Empty policy roles must not inherit roles from the subject token.
 	if len(result.Roles) == 0 {
 		delete(claims, "urn:nais:roles")
+	}
+	// Only STS may set the impersonator; drop values copied from external or malformed tokens.
+	if stsTokenClaims.Impersonator == nil {
+		delete(claims, "urn:nais:impersonator")
 	}
 
 	stsTokenClaims.Claims = claims

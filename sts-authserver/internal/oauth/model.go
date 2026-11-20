@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/errs"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
@@ -64,9 +65,11 @@ type AuthorizationPolicy struct {
 	AllowedNamespaces []string           `json:"allowed_namespaces,omitempty"`
 	AllowedScopes     []string           `json:"allowed_scopes,omitempty"`
 	Clients           []AuthorizedClient `json:"clients,omitempty"`
-	// AllowedImpersonators is a list of users who are allowed to impersonate the client.
-	AllowedImpersonators []string `json:"allowed_impersonators,omitempty"`
+	// AllowedImpersonators identifies principals allowed to act as this client.
+	AllowedImpersonators []Impersonator `json:"allowed_impersonators,omitempty"`
 }
+
+type Impersonator = api.Impersonator
 
 type AuthorizedClient struct {
 	ClientID ClientID `json:"client_id"`

@@ -156,4 +156,3 @@ func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSn
 	}
 	return result, nil
 }
-

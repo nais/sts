@@ -10,10 +10,19 @@ authorizationServer:
   expectedAudience: nais
   externalIssuers:
     name1: http://localhost:3004/subject1
+  clientAuthIssuers:
+    cluster-local:
+      issuer: https://127.0.0.1:6553
+      alias: kubernetes
+      mode: workload
+      clientClaims:
+        namespace: kubernetes.io.namespace
+        name: kubernetes.io.serviceaccount.name
   environments:
     - name: sts-operator-dev
-      clientAuthIssuer: https://127.0.0.1:6553
+      clientAuthIssuers: [cluster-local]
       registrator:
+        issuerRef: cluster-local
         subject: system:serviceaccount:sts-operator-dev:sts-operator
         registratorJwksUri: http://localhost:8182/jwks
         signingAlg: ES256

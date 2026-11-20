@@ -5,13 +5,61 @@ import (
 	"encoding/json"
 	nethttp "net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/nais/sts/api"
+	"github.com/nais/sts/internal/jwt"
+	"github.com/nais/sts/internal/oauth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 )
+
+func TestRegistratorUsesExplicitIssuerBinding(t *testing.T) {
+	var server *httptest.Server
+	var discoveryRequests atomic.Int32
+	server = httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		discoveryRequests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer": server.URL + "/bound", "jwks_uri": server.URL + "/jwks",
+			"id_token_signing_alg_values_supported": []string{"ES256"},
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := oauth.DefaultAuthorizationServerConfig()
+	cfg.Issuer = "https://sts.example"
+	cfg.ClientAuthIssuers = oauth.ClientAuthIssuers{
+		"bound": {
+			Issuer: jwt.Issuer(server.URL + "/bound"), Alias: "kubernetes", Mode: oauth.ClientAuthWorkload,
+			ClientClaims: &oauth.ClientClaims{Namespace: "namespace", Name: "name"},
+		},
+		"unbound": {
+			Issuer: jwt.Issuer(server.URL + "/unbound"), Alias: "other-cluster", Mode: oauth.ClientAuthWorkload,
+			ClientClaims: &oauth.ClientClaims{Namespace: "namespace", Name: "name"},
+		},
+		"employee": {Issuer: jwt.Issuer(server.URL + "/people"), Alias: "employee", Mode: oauth.ClientAuthImpersonation},
+	}
+	cfg.Environments = oauth.Environments{{
+		Name: "dev", ClientAuthIssuers: []string{"bound", "unbound", "employee"},
+		Registrator: oauth.RegistratorConfig{
+			IssuerRef: "bound", Subject: "operator", RegistratorJwksUri: server.URL + "/statement-jwks", SigningAlg: "ES256",
+		},
+	}}
+	registrators, err := NewRegistrators(t.Context(), server.Client(), cfg)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, discoveryRequests.Load(), "only the bound registrator issuer should be discovered")
+	registrator, err := registrators.getRegistrator(server.URL+"/bound", "operator")
+	require.NoError(t, err)
+	assert.Equal(t, oauth.Name("dev"), registrator.Environment)
+	assert.Equal(t, server.URL+"/bound", registrator.AuthIssuer)
+	for _, issuer := range []string{"/unbound", "/people"} {
+		_, err := registrators.getRegistrator(server.URL+issuer, "operator")
+		require.Error(t, err)
+	}
+}
 
 func TestRegistratorVerifiesAPIClientStatement(t *testing.T) {
 	captured := make(chan string, 1)
@@ -42,6 +90,7 @@ func TestRegistratorVerifiesAPIClientStatement(t *testing.T) {
 	statement := api.SoftwareStatement{
 		Client: api.Client{Namespace: "team-a", Name: "app-a"},
 		AuthorizationPolicy: api.AuthorizationPolicy{
+			AllowedImpersonators: []api.Impersonator{{Issuer: "https://identity.example", Subject: "alice"}},
 			Clients: []api.AuthorizedClient{
 				{Client: api.Client{Namespace: "team-b", Name: "app-b"}, Roles: []string{"reader"}},
 				{Client: api.Client{Namespace: "team-c", Name: "app-c"}},

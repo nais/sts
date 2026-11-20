@@ -12,31 +12,38 @@ authorizationServer:
     name1: http://localhost:3004/subject1
     name2: http://localhost:3004/subject2
   tokenExpiry: "1h"
+  clientAuthIssuers:
+    cluster-fss:
+      issuer: http://localhost:3004/env1
+      alias: kubernetes
+      mode: workload
+      clientClaims:
+        namespace: kubernetes.io.namespace
+        name: kubernetes.io.serviceaccount.name
+    cluster-gcp:
+      issuer: http://localhost:3004/env2
+      alias: kubernetes
+      mode: workload
+      clientClaims:
+        namespace: kubernetes.io.namespace
+        name: kubernetes.io.serviceaccount.name
+    # Shared across environments; each client must also allow the issuer/subject pair.
+    employee:
+      issuer: https://identity.example.com
+      alias: employee
+      mode: impersonation
   environments:
-    - name: dev-fss # required
-      clientAuthConfig:
-        - issuer: http://nais.io/issuer1 # required
-          alias: nais
-          requireClientID: true
-
-        - issuer: http://localhost:3004/env1 # required
-          alias: kubernetes
-          clientIDClaims:
-            namespace: "kubernetes.io.namespace"
-            name: "kubernetes.io.serviceaccount.name"
-
-      registrator: # required
-        subject: system:serviceaccount:namespace1:client-registrator # required
-        registratorJwksUri: http://localhost:3004/env1/jwks # required
-        signingAlg: ES256 # required
-    - name: dev-gcp
-      clientAuthConfig:
-        - issuer: http://localhost:3004/env2
-          alias: kubernetes
-          clientIDClaims:
-            namespace: "kubernetes.io.namespace"
-            name: "kubernetes.io.serviceaccount.name"
+    - name: dev-fss
+      clientAuthIssuers: [cluster-fss, employee]
       registrator:
+        issuerRef: cluster-fss
+        subject: system:serviceaccount:namespace1:client-registrator
+        registratorJwksUri: http://localhost:3004/env1/jwks
+        signingAlg: ES256
+    - name: dev-gcp
+      clientAuthIssuers: [cluster-gcp, employee]
+      registrator:
+        issuerRef: cluster-gcp
         subject: system:serviceaccount:namespace1:client-registrator
         registratorJwksUri: http://localhost:3004/env2/jwks
         signingAlg: ES256

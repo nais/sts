@@ -20,6 +20,39 @@ func TestAccessTokenClaimsUnmarshal(t *testing.T) {
 	assert.JSONEq(t, `{"number":9007199254740993,"items":[1,true]}`, string(claims.Claims["custom"]))
 }
 
+func TestStringClaim(t *testing.T) {
+	var claims map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"name":"app",
+		"kubernetes.io":{"serviceaccount":{"name":"nested-app"}},
+		"flat":{"name":"nested"},"flat.name":"literal",
+		"empty":"","null":null,"number":42
+	}`), &claims))
+	for _, tt := range []struct {
+		path string
+		want string
+	}{
+		{path: "name", want: "app"},
+		{path: "kubernetes.io.serviceaccount.name", want: "nested-app"},
+		{path: "flat.name", want: "literal"},
+		{path: "missing"},
+		{path: "name.nested"},
+		{path: "empty"},
+		{path: "null"},
+		{path: "number"},
+	} {
+		t.Run(tt.path, func(t *testing.T) {
+			got, err := StringClaim(claims, tt.path)
+			if tt.want == "" {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestAccessTokenClaimsKubernetes(t *testing.T) {
 	for name, test := range map[string]struct {
 		claims map[string]json.RawMessage
