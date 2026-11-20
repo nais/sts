@@ -1,7 +1,6 @@
 package clientstore
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/nais/sts/internal/database/sqlgen"
@@ -9,8 +8,9 @@ import (
 )
 
 type clientSnapshot struct {
-	clients  map[clientKey]sqlgen.Client
-	policies map[oauth.ClientID]policy
+	clients     map[clientKey]sqlgen.Client
+	policies    map[oauth.ClientID]policy
+	clientsById map[oauth.ClientID]sqlgen.Client
 }
 
 // policy indexes a target's authorization policy for token requests.
@@ -33,23 +33,6 @@ func newPolicy(p oauth.AuthorizationPolicy) policy {
 		result.namespaces[namespace] = struct{}{}
 	}
 	return result
-}
-
-func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSnapshot, error) {
-	clients, err := queries.ListClients(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list Kubernetes clients: %w", err)
-	}
-
-	result := &clientSnapshot{
-		clients:  make(map[clientKey]sqlgen.Client, len(clients)),
-		policies: make(map[oauth.ClientID]policy, len(clients)),
-	}
-	for _, client := range clients {
-		result.clients[clientKeyFromRow(client)] = client
-		result.policies[client.ID] = newPolicy(client.AuthorizationPolicy)
-	}
-	return result, nil
 }
 
 type clientKey struct {

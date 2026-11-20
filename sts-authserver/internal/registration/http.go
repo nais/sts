@@ -112,10 +112,11 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 	clientID := oauth.NewClientID(registrator.Environment, oauth.Name(s.Client.Namespace), oauth.Name(s.Client.Name))
 
 	policy := oauth.AuthorizationPolicy{
-		AllowAll:          s.AuthorizationPolicy.AllowAll,
-		AllowedNamespaces: s.AuthorizationPolicy.AllowedNamespaces,
-		AllowedScopes:     s.AuthorizationPolicy.AllowedScopes,
-		Clients:           make([]oauth.AuthorizedClient, 0),
+		AllowAll:             s.AuthorizationPolicy.AllowAll,
+		AllowedNamespaces:    s.AuthorizationPolicy.AllowedNamespaces,
+		AllowedScopes:        s.AuthorizationPolicy.AllowedScopes,
+		Clients:              make([]oauth.AuthorizedClient, 0),
+		AllowedImpersonators: s.AuthorizationPolicy.AllowedImpersonators,
 	}
 	for _, c := range s.AuthorizationPolicy.Clients {
 		for _, environment := range a.registrators.environments {
