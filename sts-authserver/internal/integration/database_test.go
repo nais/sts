@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -19,13 +18,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
-	"github.com/nais/sts/internal/jwt"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/store/clientstore"
 	"github.com/nais/sts/internal/store/keystore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"go.opentelemetry.io/otel"
 )
 
@@ -268,7 +265,7 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 		_, err = sqlgen.New(pool).UpsertClient(t.Context(), testClientParams("scope"))
 		require.NoError(t, err)
 
-		_, err = cached.Get(t.Context(), testClientClaims())
+		_, err = cached.Get("https://issuer.example", "namespace", "workload")
 		assert.ErrorIs(t, err, oauth.ErrClientNotFound)
 	})
 
@@ -295,7 +292,7 @@ func testCachedClientStore(t *testing.T, pool *pgxpool.Pool) {
 		_, err = queries.UpsertClient(t.Context(), testClientParams("new-scope"))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
-			client, err := cached.Get(t.Context(), testClientClaims())
+			client, err := cached.Get("https://issuer.example", "namespace", "workload")
 			return err == nil && len(client.AuthorizationPolicy.AllowedScopes) == 1 && client.AuthorizationPolicy.AllowedScopes[0] == "new-scope"
 		}, 5*time.Second, 10*time.Millisecond)
 	})
@@ -439,15 +436,6 @@ func testClientParams(scopes ...string) sqlgen.UpsertClientParams {
 		Name:                client.Name,
 		Issuer:              client.Issuer,
 		AuthorizationPolicy: client.AuthorizationPolicy,
-	}
-}
-
-func testClientClaims() *jwt.AccessTokenClaims {
-	return &jwt.AccessTokenClaims{
-		TokenClaims: oidc.TokenClaims{Issuer: "https://issuer.example"},
-		Claims: map[string]json.RawMessage{
-			"kubernetes.io": json.RawMessage(`{"namespace":"namespace","serviceaccount":{"name":"workload"}}`),
-		},
 	}
 }
 

@@ -28,6 +28,12 @@ func (s SoftwareStatement) validate() error {
 		}
 	}
 
+	for i, impersonator := range s.AuthorizationPolicy.AllowedImpersonators {
+		if impersonator.Issuer == "" || impersonator.Subject == "" {
+			return fmt.Errorf("allowed impersonator %d: issuer and subject must not be empty", i)
+		}
+	}
+
 	for i, namespace := range s.AuthorizationPolicy.AllowedNamespaces {
 		if err := oauth.Name(namespace).Validate(); err != nil {
 			return fmt.Errorf("allowed namespace %d: %w", i, err)

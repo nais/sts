@@ -18,12 +18,13 @@ import (
 )
 
 type AuthorizationServerConfig struct {
-	Issuer                     api.STSIssuer `yaml:"issuer"`
-	ExpectedAudience           string        `yaml:"expectedAudience" default:"nais"`
-	Environments               Environments  `yaml:"environments"`
-	ExternalIssuers            IssuerAliases `yaml:"externalIssuers"`
-	MaxClientAuthTokenLifetime time.Duration `yaml:"maxClientAuthTokenLifetime" default:"1h"`
-	TokenExpiry                time.Duration `yaml:"tokenExpiry" default:"15m"`
+	Issuer                     api.STSIssuer     `yaml:"issuer"`
+	ExpectedAudience           string            `yaml:"expectedAudience" default:"nais"`
+	Environments               Environments      `yaml:"environments"`
+	ClientAuthIssuers          ClientAuthIssuers `yaml:"clientAuthIssuers"`
+	ExternalIssuers            IssuerAliases     `yaml:"externalIssuers"`
+	MaxClientAuthTokenLifetime time.Duration     `yaml:"maxClientAuthTokenLifetime" default:"1h"`
+	TokenExpiry                time.Duration     `yaml:"tokenExpiry" default:"15m"`
 }
 
 // DefaultAuthorizationServerConfig returns a fresh configuration initialized from
@@ -53,15 +54,37 @@ func (c AuthorizationServerConfig) Validate() error {
 	if err := c.Environments.Validate(); err != nil {
 		return fmt.Errorf("environments: %w", err)
 	}
-	for name, issuer := range c.ExternalIssuers {
-		for _, env := range c.Environments {
-			for _, envClientAuthConfig := range env.ClientAuthConfig {
-				if envClientAuthConfig.Alias == name {
-					return fmt.Errorf("subject token issuer %q: alias %q is already used by environment %q", issuer, name, env.Name)
-				}
-				if envClientAuthConfig.Issuer == issuer {
-					return fmt.Errorf("subject token issuer %q: issuer %q is already used by environment %q", issuer, issuer, env.Name)
-				}
+	if err := c.ClientAuthIssuers.Validate(); err != nil {
+		return fmt.Errorf("clientAuthIssuers: %w", err)
+	}
+	registrators := make(map[struct{ issuer, subject string }]Name)
+	for _, env := range c.Environments {
+		for _, ref := range env.ClientAuthIssuers {
+			if _, ok := c.ClientAuthIssuers[ref]; !ok {
+				return fmt.Errorf("environment %q references unknown client auth issuer %q", env.Name, ref)
+			}
+		}
+		ref := env.Registrator.IssuerRef
+		cfg, ok := c.ClientAuthIssuers[ref]
+		if !ok {
+			return fmt.Errorf("environment %q registrator references unknown issuerRef %q", env.Name, ref)
+		}
+		if cfg.Mode != ClientAuthWorkload {
+			return fmt.Errorf("environment %q registrator issuerRef %q must use workload mode", env.Name, ref)
+		}
+		if !slices.Contains(env.ClientAuthIssuers, ref) {
+			return fmt.Errorf("environment %q registrator issuerRef %q must be trusted by the environment", env.Name, ref)
+		}
+		identity := struct{ issuer, subject string }{string(cfg.Issuer), env.Registrator.Subject}
+		if previous, exists := registrators[identity]; exists {
+			return fmt.Errorf("registrator issuer %q and subject %q match environments %q and %q", cfg.Issuer, env.Registrator.Subject, previous, env.Name)
+		}
+		registrators[identity] = env.Name
+	}
+	for alias, issuer := range c.ExternalIssuers {
+		for name, cfg := range c.ClientAuthIssuers {
+			if cfg.Alias == alias || cfg.Issuer == issuer {
+				return fmt.Errorf("subject token issuer %q overlaps client auth issuer %q", issuer, name)
 			}
 		}
 	}
@@ -77,30 +100,92 @@ func (c AuthorizationServerConfig) Validate() error {
 	return nil
 }
 
-// Environment maps a human-readable alias to the issuer of one Kubernetes
-// cluster. The name is part of every client ID in that cluster, so it must stay
-// stable once clients are registered.
+// Environment groups registered workload clients and their trusted authentication
+// issuers. Its name is part of every client ID and must remain stable.
 type Environment struct {
-	Name                Name                 `yaml:"name"`
-	ClientAuthConfig    []ClientAuthConfig   `yaml:"clientAuthConfig"`
-	ImpersonationConfig *ImpersonationConfig `yaml:"impersonationConfig"`
-	Registrator         RegistratorConfig    `yaml:"registrator"`
+	Name              Name              `yaml:"name"`
+	ClientAuthIssuers []string          `yaml:"clientAuthIssuers"`
+	Registrator       RegistratorConfig `yaml:"registrator"`
 }
 
-type ClaimFrom = string
-type ClaimTo = string
+type ClientAuthMode string
+
+const (
+	ClientAuthWorkload      ClientAuthMode = "workload"
+	ClientAuthImpersonation ClientAuthMode = "impersonation"
+)
 
 type ClientAuthConfig struct {
-	Issuer          jwt.Issuer        `yaml:"issuer"`
-	Alias           string            `yaml:"alias" default:"kubernetes"`
-	ClientIDClaims  map[string]string `yaml:"clientIDClaims"`
-	RequireClientID bool              `yaml:"requireClientID" default:"false"`
-	//ClaimMappings      map[ClaimFrom]ClaimTo `yaml:"claimMappings"`
+	Issuer       jwt.Issuer     `yaml:"issuer"`
+	Alias        string         `yaml:"alias"`
+	Mode         ClientAuthMode `yaml:"mode"`
+	ClientClaims *ClientClaims  `yaml:"clientClaims"`
 }
 
-type ImpersonationConfig struct {
-	Issuer       string `yaml:"issuer"`
-	ClaimToCheck string `yaml:"claimToCheck" default:"sub"`
+// ClientClaims contains dotted paths to nonempty string claims.
+type ClientClaims struct {
+	Namespace string `yaml:"namespace"`
+	Name      string `yaml:"name"`
+}
+
+func (c ClientAuthConfig) Validate() error {
+	if c.Issuer == "" || c.Alias == "" {
+		return fmt.Errorf("client auth issuer and alias must not be empty")
+	}
+	if err := validateSecureURL(string(c.Issuer)); err != nil {
+		return fmt.Errorf("client auth issuer: %w", err)
+	}
+	switch c.Mode {
+	case ClientAuthWorkload:
+		if c.ClientClaims == nil || c.ClientClaims.Namespace == "" || c.ClientClaims.Name == "" {
+			return fmt.Errorf("workload mode requires clientClaims.namespace and clientClaims.name")
+		}
+	case ClientAuthImpersonation:
+		if c.ClientClaims != nil {
+			return fmt.Errorf("impersonation mode must not define clientClaims")
+		}
+	default:
+		return fmt.Errorf("client auth mode must be workload or impersonation, got %q", c.Mode)
+	}
+	return nil
+}
+
+// ClientAuthIssuers defines authentication rules once per issuer URL.
+type ClientAuthIssuers map[string]ClientAuthConfig
+
+func (c ClientAuthIssuers) Validate() error {
+	if len(c) == 0 {
+		return fmt.Errorf("at least one issuer is required")
+	}
+	seen := make(map[jwt.Issuer]string)
+	for name, cfg := range c {
+		if err := Name(name).Validate(); err != nil {
+			return fmt.Errorf("invalid client auth issuer name %q: %w", name, err)
+		}
+		if err := cfg.Validate(); err != nil {
+			return fmt.Errorf("issuer %q: %w", name, err)
+		}
+		if previous, exists := seen[cfg.Issuer]; exists {
+			return fmt.Errorf("duplicate issuer URL %q in %q and %q", cfg.Issuer, previous, name)
+		}
+		seen[cfg.Issuer] = name
+	}
+	return nil
+}
+
+// ClientAuthIssuerURLs returns issuers referenced by at least one environment.
+// A shared definition alone does not grant trust or require issuer discovery.
+func (c AuthorizationServerConfig) ClientAuthIssuerURLs() []jwt.Issuer {
+	var issuers []jwt.Issuer
+	for _, env := range c.Environments {
+		for _, ref := range env.ClientAuthIssuers {
+			cfg := c.ClientAuthIssuers[ref]
+			if !slices.Contains(issuers, cfg.Issuer) {
+				issuers = append(issuers, cfg.Issuer)
+			}
+		}
+	}
+	return issuers
 }
 
 // UnmarshalYAML applies defaults to each environment created during decoding.
@@ -134,6 +219,7 @@ func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
 // RegistratorConfig identifies the workload allowed to register clients in an
 // environment and the keys that sign its software statements.
 type RegistratorConfig struct {
+	IssuerRef          string `yaml:"issuerRef"`
 	Subject            string `yaml:"subject"`
 	RegistratorJwksUri string `yaml:"registratorJwksUri"`
 	SigningAlg         string `yaml:"signingAlg"`
@@ -153,13 +239,18 @@ func (e Environments) Validate() error {
 		if _, ok := names[env.Name]; ok {
 			return fmt.Errorf("environment name %q is duplicated", env.Name)
 		}
-		for _, clientAuthConfig := range env.ClientAuthConfig {
-			if clientAuthConfig.Issuer == "" || clientAuthConfig.Alias == "" {
-				return fmt.Errorf("environment %q client auth issuer and alias must not be empty", env.Name)
+		if len(env.ClientAuthIssuers) == 0 {
+			return fmt.Errorf("environment %q requires client auth issuer references", env.Name)
+		}
+		seen := make(map[string]bool)
+		for _, ref := range env.ClientAuthIssuers {
+			if ref == "" || seen[ref] {
+				return fmt.Errorf("environment %q has an empty or duplicate client auth issuer reference %q", env.Name, ref)
 			}
-			if err := validateSecureURL(string(clientAuthConfig.Issuer)); err != nil {
-				return fmt.Errorf("environment %q client auth issuer: %w", env.Name, err)
-			}
+			seen[ref] = true
+		}
+		if env.Registrator.IssuerRef == "" {
+			return fmt.Errorf("environment %q registrator issuerRef must not be empty", env.Name)
 		}
 
 		names[env.Name] = struct{}{}
@@ -177,23 +268,32 @@ func (e Environments) Validate() error {
 }
 
 func (c AuthorizationServerConfig) GetClientAuthConfig(issuer jwt.Issuer) (ClientAuthConfig, bool) {
-	for _, env := range c.Environments {
-		for _, clientAuthConfig := range env.ClientAuthConfig {
-			if clientAuthConfig.Issuer == issuer {
-				return clientAuthConfig, true
-			}
+	for _, cfg := range c.ClientAuthIssuers {
+		if cfg.Issuer == issuer {
+			return cfg, true
 		}
 	}
 	return ClientAuthConfig{}, false
 }
 
-func (c AuthorizationServerConfig) GetIssuerAlias(issuer jwt.Issuer) (string, bool) {
+func (c AuthorizationServerConfig) EnvironmentContainsIssuer(environment Name, issuer jwt.Issuer) bool {
 	for _, env := range c.Environments {
-		for _, clientAuthConfig := range env.ClientAuthConfig {
-			if clientAuthConfig.Issuer == issuer {
-				return clientAuthConfig.Alias, true
+		if env.Name != environment {
+			continue
+		}
+		for _, ref := range env.ClientAuthIssuers {
+			if cfg, ok := c.ClientAuthIssuers[ref]; ok && cfg.Issuer == issuer {
+				return true
 			}
 		}
+		return false
+	}
+	return false
+}
+
+func (c AuthorizationServerConfig) GetIssuerAlias(issuer jwt.Issuer) (string, bool) {
+	if cfg, ok := c.GetClientAuthConfig(issuer); ok {
+		return cfg.Alias, true
 	}
 	for name, iss := range c.ExternalIssuers {
 		if iss == issuer {
@@ -203,14 +303,16 @@ func (c AuthorizationServerConfig) GetIssuerAlias(issuer jwt.Issuer) (string, bo
 	return "", false
 }
 
-func (e Environments) ClientAuthIssuers() []jwt.Issuer {
-	issuers := make([]jwt.Issuer, 0, len(e))
-	for _, env := range e {
-		for _, clientAuthConfig := range env.ClientAuthConfig {
-			issuers = append(issuers, clientAuthConfig.Issuer)
-		}
+func (c ClientAuthConfig) GetNamespaceAndName(claims *jwt.AccessTokenClaims) (namespace, name string, err error) {
+	name, err = jwt.StringClaim(claims.Claims, c.ClientClaims.Name)
+	if err != nil {
+		return "", "", fmt.Errorf("clientClaims.name: %w", err)
 	}
-	return issuers
+	namespace, err = jwt.StringClaim(claims.Claims, c.ClientClaims.Namespace)
+	if err != nil {
+		return "", "", fmt.Errorf("clientClaims.namespace: %w", err)
+	}
+	return namespace, name, nil
 }
 
 func validateSecureURL(value string) error {

@@ -8,9 +8,9 @@ is decoded, including each environment entry. Explicit empty strings and zero du
 they are rejected where validation requires nonempty or positive values.
 Programmatic callers and tests can start with `oauth.DefaultAuthorizationServerConfig()`
 and then assign required fields and overrides. Plain struct literals do not apply defaults.
-For programmatically added environments, set `ClientAuthIssuerAlias` explicitly or
-call `config.Apply(&env)` before assigning overrides. The shared helper lives in
-`internal/config`; the loader and its tests live in `internal/sts`.
+For programmatically added client authentication issuers, set `Alias`, `Mode`, and
+any workload claim mappings explicitly; authentication rules have no defaults.
+The shared defaults helper lives in `internal/config`; the loader and its tests live in `internal/sts`.
 A nonempty `DATABASE_URL` environment variable overrides the file's `databaseUrl`
 before validation. Otherwise, `databaseUrl` must be supplied in the file.
 
@@ -35,8 +35,14 @@ The Helm chart's `config` values map verbatim to this file's fields.
 | `authorizationServer.tokenExpiry`                 | `15m`     |          | Positive duration.                                            | Lifetime of access tokens issued by STS.                                                       |
 | `authorizationServer.environments`                |           | Yes      | At least one entry.                                           | Kubernetes clusters whose workloads can register and authenticate.                             |
 | `environments[].name`                             |           | Yes      | Unique lowercase name.                                        | Human-readable alias for the cluster issuer; the first part of every client ID in the cluster. |
-| `environments[].clientAuthIssuer`                 |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | Issuer of the cluster's client assertions and registration bearer tokens.                      |
-| `environments[].clientAuthIssuerAlias`            | `kubernetes` |       | Nonempty; must not overlap an external issuer alias.          | Alias assigned to subject tokens from this environment.                                      |
+| `authorizationServer.clientAuthIssuers`           |           | Yes      | Named definitions; each issuer URL appears once.              | Shared client authentication rules.                                                            |
+| `clientAuthIssuers.<name>.issuer`                 |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | Trusted assertion issuer.                                                                      |
+| `clientAuthIssuers.<name>.alias`                  |           | Yes      | Nonempty; must not overlap an external issuer alias.          | Alias assigned to subject tokens from this issuer.                                             |
+| `clientAuthIssuers.<name>.mode`                   |           | Yes      | `workload` or `impersonation`.                                | How client assertions identify the caller and client.                                          |
+| `clientAuthIssuers.<name>.clientClaims.namespace` |           | Workload | Nonempty dotted claim path.                                  | Namespace used to resolve the registered client.                                               |
+| `clientAuthIssuers.<name>.clientClaims.name`      |           | Workload | Nonempty dotted claim path.                                  | Name used to resolve the registered client.                                                    |
+| `environments[].clientAuthIssuers`                |           | Yes      | Nonempty list of existing definition names; no duplicates.     | Issuers permitted to authenticate clients in this environment.                                 |
+| `environments[].registrator.issuerRef`           |           | Yes      | Reference to a workload-mode issuer trusted by this environment. | Issuer that authenticates this registrator's bearer token.                                  |
 | `environments[].registrator.subject`              |           | Yes      | Nonempty.                                                     | Subject of the registrator's bearer token.                                                     |
 | `environments[].registrator.registratorJwksUri`   |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | URL of the public keys used to verify software statements.                                     |
 | `environments[].registrator.signingAlg`           |           | Yes      | RS256/384/512, PS256/384/512, or ES256/384/512.               | Required software-statement signing algorithm.                                                 |
@@ -76,13 +82,87 @@ Treat both as stable once clients are registered.
 Registration expands every authorization policy into one row per configured environment.
 After adding or removing an environment, re-register every client to regenerate its policies.
 
+## Client authentication modes
+
+Define authentication behavior once per issuer under `authorizationServer`.
+Environments reference these definitions by name:
+
+```yaml
+clientAuthIssuers:
+  cluster-dev:
+    issuer: https://kubernetes.dev.example.com
+    alias: kubernetes
+    mode: workload
+    clientClaims:
+      namespace: kubernetes.io.namespace
+      name: kubernetes.io.serviceaccount.name
+  cluster-prod:
+    issuer: https://kubernetes.prod.example.com
+    alias: kubernetes
+    mode: workload
+    clientClaims:
+      namespace: kubernetes.io.namespace
+      name: kubernetes.io.serviceaccount.name
+  employee:
+    issuer: https://identity.example.com
+    alias: employee
+    mode: impersonation
+
+environments:
+  - name: dev
+    clientAuthIssuers: [cluster-dev, employee]
+    registrator:
+      issuerRef: cluster-dev
+      subject: system:serviceaccount:nais-system:sts-operator
+      registratorJwksUri: https://operator.dev.example.com/jwks
+      signingAlg: ES256
+  - name: prod
+    clientAuthIssuers: [cluster-prod, employee]
+    registrator:
+      issuerRef: cluster-prod
+      subject: system:serviceaccount:nais-system:sts-operator
+      registratorJwksUri: https://operator.prod.example.com/jwks
+      signingAlg: ES256
+```
+
+- `workload`: resolve the registered client using the verified issuer, namespace,
+  and name claims. A request `client_id` is ignored. Claim mappings
+  support dotted object paths, including keys containing dots such as
+  `kubernetes.io`; longest matching keys take precedence. Full JSONPath is not supported.
+- `impersonation`: require a request `client_id`. The selected client must
+  explicitly allow the assertion's `(iss, sub)` in
+  its `allowed_impersonators` policy, and its environment must trust the assertion
+  issuer in impersonation mode. `clientClaims` is forbidden in this mode.
+  The subject token must not be issued by STS, so impersonation only starts an exchange chain.
+
+In impersonation mode, the caller is the verified assertion's `(iss, sub)` acting as
+the selected client. Workload callers are identified by their client alone.
+
+These rules describe the caller authenticated by the client assertion. They do
+not change the subject of the token being exchanged or the issued token's `sub`.
+
+A verified issuer selects global authentication rules. Definitions are discovered
+and trusted for token verification only when referenced by an environment.
+After resolving the client, its environment must reference that issuer;
+impersonation additionally requires the client's issuer/subject allowlist. An issuer trusted in `dev` alone cannot
+act as a `prod` client.
+
+Registration bearer tokens must match the issuer referenced by
+`registrator.issuerRef` and the configured registrator subject. Trusting another
+workload issuer for client authentication does not authorize its registrators.
+A registrator issuer/subject pair must identify only one environment. Startup
+rejects missing references, non-workload registrator issuers, duplicate issuer
+URLs, and duplicate registrator identities.
+
+In the example, both environments reference the same `employee` definition, but
+their registrators authenticate through different Kubernetes issuers.
+
 ## Subject token issuers
 
-STS accepts subject tokens from the environments' Kubernetes issuers. Each environment
-sets `clientAuthIssuerAlias`, which defaults to `kubernetes`. Environments may share
-an issuer and alias; use the same alias when sharing an issuer.
+STS accepts subject tokens from `clientAuthIssuers` definitions referenced by an
+environment, using each definition's explicit `alias`.
 Configure external issuers in `externalIssuers` with aliases as keys and issuer URLs
-as values; they must not reuse any environment issuer URL or alias.
+as values; they must not reuse any client authentication issuer URL or alias.
 
 For example, this entry assigns the alias `identity` to an issuer:
 

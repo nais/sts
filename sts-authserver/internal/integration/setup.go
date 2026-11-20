@@ -40,6 +40,7 @@ type testFixtures struct {
 	Client2          clientFixture
 	Client3          clientFixture
 	RegisteredTarget clientFixture
+	Impersonator     string
 	Role             string
 	TokenExpiry      time.Duration
 }
@@ -69,6 +70,7 @@ var fixtures = testFixtures{
 	Client2:          newClientFixture("env1", "namespace1", "workload2"),
 	Client3:          newClientFixture("env1", "namespace1", "workload3"),
 	RegisteredTarget: newClientFixture("env1", "namespace1", "registered-workload"),
+	Impersonator:     "person1",
 	Role:             "reader",
 	TokenExpiry:      time.Hour,
 }
@@ -144,26 +146,33 @@ func startSts(t testing.TB, oauthServer testServer, opts ...func(*oauth.Authoriz
 
 	authCfg := oauth.DefaultAuthorizationServerConfig()
 	authCfg.Issuer = stsapi.STSIssuer(server.Endpoint())
+	authCfg.ClientAuthIssuers = oauth.ClientAuthIssuers{
+		"cluster-env1": {
+			Issuer: jwt.Issuer(oauthServer.Endpoint("env1")), Alias: "kubernetes", Mode: oauth.ClientAuthWorkload,
+			ClientClaims: &oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
+		},
+		"cluster-env2": {
+			Issuer: jwt.Issuer(oauthServer.Endpoint("env2")), Alias: "kubernetes", Mode: oauth.ClientAuthWorkload,
+			ClientClaims: &oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
+		},
+		"people": {Issuer: jwt.Issuer(oauthServer.Endpoint("people")), Alias: "people", Mode: oauth.ClientAuthImpersonation},
+	}
 	authCfg.Environments = oauth.Environments{
 		{
-			Name: "env1",
-			ClientAuthConfig: oauth.ClientAuthConfig{
-				Issuer: jwt.Issuer(oauthServer.Endpoint("env1")),
-				Alias:  "kubernetes",
-			},
+			Name:              "env1",
+			ClientAuthIssuers: []string{"cluster-env1", "people"},
 			Registrator: oauth.RegistratorConfig{
+				IssuerRef:          "cluster-env1",
 				Subject:            "system:serviceaccount:namespace1:registrator1",
 				RegistratorJwksUri: registratorServer.URL,
 				SigningAlg:         signer.Algorithm(),
 			},
 		},
 		{
-			Name: "env2",
-			ClientAuthConfig: oauth.ClientAuthConfig{
-				Issuer: jwt.Issuer(oauthServer.Endpoint("env2")),
-				Alias:  "kubernetes",
-			},
+			Name:              "env2",
+			ClientAuthIssuers: []string{"cluster-env2"},
 			Registrator: oauth.RegistratorConfig{
+				IssuerRef:          "cluster-env2",
 				Subject:            "system:serviceaccount:namespace1:registrator2",
 				RegistratorJwksUri: registratorServer.URL,
 				SigningAlg:         signer.Algorithm(),
@@ -262,7 +271,11 @@ func seedSts(t testing.TB, dsn string, oauthServer testServer) {
 
 	queries := sqlgen.New(pool)
 	policies := map[clientFixture]oauth.AuthorizationPolicy{
-		fixtures.Client2: {Clients: []oauth.AuthorizedClient{{ClientID: oauth.ClientID(fixtures.Client1.ID), Roles: oauth.Roles{fixtures.Role}}}},
+		fixtures.Client1: {AllowedImpersonators: []oauth.Impersonator{{Issuer: oauthServer.Endpoint("people"), Subject: fixtures.Impersonator}}},
+		fixtures.Client2: {
+			Clients:              []oauth.AuthorizedClient{{ClientID: oauth.ClientID(fixtures.Client1.ID), Roles: oauth.Roles{fixtures.Role}}},
+			AllowedImpersonators: []oauth.Impersonator{{Issuer: oauthServer.Endpoint("people"), Subject: fixtures.Impersonator}},
+		},
 		fixtures.Client3: {Clients: []oauth.AuthorizedClient{{ClientID: oauth.ClientID(fixtures.Client2.ID), Roles: oauth.Roles{fixtures.Role}}}},
 	}
 	for _, client := range []clientFixture{fixtures.Client1, fixtures.Client2, fixtures.Client3} {

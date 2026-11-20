@@ -9,7 +9,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nais/sts/api"
-	"github.com/nais/sts/internal/impersonation"
 	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/nais/sts/internal/registration"
@@ -72,17 +71,11 @@ func stsApi(
 		return nil, fmt.Errorf("initialize client registration handler: %w", err)
 	}
 
-	impersonationApi, err := impersonation.NewApi(ctx, client, cfg.AuthorizationServerConfig, clientStore, keyStore, provider.Metrics())
-	if err != nil {
-		return nil, fmt.Errorf("initialize impersonation handler: %w", err)
-	}
-
 	r.Get(api.OAuthDiscoveryPath, authServer.DiscoveryEndpoint())
 	r.Post(api.TokenPath, authServer.TokenEndpoint())
 	r.Get(api.JWKSPath, authServer.JwksEndpoint())
 	r.Post(api.RegistrationPath, registrationApi.PostEndpoint())
 	r.Delete(fmt.Sprintf("%s/{id}", api.RegistrationPath), registrationApi.DeleteEndpoint())
-	r.Post(impersonation.TokenPath, impersonationApi.TokenEndpoint())
 	return r, nil
 }
 

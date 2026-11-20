@@ -15,10 +15,19 @@ config:
     externalIssuers: null
     tokenExpiry: "1h"
     maxClientAuthTokenLifetime: "10m"
+    clientAuthIssuers:
+      cluster-env1:
+        issuer: https://kubernetes.default.svc
+        alias: kubernetes
+        mode: workload
+        clientClaims:
+          namespace: kubernetes.io.namespace
+          name: kubernetes.io.serviceaccount.name
     environments:
       - name: env1
-        clientAuthIssuer: https://kubernetes.default.svc
+        clientAuthIssuers: [cluster-env1]
         registrator:
+          issuerRef: cluster-env1
           subject: system:serviceaccount:nais-system:sts-operator
           registratorJwksUri: https://sts-operator.environment.tenant.cloud.nais.io/jwks
           signingAlg: ES256

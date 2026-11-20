@@ -48,6 +48,22 @@
       ]
     },
     {
+      "issuerId": "people",
+      "tokenExpiry": 3600,
+      "requestMappings": [
+        {
+          "requestParam": "grant_type",
+          "match": "client_credentials",
+          "claims": {
+            "sub": "${person}",
+            "aud": [
+              "nais"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "issuerId": "subject2",
       "requestMappings": [
         {

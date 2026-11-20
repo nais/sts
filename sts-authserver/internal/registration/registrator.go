@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	nethttp "net/http"
+	"slices"
 
 	"github.com/nais/sts/internal/http"
 	"github.com/nais/sts/internal/jwt"
@@ -33,23 +34,32 @@ type Registrator struct {
 }
 
 func NewRegistrators(ctx context.Context, httpClient *nethttp.Client, authServerCfg oauth.AuthorizationServerConfig) (*Registrators, error) {
-	environments := authServerCfg.Environments
-	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, environments.ClientAuthIssuers(), authServerCfg.ExpectedAudience, authServerCfg.MaxClientAuthTokenLifetime)
-	if err != nil {
-		return nil, err
+	if err := authServerCfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid authorization server configuration: %w", err)
 	}
+	environments := authServerCfg.Environments
 	registrators := make(map[registratorIdentity]*Registrator, len(environments))
 	names := make([]oauth.Name, len(environments))
+	issuers := make([]jwt.Issuer, 0, len(environments))
 	for i, env := range environments {
 		names[i] = env.Name
-		issuer := string(env.ClientAuthConfig.Issuer)
-		registrators[registratorIdentity{issuer: issuer, subject: env.Registrator.Subject}] = &Registrator{
+		cfg := authServerCfg.ClientAuthIssuers[env.Registrator.IssuerRef]
+		if !slices.Contains(issuers, cfg.Issuer) {
+			issuers = append(issuers, cfg.Issuer)
+		}
+		issuer := string(cfg.Issuer)
+		identity := registratorIdentity{issuer: issuer, subject: env.Registrator.Subject}
+		registrators[identity] = &Registrator{
 			Environment:  env.Name,
 			AuthIssuer:   issuer,
 			AuthSubject:  env.Registrator.Subject,
 			RequiredAlgs: []string{env.Registrator.SigningAlg},
 			KeySet:       rp.NewRemoteKeySet(httpClient, env.Registrator.RegistratorJwksUri),
 		}
+	}
+	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, issuers, authServerCfg.ExpectedAudience, authServerCfg.MaxClientAuthTokenLifetime)
+	if err != nil {
+		return nil, err
 	}
 	return &Registrators{
 		environments:       names,

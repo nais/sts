@@ -502,6 +502,35 @@ func TestSts(t *testing.T) {
 		assert.JSONEq(t, string(previous), string(second.Claims["act"]))
 	})
 
+	t.Run("token exchange with impersonation only starts a chain", func(t *testing.T) {
+		want := &oauth.Impersonator{Issuer: oauthServer.Endpoint("people"), Subject: fixtures.Impersonator}
+		personAssertion := getPersonToken(t, oauthServer, fixtures.Impersonator)
+		subjectToken, _ := getSubjectTokenFromIssuer(t, oauthServer, "subject1")
+
+		// person1 acts as Client1 and starts the chain.
+		form := tokenExchangeForm(personAssertion, subjectToken, fixtures.Client2.ID)
+		form.Set("client_id", fixtures.Client1.ID)
+		first := stsToken[oauth.AccessTokenResponse](t, stsAddress, form)
+		assertTokenClaims(t, stsAddress, first, fixtures.Client2.ID, fixtures.Client1.ID, func(claims *oauth.STSTokenClaims) {
+			assert.Equal(t, want, claims.Impersonator)
+			assert.Equal(t, []oauth.ClientID{oauth.ClientID(fixtures.Client1.ID)}, claims.CallChain)
+		})
+
+		// A workload exchange keeps the impersonator as history.
+		second := stsToken[oauth.AccessTokenResponse](t, stsAddress, tokenExchangeForm(getClientToken(t, oauthServer, fixtures.Client2), first.AccessToken, fixtures.Client3.ID))
+		assertTokenClaims(t, stsAddress, second, fixtures.Client3.ID, fixtures.Client2.ID, func(claims *oauth.STSTokenClaims) {
+			assert.Equal(t, want, claims.Impersonator)
+			assert.Equal(t, []oauth.ClientID{oauth.ClientID(fixtures.Client1.ID), oauth.ClientID(fixtures.Client2.ID)}, claims.CallChain)
+		})
+
+		// person1 may act as Client2, but not with an STS-issued subject token.
+		form = tokenExchangeForm(personAssertion, first.AccessToken, fixtures.Client3.ID)
+		form.Set("client_id", fixtures.Client2.ID)
+		denied := stsToken[errs.ErrorResponse](t, stsAddress, form)
+		assert.Equal(t, "invalid_request", denied.Code)
+		assert.Equal(t, "impersonation requires a subject token not issued by STS", denied.Description)
+	})
+
 	t.Run("token exchange denies unauthorized audience", func(t *testing.T) {
 		consumer := fixtures.Client1
 		target := "env1:namespace1:unauthorized"
@@ -708,6 +737,19 @@ func getKubernetesToken(t testing.TB, oauthServer testServer, environment, names
 		"client_secret": {"secret1"},
 		"ns":            {namespace},
 		"workload":      {workload},
+	})
+
+	return resp.AccessToken
+}
+
+func getPersonToken(t testing.TB, oauthServer testServer, person string) string {
+	t.Helper()
+
+	resp := post[oidc.AccessTokenResponse](t, oauthServer.Endpoint("people", "token"), url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {"client1"},
+		"client_secret": {"secret1"},
+		"person":        {person},
 	})
 
 	return resp.AccessToken
