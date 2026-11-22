@@ -27,6 +27,8 @@ spec:
       workloads:
         - name: consumer
           roles: [reader]
+        - name: impersonation-demo
+          roles: [reader]
 ---
 apiVersion: nais.io/v1
 kind: OAuthClient

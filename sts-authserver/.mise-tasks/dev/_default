@@ -8,6 +8,7 @@ if [[ "${usage_k3d:-false}" == "true" ]]; then
     mise run //:dev:setup
   fi
   export CONFIG_FILE=config.k3d.yaml
+  go run ./cmd/setup_local_env --k3d
 else
   export CONFIG_FILE=config.yaml
   if [[ ! -e "${CONFIG_FILE}" ]]; then

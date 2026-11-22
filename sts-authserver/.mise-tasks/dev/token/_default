@@ -1,41 +1,58 @@
 #!/usr/bin/env bash
 #MISE description="Exchange a token at the local authserver"
-#USAGE flag "--k3d" help="Get the client assertion from k3d instead of the mock issuer"
+#USAGE flag "--k3d" help="Target the local k3d stack"
 #USAGE flag "-e --environment <environment>" help="Mock environment" default="env1"
 #USAGE flag "-n --namespace <namespace>" help="Namespace of the client and target"
 #USAGE flag "-w --workload <workload>" help="Service account of the client"
 #USAGE flag "-t --target_workload <target_workload>" help="Target workload"
 #USAGE flag "--exchange" help="Exchange a subject token from the mock external issuer instead of the workload's own token"
+#USAGE flag "--impersonate <person>" help="Authenticate as a mock person acting as the client (implies --exchange)"
 set -euo pipefail
 source "$(dirname "$0")/_common"
 
+PERSON="${usage_impersonate:-}"
+CLIENT_ARGS=()
 if [[ "${usage_k3d:-false}" == "true" ]]; then
   ENV=sts-operator-dev
   NAMESPACE="${usage_namespace:-sts-demo}"
   TARGET="${usage_target_workload:-smoke-client}"
   STS_URL=http://localhost:8080
-  WORKLOAD_TOKEN=$(kubectl --kubeconfig=../sts-operator/.local/kubeconfig -n "${NAMESPACE}" \
-    create token "${usage_workload:-consumer}" --audience nais --duration 10m)
+  if [[ -n "${PERSON}" ]]; then
+    WORKLOAD="${usage_workload:-impersonation-demo}"
+  else
+    WORKLOAD="${usage_workload:-consumer}"
+  fi
 else
   ENV="${usage_environment}"
   NAMESPACE="${usage_namespace:-namespace1}"
   TARGET="${usage_target_workload:-workload2}"
   STS_URL=$(yq -er '.authorizationServer.issuer' config.yaml)
-  WORKLOAD_TOKEN=$(mock_workload_token "${ENV}" "${NAMESPACE}" "${usage_workload:-workload1}")
+  WORKLOAD="${usage_workload:-workload1}"
+fi
+
+if [[ -n "${PERSON}" ]]; then
+  CLIENT_ASSERTION=$(mock_person_token "${PERSON}")
+  CLIENT_ARGS=(-d "client_id=${ENV}:${NAMESPACE}:${WORKLOAD}")
+elif [[ "${usage_k3d:-false}" == "true" ]]; then
+  CLIENT_ASSERTION=$(kubectl --kubeconfig=../sts-operator/.local/kubeconfig -n "${NAMESPACE}" \
+    create token "${WORKLOAD}" --audience nais --duration 10m)
+else
+  CLIENT_ASSERTION=$(mock_workload_token "${ENV}" "${NAMESPACE}" "${WORKLOAD}")
 fi
 
 printf '%s\n' "Authenticating with token:"
-inspect <<< "${WORKLOAD_TOKEN}"
+inspect <<< "${CLIENT_ASSERTION}"
 
-SUBJECT_TOKEN="${WORKLOAD_TOKEN}"
-if [[ "${usage_exchange:-false}" == "true" ]]; then
+SUBJECT_TOKEN="${CLIENT_ASSERTION}"
+if [[ -n "${PERSON}" || "${usage_exchange:-false}" == "true" ]]; then
   SUBJECT_TOKEN=$(external_token)
 fi
 
 post_token \
   -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
   -d 'client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
-  -d "client_assertion=${WORKLOAD_TOKEN}" \
+  -d "client_assertion=${CLIENT_ASSERTION}" \
+  ${CLIENT_ARGS[@]+"${CLIENT_ARGS[@]}"} \
   -d "audience=${ENV}:${NAMESPACE}:${TARGET}" \
   -d "subject_token=${SUBJECT_TOKEN}" \
   -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \

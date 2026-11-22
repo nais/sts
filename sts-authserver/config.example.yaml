@@ -27,21 +27,20 @@ authorizationServer:
       clientClaims:
         namespace: kubernetes.io.namespace
         name: kubernetes.io.serviceaccount.name
-    # Shared across environments; each client must also allow the issuer/subject pair.
-    employee:
-      issuer: https://identity.example.com
-      alias: employee
+    people:
+      issuer: http://localhost:3004/people
+      alias: people
       mode: impersonation
   environments:
-    - name: dev-fss
-      clientAuthIssuers: [cluster-fss, employee]
+    - name: env1
+      clientAuthIssuers: [cluster-fss, people]
       registrator:
         issuerRef: cluster-fss
         subject: system:serviceaccount:namespace1:client-registrator
         registratorJwksUri: http://localhost:3004/env1/jwks
         signingAlg: ES256
-    - name: dev-gcp
-      clientAuthIssuers: [cluster-gcp, employee]
+    - name: env2
+      clientAuthIssuers: [cluster-gcp]
       registrator:
         issuerRef: cluster-gcp
         subject: system:serviceaccount:namespace1:client-registrator

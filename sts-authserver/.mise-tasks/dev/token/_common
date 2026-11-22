@@ -11,8 +11,27 @@ mock_workload_token() {
   jq -r '.access_token' <<< "${response}"
 }
 
-post_token() {
+mock_person_token() {
   local response
+  if ! response=$(curl -sS --fail-with-body 'http://localhost:3004/people/token' \
+    -d 'grant_type=client_credentials' -d 'client_secret=yolo' -d 'client_id=default_client' \
+    --data-urlencode "person=$1"); then
+    printf '%s\n' "${response}" >&2
+    exit 1
+  fi
+  jq -er '.access_token' <<< "${response}"
+}
+
+post_token() {
+  local response field
+  printf 'POST %s/token\nContent-Type: application/x-www-form-urlencoded\n' "${STS_URL}" >&2
+  for field in "$@"; do
+    case "${field}" in
+      -d) ;;
+      client_assertion=*|subject_token=*) printf '  %s=<redacted>\n' "${field%%=*}" >&2 ;;
+      *) printf '  %s\n' "${field}" >&2 ;;
+    esac
+  done
   if ! response=$(curl -sS --fail-with-body "${STS_URL}/token" "$@"); then
     printf '%s\n' "${response}" >&2
     exit 1
