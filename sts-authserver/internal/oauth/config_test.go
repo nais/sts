@@ -118,7 +118,7 @@ environments:
 	assert.Equal(t, cfg.Environments[0].ClientAuthIssuers, cfg.Environments[1].ClientAuthIssuers)
 	assert.Equal(t, []jwt.Issuer{"https://client.example", "https://people.example"}, cfg.ClientAuthIssuerURLs())
 	for _, env := range cfg.Environments {
-		assert.True(t, cfg.EnvironmentContainsIssuer(env.Name, "https://people.example"))
+		assert.True(t, cfg.EnvironmentAllowsIssuer(env.Name, "https://people.example"))
 	}
 }
 

@@ -74,7 +74,6 @@ func (a *AuthorizationServer) resolveCallerIdentity(claims *jwt.AccessTokenClaim
 		}
 		client, err := a.ClientStore.Get(claims.Issuer, namespace, name)
 		if err != nil {
-			// TODO: can we handle this in generic error handling?
 			if errors.Is(err, ErrClientNotFound) {
 				return CallerIdentity{}, errs.InvalidClient(err, "client authentication failed")
 			}
@@ -83,7 +82,7 @@ func (a *AuthorizationServer) resolveCallerIdentity(claims *jwt.AccessTokenClaim
 		identity.Client = client
 	}
 
-	if !a.EnvironmentContainsIssuer(Name(identity.Client.Environment), jwt.Issuer(claims.Issuer)) {
+	if !a.EnvironmentAllowsIssuer(Name(identity.Client.Environment), jwt.Issuer(claims.Issuer)) {
 		return CallerIdentity{}, errs.InvalidClient(nil, "client authentication failed")
 	}
 	return identity, nil
@@ -91,7 +90,7 @@ func (a *AuthorizationServer) resolveCallerIdentity(claims *jwt.AccessTokenClaim
 
 // CallerIdentity is the authenticated caller, not the subject of the token being exchanged.
 type CallerIdentity struct {
-	Client *Client
+	*Client
 	// Impersonator is the verified impersonator acting as Client; nil for workloads.
 	Impersonator *Impersonator
 }

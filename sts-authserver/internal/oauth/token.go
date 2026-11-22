@@ -55,7 +55,7 @@ func (a *AuthorizationServer) CreateAccessToken(result *AuthorizationResult) (*S
 		Issuer:     string(a.Issuer),
 		Subject:    result.SubjectTokenClaims.Subject,
 		Audience:   result.Target.Audience(),
-		ClientID:   string(result.Client.ID),
+		ClientID:   string(result.Caller.ID),
 		JWTID:      jti,
 		Expiration: exp,
 		IssuedAt:   iat,
@@ -66,7 +66,7 @@ func (a *AuthorizationServer) CreateAccessToken(result *AuthorizationResult) (*S
 	}
 
 	subjectIssuer := result.SubjectTokenClaims.Issuer
-	stsTokenClaims.CallChain = []ClientID{result.Client.ID}
+	stsTokenClaims.CallChain = []ClientID{result.Caller.ID}
 	stsTokenClaims.Impersonator = result.Caller.Impersonator
 
 	// Only extend chains issued by STS; external or malformed chains start over.
@@ -74,7 +74,7 @@ func (a *AuthorizationServer) CreateAccessToken(result *AuthorizationResult) (*S
 		var previous []ClientID
 		raw, ok := subjectTokenClaims["urn:nais:call_chain"]
 		if ok && json.Unmarshal(raw, &previous) == nil {
-			stsTokenClaims.CallChain = append(previous, result.Client.ID)
+			stsTokenClaims.CallChain = append(previous, result.Caller.ID)
 		}
 
 		// Impersonation is only allowed on the first exchange, so later exchanges keep it as history.

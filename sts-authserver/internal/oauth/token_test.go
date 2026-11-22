@@ -19,7 +19,7 @@ func TestCreateAccessTokenRestartsMalformedCallChain(t *testing.T) {
 		TokenExpiry: time.Hour,
 	}}).CreateAccessToken(&AuthorizationResult{
 		Target: "audience",
-		Client: &Client{ID: "client"},
+		Caller: CallerIdentity{Client: &Client{ID: "client"}},
 		SubjectTokenClaims: &jwt.AccessTokenClaims{
 			Issuer:  string(stsIssuer),
 			Subject: "subject",
@@ -48,7 +48,7 @@ func TestCreateAccessTokenDropsUntrustedImpersonator(t *testing.T) {
 				ExternalIssuers: IssuerAliases{"external": "https://external.example"}}
 			claims, err := server.CreateAccessToken(&AuthorizationResult{
 				Target:             "audience",
-				Client:             &Client{ID: "client"},
+				Caller:             CallerIdentity{Client: &Client{ID: "client"}},
 				SubjectTokenClaims: &jwt.AccessTokenClaims{Issuer: tt.subjectIssuer, Subject: "subject", Claims: subjectClaims},
 			})
 			require.NoError(t, err)

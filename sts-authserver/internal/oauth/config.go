@@ -276,7 +276,7 @@ func (c AuthorizationServerConfig) GetClientAuthConfig(issuer jwt.Issuer) (Clien
 	return ClientAuthConfig{}, false
 }
 
-func (c AuthorizationServerConfig) EnvironmentContainsIssuer(environment Name, issuer jwt.Issuer) bool {
+func (c AuthorizationServerConfig) EnvironmentAllowsIssuer(environment Name, issuer jwt.Issuer) bool {
 	for _, env := range c.Environments {
 		if env.Name != environment {
 			continue

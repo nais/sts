@@ -60,11 +60,9 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 }
 
 type AuthorizationResult struct {
-	// Caller is authenticated by the client assertion, independently of SubjectTokenClaims.
 	Caller             CallerIdentity
 	Target             ClientID
 	SubjectTokenClaims *jwt.AccessTokenClaims
-	Client             *Client
 	Roles              Roles
 }
 
@@ -77,10 +75,9 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request *Tok
 	if err != nil {
 		return nil, err
 	}
-	client := caller.Client
 
 	finishStep := a.Metrics.StartTokenStep(ctx, "verify_subject_token")
-	subjectTokenClaims, err := a.verifySubjectToken(ctx, request.SubjectToken, client)
+	subjectTokenClaims, err := a.verifySubjectToken(ctx, request.SubjectToken, caller.Client)
 	finishStep(err)
 	if err != nil {
 		return nil, err
@@ -92,7 +89,7 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request *Tok
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "authorize_target")
-	roles, err := a.ClientStore.AuthorizeTarget(ctx, client, request.Audience)
+	roles, err := a.ClientStore.AuthorizeTarget(ctx, caller.Client, request.Audience)
 	finishStep(err)
 	if errors.Is(err, ErrTargetUnauthorized) {
 		return nil, errs.InvalidTarget(err, "client is not authorized for target %q", request.Audience)
@@ -105,7 +102,6 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request *Tok
 		Caller:             caller,
 		Target:             request.Audience,
 		SubjectTokenClaims: subjectTokenClaims,
-		Client:             client,
 		Roles:              roles,
 	}, nil
 }
@@ -159,7 +155,7 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr {
 	subjectIssuer := result.SubjectTokenClaims.Issuer
 	attrs := []slog.Attr{
-		slog.String("client_id", string(result.Client.ID)),
+		slog.String("client_id", string(result.Caller.Client.ID)),
 		slog.String("target", string(result.Target)),
 		slog.Int("role_count", len(result.Roles)),
 		slog.String("subject_token_issuer", subjectIssuer),
