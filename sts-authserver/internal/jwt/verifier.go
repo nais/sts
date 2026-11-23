@@ -8,9 +8,6 @@ import (
 	"time"
 
 	internalhttp "github.com/nais/sts/internal/http"
-	"github.com/nais/sts/internal/jwa"
-	oauthclient "github.com/zitadel/oidc/v3/pkg/client"
-	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
@@ -160,22 +157,4 @@ func (t *TokenVerifier) verifyClaims(v issuerConfig, claims *AccessTokenClaims) 
 	}
 
 	return claims, nil
-}
-
-func discoverRemoteKeySet(ctx context.Context, issuer Issuer, client *http.Client) (oidc.KeySet, []string, error) {
-	metadata, err := oauthclient.Discover(ctx, string(issuer), client)
-	if err != nil {
-		return nil, nil, fmt.Errorf("discover metadata from issuer %q: %w", issuer, err)
-	}
-
-	if metadata.Issuer != string(issuer) {
-		return nil, nil, fmt.Errorf("configured issuer does not match issuer in discovery document: got %q, want %q", metadata.Issuer, issuer)
-	}
-
-	algorithms := jwa.FilterSupportedAlgorithms(metadata.IDTokenSigningAlgValuesSupported)
-	if len(algorithms) == 0 {
-		return nil, nil, fmt.Errorf("issuer advertises no supported asymmetric signing algorithms: %v", metadata.IDTokenSigningAlgValuesSupported)
-	}
-
-	return rp.NewRemoteKeySet(client, metadata.JwksURI), algorithms, nil
 }

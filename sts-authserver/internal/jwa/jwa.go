@@ -1,11 +1,19 @@
 package jwa
 
-import "fmt"
+import (
+	"fmt"
+	"maps"
+	"slices"
+)
 
 var supportedAlgorithms = map[string]struct{}{
 	"RS256": {}, "RS384": {}, "RS512": {},
 	"PS256": {}, "PS384": {}, "PS512": {},
 	"ES256": {}, "ES384": {}, "ES512": {},
+}
+
+func SupportedAlgorithms() []string {
+	return slices.Sorted(maps.Keys(supportedAlgorithms))
 }
 
 func ValidateAlgorithms(algorithms ...string) error {
