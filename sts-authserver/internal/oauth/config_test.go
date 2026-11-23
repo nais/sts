@@ -1,6 +1,8 @@
 package oauth
 
 import (
+	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -16,9 +18,10 @@ func validAuthorizationServerConfig() AuthorizationServerConfig {
 	cfg.ClientAuthIssuers = ClientAuthIssuers{
 		"cluster-dev": {
 			Issuer: "https://client.example", Alias: "kubernetes", Mode: ClientAuthWorkload,
-			ClientClaims: &ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
+			ClientClaims:     &ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
+			ExpectedAudience: "nais", MaxClientAuthTokenLifetime: time.Hour,
 		},
-		"employee": {Issuer: "https://people.example", Alias: "employee", Mode: ClientAuthImpersonation},
+		"employee": {Issuer: "https://people.example", Alias: "employee", Mode: ClientAuthImpersonation, ExpectedAudience: "people-app", MaxClientAuthTokenLifetime: 2 * time.Hour},
 	}
 	cfg.Environments = Environments{{
 		Name: "dev", ClientAuthIssuers: []string{"cluster-dev", "employee"},
@@ -31,12 +34,7 @@ func validAuthorizationServerConfig() AuthorizationServerConfig {
 }
 
 func TestDefaultAuthorizationServerConfig(t *testing.T) {
-	cfg := DefaultAuthorizationServerConfig()
-	assert.Equal(t, "nais", cfg.ExpectedAudience)
-	assert.Equal(t, time.Hour, cfg.MaxClientAuthTokenLifetime)
-	assert.Equal(t, 15*time.Minute, cfg.TokenExpiry)
-	cfg.ExpectedAudience = "custom"
-	assert.Equal(t, "nais", DefaultAuthorizationServerConfig().ExpectedAudience)
+	assert.Equal(t, 15*time.Minute, DefaultAuthorizationServerConfig().TokenExpiry)
 }
 
 func TestAuthorizationServerConfigValidateExternalIssuers(t *testing.T) {
@@ -98,6 +96,8 @@ clientAuthIssuers:
     issuer: https://people.example
     alias: employee
     mode: impersonation
+    expectedAudience: people-app
+    maxClientAuthTokenLifetime: 2h
 environments:
   - name: dev
     clientAuthIssuers: &issuers [cluster-dev, employee]
@@ -112,11 +112,17 @@ environments:
       <<: *registrator
       subject: operator-prod
 `), &cfg))
-	cfg.ClientAuthIssuers["unused"] = ClientAuthConfig{Issuer: "https://unused.example", Alias: "unused", Mode: ClientAuthImpersonation}
+	assert.Equal(t, "nais", cfg.ClientAuthIssuers["cluster-dev"].ExpectedAudience)
+	assert.Equal(t, time.Hour, cfg.ClientAuthIssuers["cluster-dev"].MaxClientAuthTokenLifetime)
+	assert.Equal(t, "people-app", cfg.ClientAuthIssuers["employee"].ExpectedAudience)
+	assert.Equal(t, 2*time.Hour, cfg.ClientAuthIssuers["employee"].MaxClientAuthTokenLifetime)
+	unused := cfg.ClientAuthIssuers["employee"]
+	unused.Issuer, unused.Alias = "https://unused.example", "unused"
+	cfg.ClientAuthIssuers["unused"] = unused
 	require.NoError(t, cfg.Validate())
 	require.Len(t, cfg.Environments, 2)
 	assert.Equal(t, cfg.Environments[0].ClientAuthIssuers, cfg.Environments[1].ClientAuthIssuers)
-	assert.Equal(t, []jwt.Issuer{"https://client.example", "https://people.example"}, cfg.ClientAuthIssuerURLs())
+	assert.ElementsMatch(t, []string{"cluster-dev", "employee"}, slices.Collect(maps.Keys(cfg.ReferencedClientAuthIssuers())))
 	for _, env := range cfg.Environments {
 		assert.True(t, cfg.EnvironmentAllowsIssuer(env.Name, "https://people.example"))
 	}
@@ -133,6 +139,8 @@ func TestClientAuthConfigValidate(t *testing.T) {
 		"missing namespace":   func(c *ClientAuthConfig) { c.ClientClaims.Namespace = "" },
 		"missing name":        func(c *ClientAuthConfig) { c.ClientClaims.Name = "" },
 		"irrelevant mappings": func(c *ClientAuthConfig) { c.Mode = ClientAuthImpersonation },
+		"missing audience":    func(c *ClientAuthConfig) { c.ExpectedAudience = "" },
+		"zero lifetime":       func(c *ClientAuthConfig) { c.MaxClientAuthTokenLifetime = 0 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := validAuthorizationServerConfig().ClientAuthIssuers["cluster-dev"]
@@ -140,7 +148,7 @@ func TestClientAuthConfigValidate(t *testing.T) {
 			require.Error(t, cfg.Validate())
 		})
 	}
-	require.NoError(t, (ClientAuthConfig{Issuer: "https://people.example", Alias: "employee", Mode: ClientAuthImpersonation}).Validate())
+	require.NoError(t, validAuthorizationServerConfig().ClientAuthIssuers["employee"].Validate())
 }
 
 func TestAuthorizationServerConfigReferences(t *testing.T) {

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	nethttp "net/http"
-	"slices"
 
 	"github.com/nais/sts/internal/http"
 	"github.com/nais/sts/internal/jwt"
@@ -40,24 +39,28 @@ func NewRegistrators(ctx context.Context, httpClient *nethttp.Client, authServer
 	environments := authServerCfg.Environments
 	registrators := make(map[registratorIdentity]*Registrator, len(environments))
 	names := make([]oauth.Name, len(environments))
-	issuers := make([]jwt.Issuer, 0, len(environments))
+
+	issuers := make(oauth.ClientAuthIssuers)
 	for i, env := range environments {
 		names[i] = env.Name
-		cfg := authServerCfg.ClientAuthIssuers[env.Registrator.IssuerRef]
-		if !slices.Contains(issuers, cfg.Issuer) {
-			issuers = append(issuers, cfg.Issuer)
+		cfg, ok := authServerCfg.ClientAuthIssuers[env.Registrator.IssuerRef]
+		if !ok {
+			return nil, fmt.Errorf("could not find client auth issuer for %q", env.Registrator.IssuerRef)
 		}
-		issuer := string(cfg.Issuer)
-		identity := registratorIdentity{issuer: issuer, subject: env.Registrator.Subject}
-		registrators[identity] = &Registrator{
-			Environment:  env.Name,
-			AuthIssuer:   issuer,
-			AuthSubject:  env.Registrator.Subject,
-			RequiredAlgs: []string{env.Registrator.SigningAlg},
-			KeySet:       rp.NewRemoteKeySet(httpClient, env.Registrator.RegistratorJwksUri),
+		if cfg.Mode == oauth.ClientAuthWorkload {
+			issuers[string(cfg.Issuer)] = cfg
+			issuer := string(cfg.Issuer)
+			identity := registratorIdentity{issuer: issuer, subject: env.Registrator.Subject}
+			registrators[identity] = &Registrator{
+				Environment:  env.Name,
+				AuthIssuer:   issuer,
+				AuthSubject:  env.Registrator.Subject,
+				RequiredAlgs: []string{env.Registrator.SigningAlg},
+				KeySet:       rp.NewRemoteKeySet(httpClient, env.Registrator.RegistratorJwksUri),
+			}
 		}
 	}
-	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, issuers, authServerCfg.ExpectedAudience, authServerCfg.MaxClientAuthTokenLifetime)
+	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, issuers)
 	if err != nil {
 		return nil, err
 	}

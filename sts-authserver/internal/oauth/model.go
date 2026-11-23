@@ -69,6 +69,7 @@ type AuthorizationPolicy struct {
 	AllowedImpersonators []Impersonator `json:"allowed_impersonators,omitempty"`
 }
 
+// TODO: let sybject or other claim be configurable?
 type Impersonator = api.Impersonator
 
 type AuthorizedClient struct {

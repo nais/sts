@@ -7,7 +7,6 @@ logFormat: text
 
 authorizationServer:
   issuer: http://localhost:8080
-  expectedAudience: nais
   externalIssuers:
     name1: http://localhost:3004/subject1
   clientAuthIssuers:

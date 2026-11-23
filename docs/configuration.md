@@ -4,12 +4,12 @@
 Set `CONFIG_FILE` to change its path; the default is `config.yaml`.
 Unknown fields and multi-document YAML files are rejected.
 Defaults are declared with `default:"..."` Go struct tags and applied before YAML
-is decoded, including each environment entry. Explicit empty strings and zero durations are not replaced with defaults;
+is decoded, including each environment and client authentication issuer entry. Explicit empty strings and zero durations are not replaced with defaults;
 they are rejected where validation requires nonempty or positive values.
 Programmatic callers and tests can start with `oauth.DefaultAuthorizationServerConfig()`
 and then assign required fields and overrides. Plain struct literals do not apply defaults.
-For programmatically added client authentication issuers, set `Alias`, `Mode`, and
-any workload claim mappings explicitly; authentication rules have no defaults.
+For programmatically added client authentication issuers, set every field explicitly,
+including `ExpectedAudience` and `MaxClientAuthTokenLifetime`; defaults only apply when decoding YAML.
 The shared defaults helper lives in `internal/config`; the loader and its tests live in `internal/sts`.
 A nonempty `DATABASE_URL` environment variable overrides the file's `databaseUrl`
 before validation. Otherwise, `databaseUrl` must be supplied in the file.
@@ -29,9 +29,7 @@ The Helm chart's `config` values map verbatim to this file's fields.
 | `logFormat`                                       | `text`    |          | `text` or `json`.                                             | Log format.                                                                                    |
 | `additionalCAFile`                                | empty     |          | Path to a PEM file, or empty.                                 | Supplements system roots for local k3d. Upstream TLS verification stays enabled.               |
 | `authorizationServer.issuer`                      |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | STS issuer URL.                                                                                |
-| `authorizationServer.expectedAudience`            | `nais`    |          | Nonempty.                                                     | Sole audience for client assertions and registration bearer tokens.                            |
 | `authorizationServer.externalIssuers`             | `{}`      |          | Must not reuse an environment issuer or alias.                 | External subject-token aliases mapped to issuer URLs.                                         |
-| `authorizationServer.maxClientAuthTokenLifetime`  | `1h`      |          | Positive duration.                                            | Maximum client assertion and registration bearer-token lifetime, plus one minute of tolerance. |
 | `authorizationServer.tokenExpiry`                 | `15m`     |          | Positive duration.                                            | Lifetime of access tokens issued by STS.                                                       |
 | `authorizationServer.environments`                |           | Yes      | At least one entry.                                           | Kubernetes clusters whose workloads can register and authenticate.                             |
 | `environments[].name`                             |           | Yes      | Unique lowercase name.                                        | Human-readable alias for the cluster issuer; the first part of every client ID in the cluster. |
@@ -39,6 +37,8 @@ The Helm chart's `config` values map verbatim to this file's fields.
 | `clientAuthIssuers.<name>.issuer`                 |           | Yes      | HTTPS, or HTTP on localhost/loopback.                         | Trusted assertion issuer.                                                                      |
 | `clientAuthIssuers.<name>.alias`                  |           | Yes      | Nonempty; must not overlap an external issuer alias.          | Alias assigned to subject tokens from this issuer.                                             |
 | `clientAuthIssuers.<name>.mode`                   |           | Yes      | `workload` or `impersonation`.                                | How client assertions identify the caller and client.                                          |
+| `clientAuthIssuers.<name>.expectedAudience`       | `nais`    |          | Nonempty.                                                     | Sole audience for tokens from this issuer: client assertions, registration bearer tokens, and subject tokens. |
+| `clientAuthIssuers.<name>.maxClientAuthTokenLifetime` | `1h`  |          | Positive duration.                                            | Maximum lifetime of tokens from this issuer, plus one minute of tolerance.                     |
 | `clientAuthIssuers.<name>.clientClaims.namespace` |           | Workload | Nonempty dotted claim path.                                  | Namespace used to resolve the registered client.                                               |
 | `clientAuthIssuers.<name>.clientClaims.name`      |           | Workload | Nonempty dotted claim path.                                  | Name used to resolve the registered client.                                                    |
 | `environments[].clientAuthIssuers`                |           | Yes      | Nonempty list of existing definition names; no duplicates.     | Issuers permitted to authenticate clients in this environment.                                 |
@@ -107,6 +107,8 @@ clientAuthIssuers:
     issuer: https://identity.example.com
     alias: employee
     mode: impersonation
+    expectedAudience: sts
+    maxClientAuthTokenLifetime: 2h
 
 environments:
   - name: dev
@@ -155,12 +157,15 @@ rejects missing references, non-workload registrator issuers, duplicate issuer
 URLs, and duplicate registrator identities.
 
 In the example, both environments reference the same `employee` definition, but
-their registrators authenticate through different Kubernetes issuers.
+their registrators authenticate through different Kubernetes issuers. The Kubernetes
+issuers use the default audience and lifetime; `employee` sets its own to match the
+identity provider.
 
 ## Subject token issuers
 
 STS accepts subject tokens from `clientAuthIssuers` definitions referenced by an
-environment, using each definition's explicit `alias`.
+environment, using each definition's explicit `alias`. These subject tokens must
+also satisfy the definition's `expectedAudience` and `maxClientAuthTokenLifetime`.
 Configure external issuers in `externalIssuers` with aliases as keys and issuer URLs
 as values; they must not reuse any client authentication issuer URL or alias.
 

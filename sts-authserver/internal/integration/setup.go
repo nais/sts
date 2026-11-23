@@ -149,13 +149,18 @@ func startSts(t testing.TB, oauthServer testServer, opts ...func(*oauth.Authoriz
 	authCfg.ClientAuthIssuers = oauth.ClientAuthIssuers{
 		"cluster-env1": {
 			Issuer: jwt.Issuer(oauthServer.Endpoint("env1")), Alias: "kubernetes", Mode: oauth.ClientAuthWorkload,
-			ClientClaims: &oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
+			ClientClaims:     &oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
+			ExpectedAudience: "nais", MaxClientAuthTokenLifetime: time.Hour,
 		},
 		"cluster-env2": {
 			Issuer: jwt.Issuer(oauthServer.Endpoint("env2")), Alias: "kubernetes", Mode: oauth.ClientAuthWorkload,
-			ClientClaims: &oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
+			ClientClaims:     &oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
+			ExpectedAudience: "nais", MaxClientAuthTokenLifetime: time.Hour,
 		},
-		"people": {Issuer: jwt.Issuer(oauthServer.Endpoint("people")), Alias: "people", Mode: oauth.ClientAuthImpersonation},
+		"people": {
+			Issuer: jwt.Issuer(oauthServer.Endpoint("people")), Alias: "people", Mode: oauth.ClientAuthImpersonation,
+			ExpectedAudience: "nais", MaxClientAuthTokenLifetime: time.Hour,
+		},
 	}
 	authCfg.Environments = oauth.Environments{
 		{

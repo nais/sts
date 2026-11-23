@@ -50,7 +50,8 @@ authorizationServer:
 ```
 
 The subject must match the release namespace and `serviceAccount.name`.
-`authToken.audience` must match `authorizationServer.expectedAudience` (default
+`authToken.audience` must match the `expectedAudience` of the authserver's
+client authentication issuer for this cluster (default
 `nais`). The chart mounts a rotating, one-hour projected service account token
 for STS authentication. Kubernetes API access uses the separate, automatically
 mounted service account token.

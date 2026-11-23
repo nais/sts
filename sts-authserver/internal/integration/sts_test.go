@@ -528,7 +528,7 @@ func TestSts(t *testing.T) {
 		form.Set("client_id", fixtures.Client2.ID)
 		denied := stsToken[errs.ErrorResponse](t, stsAddress, form)
 		assert.Equal(t, "invalid_request", denied.Code)
-		assert.Equal(t, "impersonation requires a subject token not issued by STS", denied.Description)
+		assert.Equal(t, "subject token is invalid", denied.Description)
 	})
 
 	t.Run("token exchange denies unauthorized audience", func(t *testing.T) {

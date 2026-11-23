@@ -12,16 +12,16 @@ import (
 )
 
 type TokenVerifier struct {
-	issuers          map[Issuer]issuerConfig
-	httpClient       *http.Client
-	expectedAudience string
-	maxTokenLifetime time.Duration
+	issuers    map[Issuer]issuerConfig
+	httpClient *http.Client
 }
 
 type issuerConfig struct {
-	issuer       Issuer
-	keyset       oidc.KeySet
-	requiredAlgs []string
+	issuer           Issuer
+	keyset           oidc.KeySet
+	requiredAlgs     []string
+	expectedAudience string
+	maxTokenLifetime time.Duration
 }
 
 type TokenVerifierOption func(*TokenVerifier)
@@ -32,14 +32,19 @@ func WithHttpClient(client *http.Client) TokenVerifierOption {
 	}
 }
 
-func WithIssuer(issuer Issuer) TokenVerifierOption {
+type IssuerOption func(*issuerConfig)
+
+func WithIssuer(issuer Issuer, opts ...IssuerOption) TokenVerifierOption {
 	return func(t *TokenVerifier) {
-		t.issuers[issuer] = issuerConfig{
-			issuer: issuer,
+		cfg := issuerConfig{issuer: issuer}
+		for _, opt := range opts {
+			opt(&cfg)
 		}
+		t.issuers[issuer] = cfg
 	}
 }
 
+// TODO: use IsserOptions?
 func WithIssuerAndKeySet(issuer Issuer, keySet oidc.KeySet, requiredAlgs ...string) TokenVerifierOption {
 	return func(t *TokenVerifier) {
 		t.issuers[issuer] = issuerConfig{
@@ -56,15 +61,21 @@ func WithIssuersFrom(other *TokenVerifier) TokenVerifierOption {
 	}
 }
 
-func WithExpectedAudience(audience string) TokenVerifierOption {
-	return func(t *TokenVerifier) {
-		t.expectedAudience = audience
+func WithExpectedAudience(audience string) IssuerOption {
+	return func(cfg *issuerConfig) {
+		cfg.expectedAudience = audience
 	}
 }
 
-func WithMaxTokenLifetime(maxLifetime time.Duration) TokenVerifierOption {
-	return func(t *TokenVerifier) {
-		t.maxTokenLifetime = maxLifetime
+func WithMaxTokenLifetime(maxLifetime time.Duration) IssuerOption {
+	return func(cfg *issuerConfig) {
+		cfg.maxTokenLifetime = maxLifetime
+	}
+}
+
+func (t *TokenVerifier) RemoveIssuers(issuers ...Issuer) {
+	for _, issuer := range issuers {
+		delete(t.issuers, issuer)
 	}
 }
 
@@ -126,16 +137,16 @@ func (t *TokenVerifier) Verify(ctx context.Context, rawToken string, verifyFn ..
 	return verifiedClaims, nil
 }
 
-func (t *TokenVerifier) verifyClaims(v issuerConfig, claims *AccessTokenClaims) (*AccessTokenClaims, error) {
+func (t *TokenVerifier) verifyClaims(cfg issuerConfig, claims *AccessTokenClaims) (*AccessTokenClaims, error) {
 	const SkewTime = time.Minute
 
-	if claims.Issuer != string(v.issuer) {
+	if claims.Issuer != string(cfg.issuer) {
 		return nil, oidc.ErrIssuerInvalid
 	}
 	if err := oidc.CheckExpiration(claims, SkewTime); err != nil {
 		return nil, err
 	}
-	if err := oidc.CheckIssuedAt(claims, t.maxTokenLifetime, SkewTime); err != nil {
+	if err := oidc.CheckIssuedAt(claims, cfg.maxTokenLifetime, SkewTime); err != nil {
 		return nil, err
 	}
 	if !claims.Expiration.AsTime().After(claims.IssuedAt.AsTime()) {
@@ -150,9 +161,9 @@ func (t *TokenVerifier) verifyClaims(v issuerConfig, claims *AccessTokenClaims) 
 			return nil, fmt.Errorf("nbf (%v) is after the accepted time (%v)", claims.NotBefore.AsTime(), nowWithOffset)
 		}
 	}
-	if t.expectedAudience != "" {
-		if len(claims.Audience) != 1 || claims.Audience[0] != t.expectedAudience {
-			return nil, fmt.Errorf("audience %q is invalid, expected %q", claims.Audience, t.expectedAudience)
+	if cfg.expectedAudience != "" {
+		if len(claims.Audience) != 1 || claims.Audience[0] != cfg.expectedAudience {
+			return nil, fmt.Errorf("audience %q is invalid, expected %q", claims.Audience, cfg.expectedAudience)
 		}
 	}
 

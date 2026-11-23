@@ -2,14 +2,15 @@ package sts
 
 import (
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nais/sts/api"
-	"github.com/nais/sts/internal/jwt"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,15 +21,15 @@ func TestLoadFileUsesDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, api.STSIssuer("https://sts.example"), cfg.AuthorizationServerConfig.Issuer)
-	assert.Equal(t, []jwt.Issuer{"https://client.example"}, cfg.AuthorizationServerConfig.ClientAuthIssuerURLs())
+	assert.Equal(t, []string{"cluster-dev"}, slices.Collect(maps.Keys(cfg.AuthorizationServerConfig.ReferencedClientAuthIssuers())))
 	assert.Equal(t, "kubernetes", cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-dev"].Alias)
 	assert.Equal(t, oauth.IssuerAliases{"issuerName": "https://subject.example"}, cfg.AuthorizationServerConfig.ExternalIssuers)
 	assert.Equal(t, ":8080", cfg.BindAddress)
 	assert.Equal(t, ":8081", cfg.InternalBindAddress)
 	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
 	assert.Equal(t, "text", cfg.LogFormat)
-	assert.Equal(t, "nais", cfg.AuthorizationServerConfig.ExpectedAudience)
-	assert.Equal(t, time.Hour, cfg.AuthorizationServerConfig.MaxClientAuthTokenLifetime)
+	assert.Equal(t, "nais", cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-dev"].ExpectedAudience)
+	assert.Equal(t, time.Hour, cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-dev"].MaxClientAuthTokenLifetime)
 	assert.Equal(t, 15*time.Minute, cfg.AuthorizationServerConfig.TokenExpiry)
 }
 
@@ -57,10 +58,11 @@ func TestLoadFileOverridesDefaults(t *testing.T) {
 	base := testConfig
 
 	t.Run("explicit values", func(t *testing.T) {
-		cfg, err := loadFile(writeConfig(t, base+"  expectedAudience: custom\n  maxClientAuthTokenLifetime: 30m\n  tokenExpiry: 5m\n"))
+		cfg, err := loadFile(writeConfig(t, strings.Replace(base, "      mode: workload\n", "      mode: workload\n      expectedAudience: custom\n      maxClientAuthTokenLifetime: 30m\n", 1)+"  tokenExpiry: 5m\n"))
 		require.NoError(t, err)
-		assert.Equal(t, "custom", cfg.AuthorizationServerConfig.ExpectedAudience)
-		assert.Equal(t, 30*time.Minute, cfg.AuthorizationServerConfig.MaxClientAuthTokenLifetime)
+		issuer := cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-dev"]
+		assert.Equal(t, "custom", issuer.ExpectedAudience)
+		assert.Equal(t, 30*time.Minute, issuer.MaxClientAuthTokenLifetime)
 		assert.Equal(t, 5*time.Minute, cfg.AuthorizationServerConfig.TokenExpiry)
 	})
 
@@ -68,15 +70,18 @@ func TestLoadFileOverridesDefaults(t *testing.T) {
 		field string
 		want  string
 	}{
-		{`expectedAudience: ""`, "expected audience must not be empty"},
-		{"maxClientAuthTokenLifetime: 0s", "maximum client auth token lifetime must be positive"},
-		{"tokenExpiry: 0s", "token expiry must be positive"},
+		{`      expectedAudience: ""`, "expected audience must not be empty"},
+		{"      maxClientAuthTokenLifetime: 0s", "maximum client auth token lifetime must be positive"},
 	} {
-		t.Run(tt.field, func(t *testing.T) {
-			_, err := loadFile(writeConfig(t, base+"  "+tt.field+"\n"))
+		t.Run(strings.TrimSpace(tt.field), func(t *testing.T) {
+			_, err := loadFile(writeConfig(t, strings.Replace(base, "      mode: workload\n", "      mode: workload\n"+tt.field+"\n", 1)))
 			require.ErrorContains(t, err, tt.want)
 		})
 	}
+	t.Run("tokenExpiry: 0s", func(t *testing.T) {
+		_, err := loadFile(writeConfig(t, base+"  tokenExpiry: 0s\n"))
+		require.ErrorContains(t, err, "token expiry must be positive")
+	})
 }
 
 func TestLoadFileDatabaseURL(t *testing.T) {

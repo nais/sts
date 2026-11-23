@@ -44,20 +44,18 @@ render_config | tee "$config_dir/default.json" | jq -e '
 ' >/dev/null
 
 render_config \
-  --set config.authorizationServer.maxClientAuthTokenLifetime=5m \
-  --set-string config.authorizationServer.expectedAudience=true \
   --set-json 'config.authorizationServer.externalIssuers={"identity":"https://identity.example.com"}' \
   --set-json 'config.authorizationServer.clientAuthIssuers={
-    "cluster-dev":{"issuer":"https://issuer.example.com/dev","alias":"kubernetes","mode":"workload","clientClaims":{"namespace":"kubernetes.io.namespace","name":"kubernetes.io.serviceaccount.name"}},
+    "cluster-dev":{"issuer":"https://issuer.example.com/dev","alias":"kubernetes","mode":"workload","expectedAudience":"true","maxClientAuthTokenLifetime":"5m","clientClaims":{"namespace":"kubernetes.io.namespace","name":"kubernetes.io.serviceaccount.name"}},
     "cluster-prod":{"issuer":"https://issuer.example.com/prod","alias":"kubernetes","mode":"workload","clientClaims":{"namespace":"kubernetes.io.namespace","name":"kubernetes.io.serviceaccount.name"}},
-    "employee":{"issuer":"https://people.example.com","alias":"employee","mode":"impersonation"}
+    "employee":{"issuer":"https://people.example.com","alias":"employee","mode":"impersonation","expectedAudience":"people-app"}
   }' \
   --set-json 'config.authorizationServer.environments=[
     {"name":"dev-gcp","clientAuthIssuers":["cluster-dev","employee"],"registrator":{"issuerRef":"cluster-dev","subject":"system:serviceaccount:custom:operator # literal","registratorJwksUri":"https://operator.dev.example.com/jwks","signingAlg":"ES256"}},
     {"name":"prod-gcp","clientAuthIssuers":["cluster-prod","employee"],"registrator":{"issuerRef":"cluster-prod","subject":"system:serviceaccount:nais-system:sts-operator","registratorJwksUri":"https://operator.prod.example.com/jwks","signingAlg":"RS256"}}
   ]' | tee "$config_dir/custom.json" | jq -e '
     .authorizationServer as $auth |
-    $auth.expectedAudience == "true" and
+    $auth.clientAuthIssuers["cluster-dev"].expectedAudience == "true" and
     $auth.externalIssuers == {"identity":"https://identity.example.com"} and
     ($auth.environments | length) == 2 and
     $auth.environments[0].registrator.subject == "system:serviceaccount:custom:operator # literal"

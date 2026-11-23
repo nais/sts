@@ -62,8 +62,8 @@ spec:
               expirationSeconds: 600
 ```
 
-- `audience` must match `authorizationServer.expectedAudience` (normally `nais`).
-- Keep `expirationSeconds` within `authorizationServer.maxClientAuthTokenLifetime` (default `1h`).
+- `audience` must match the cluster issuer's `clientAuthIssuers.<name>.expectedAudience` (default `nais`).
+- Keep `expirationSeconds` within that issuer's `maxClientAuthTokenLifetime` (default `1h`).
 
 For reference, a decoded projected service account token can contain:
 
@@ -196,6 +196,7 @@ Workloads can use `urn:nais:idp_alias` to distinguish original issuers without d
 STS preserves the chain from STS-issued subject tokens as history, not as authorization policy input. It ignores any `urn:nais:call_chain` in external subject tokens. A malformed chain in an STS-issued subject token starts a new chain.
 `urn:nais:impersonator` records the person who authenticated in impersonation mode and acted as the requesting client.
 Impersonation is only allowed with subject tokens not issued by STS, so it always starts a chain and `urn:nais:call_chain[0]` is the impersonated client.
+An impersonation request with an STS-issued subject token fails with `invalid_request` and `subject token is invalid`.
 Later STS exchanges keep the impersonator as history.
 STS removes the claim from subject tokens it did not issue and drops malformed values.
 STS does not add or extend `act`; [RFC 8693](https://www.rfc-editor.org/rfc/rfc8693.html#section-4.1) reserves it for delegation with an `actor_token`, which STS does not support.

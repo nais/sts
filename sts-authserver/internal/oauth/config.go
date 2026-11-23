@@ -18,13 +18,11 @@ import (
 )
 
 type AuthorizationServerConfig struct {
-	Issuer                     api.STSIssuer     `yaml:"issuer"`
-	ExpectedAudience           string            `yaml:"expectedAudience" default:"nais"`
-	Environments               Environments      `yaml:"environments"`
-	ClientAuthIssuers          ClientAuthIssuers `yaml:"clientAuthIssuers"`
-	ExternalIssuers            IssuerAliases     `yaml:"externalIssuers"`
-	MaxClientAuthTokenLifetime time.Duration     `yaml:"maxClientAuthTokenLifetime" default:"1h"`
-	TokenExpiry                time.Duration     `yaml:"tokenExpiry" default:"15m"`
+	Issuer            api.STSIssuer     `yaml:"issuer"`
+	Environments      Environments      `yaml:"environments"`
+	ClientAuthIssuers ClientAuthIssuers `yaml:"clientAuthIssuers"`
+	ExternalIssuers   IssuerAliases     `yaml:"externalIssuers"`
+	TokenExpiry       time.Duration     `yaml:"tokenExpiry" default:"15m"`
 }
 
 // DefaultAuthorizationServerConfig returns a fresh configuration initialized from
@@ -88,12 +86,6 @@ func (c AuthorizationServerConfig) Validate() error {
 			}
 		}
 	}
-	if c.ExpectedAudience == "" {
-		return fmt.Errorf("expected audience must not be empty")
-	}
-	if c.MaxClientAuthTokenLifetime <= 0 {
-		return fmt.Errorf("maximum client auth token lifetime must be positive")
-	}
 	if c.TokenExpiry <= 0 {
 		return fmt.Errorf("token expiry must be positive")
 	}
@@ -116,10 +108,13 @@ const (
 )
 
 type ClientAuthConfig struct {
-	Issuer       jwt.Issuer     `yaml:"issuer"`
-	Alias        string         `yaml:"alias"`
-	Mode         ClientAuthMode `yaml:"mode"`
-	ClientClaims *ClientClaims  `yaml:"clientClaims"`
+	Issuer           jwt.Issuer     `yaml:"issuer"`
+	Alias            string         `yaml:"alias"`
+	Mode             ClientAuthMode `yaml:"mode"`
+	ClientClaims     *ClientClaims  `yaml:"clientClaims"`
+	ExpectedAudience string         `yaml:"expectedAudience" default:"nais"`
+	// TODO: rename to MaxTokenLifetime
+	MaxClientAuthTokenLifetime time.Duration `yaml:"maxClientAuthTokenLifetime" default:"1h"`
 }
 
 // ClientClaims contains dotted paths to nonempty string claims.
@@ -135,6 +130,13 @@ func (c ClientAuthConfig) Validate() error {
 	if err := validateSecureURL(string(c.Issuer)); err != nil {
 		return fmt.Errorf("client auth issuer: %w", err)
 	}
+	if c.MaxClientAuthTokenLifetime <= 0 {
+		return fmt.Errorf("maximum client auth token lifetime must be positive")
+	}
+	if c.ExpectedAudience == "" {
+		return fmt.Errorf("expected audience must not be empty")
+	}
+
 	switch c.Mode {
 	case ClientAuthWorkload:
 		if c.ClientClaims == nil || c.ClientClaims.Namespace == "" || c.ClientClaims.Name == "" {
@@ -173,15 +175,15 @@ func (c ClientAuthIssuers) Validate() error {
 	return nil
 }
 
-// ClientAuthIssuerURLs returns issuers referenced by at least one environment.
-// A shared definition alone does not grant trust or require issuer discovery.
-func (c AuthorizationServerConfig) ClientAuthIssuerURLs() []jwt.Issuer {
-	var issuers []jwt.Issuer
+// ReferencedClientAuthIssuers returns definitions referenced by at least one
+// environment. A shared definition alone does not grant trust or require
+// issuer discovery.
+func (c AuthorizationServerConfig) ReferencedClientAuthIssuers() ClientAuthIssuers {
+	issuers := make(ClientAuthIssuers)
 	for _, env := range c.Environments {
 		for _, ref := range env.ClientAuthIssuers {
-			cfg := c.ClientAuthIssuers[ref]
-			if !slices.Contains(issuers, cfg.Issuer) {
-				issuers = append(issuers, cfg.Issuer)
+			if cfg, ok := c.ClientAuthIssuers[ref]; ok {
+				issuers[ref] = cfg
 			}
 		}
 	}
@@ -193,12 +195,32 @@ func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
 	// Use a distinct type to avoid calling UnmarshalYAML recursively.
 	type plain Environment
 	var env plain
-	if err := config.Apply(&env); err != nil {
+	if err := decodeWithDefaults(node, &env); err != nil {
+		return err
+	}
+	*e = Environment(env)
+	return nil
+}
+
+// UnmarshalYAML applies defaults to each issuer definition; map values are not
+// covered by DefaultAuthorizationServerConfig.
+func (c *ClientAuthConfig) UnmarshalYAML(node *yaml.Node) error {
+	type plain ClientAuthConfig
+	var cfg plain
+	if err := decodeWithDefaults(node, &cfg); err != nil {
+		return err
+	}
+	*c = ClientAuthConfig(cfg)
+	return nil
+}
+
+func decodeWithDefaults(node *yaml.Node, target any) error {
+	if err := config.Apply(target); err != nil {
 		return err
 	}
 
 	// Node.Decode does not inherit KnownFields from the outer decoder. Resolve
-	// aliases first, including anchors defined in another environment entry.
+	// aliases first, including anchors defined in another entry.
 	var values any
 	if err := node.Decode(&values); err != nil {
 		return err
@@ -209,11 +231,7 @@ func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
-	if err := decoder.Decode(&env); err != nil {
-		return err
-	}
-	*e = Environment(env)
-	return nil
+	return decoder.Decode(target)
 }
 
 // RegistratorConfig identifies the workload allowed to register clients in an

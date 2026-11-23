@@ -5,21 +5,25 @@ import (
 	"errors"
 	"net/http"
 	"slices"
-	"time"
 
 	"github.com/nais/sts/internal/errs"
 	"github.com/nais/sts/internal/jwt"
 )
 
-func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, issuers []jwt.Issuer, expectedAudience string, maxLifetime time.Duration) (*jwt.TokenVerifier, error) {
+// CallerIdentity is the authenticated caller, not the subject of the token being exchanged.
+type CallerIdentity struct {
+	*Client
+	// Impersonator is the verified impersonator acting as Client; nil for workloads.
+	Impersonator *Impersonator
+}
+
+func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, issuers ClientAuthIssuers) (*jwt.TokenVerifier, error) {
 	opts := []jwt.TokenVerifierOption{
 		jwt.WithHttpClient(httpClient),
-		jwt.WithExpectedAudience(expectedAudience),
-		jwt.WithMaxTokenLifetime(maxLifetime),
 	}
 
-	for _, issuer := range issuers {
-		opts = append(opts, jwt.WithIssuer(issuer))
+	for _, cfg := range issuers {
+		opts = append(opts, jwt.WithIssuer(cfg.Issuer, jwt.WithExpectedAudience(cfg.ExpectedAudience), jwt.WithMaxTokenLifetime(cfg.MaxClientAuthTokenLifetime)))
 	}
 
 	return jwt.NewTokenVerifier(ctx, opts...)
@@ -86,13 +90,6 @@ func (a *AuthorizationServer) resolveCallerIdentity(claims *jwt.AccessTokenClaim
 		return CallerIdentity{}, errs.InvalidClient(nil, "client authentication failed")
 	}
 	return identity, nil
-}
-
-// CallerIdentity is the authenticated caller, not the subject of the token being exchanged.
-type CallerIdentity struct {
-	*Client
-	// Impersonator is the verified impersonator acting as Client; nil for workloads.
-	Impersonator *Impersonator
 }
 
 func (c CallerIdentity) AllowsImpersonation() bool {

@@ -38,6 +38,8 @@ values:
           issuer: {{ $obj.apiserver_oidc_issuer | quote }}
           alias: kubernetes
           mode: workload
+          expectedAudience: nais
+          maxClientAuthTokenLifetime: 10m
           clientClaims:
             namespace: kubernetes.io.namespace
             name: kubernetes.io.serviceaccount.name

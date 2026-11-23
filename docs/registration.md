@@ -19,13 +19,13 @@ this [STS configuration](configuration.md):
 
 ```yaml
 authorizationServer:
-  expectedAudience: nais
-  maxClientAuthTokenLifetime: 1h
   clientAuthIssuers:
     cluster-env1:
       issuer: https://issuer.example.com/env1
       alias: kubernetes
       mode: workload
+      expectedAudience: nais
+      maxClientAuthTokenLifetime: 1h
       clientClaims:
         namespace: kubernetes.io.namespace
         name: kubernetes.io.serviceaccount.name
@@ -56,10 +56,10 @@ STS checks the bearer token against the configuration:
 - `iss` matches the issuer definition referenced by `environments[0].registrator.issuerRef`.
   Other issuers trusted for client authentication cannot authenticate this registrator.
 - `sub` matches `environments[0].registrator.subject`.
-- `aud` contains only `expectedAudience`: `nais`.
+- `aud` contains only the issuer's `expectedAudience`: `nais`.
 - `iat` and `exp` are valid timestamps. STS allows one minute of clock skew
   when it checks both claims.
-- `exp` must follow `iat`. The lifetime (`exp` - `iat`) cannot exceed
+- `exp` must follow `iat`. The lifetime (`exp` - `iat`) cannot exceed the issuer's
   `maxClientAuthTokenLifetime` plus one minute. In this example, the limit is
   one hour and one minute.
 
