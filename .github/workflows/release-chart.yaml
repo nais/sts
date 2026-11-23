@@ -44,7 +44,7 @@ jobs:
           # Delayed image builds calling this workflow must not restore older chart files.
           ref: main
           persist-credentials: false
-      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # ratchet:jdx/mise-action@v5
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # ratchet:jdx/mise-action@v5
         with:
           install_args: helm yq
       - name: Package chart
