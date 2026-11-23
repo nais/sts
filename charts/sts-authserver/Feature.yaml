@@ -23,6 +23,11 @@ values:
     displayName: STS issuer
     computed:
       template: 'https://{{ subdomain . "sts" }}'
+  config.authorizationServer.externalIssuers:
+    displayName: External subject-token issuers
+    description: 'JSON object mapping aliases to issuer URLs, e.g. {"identity":"https://identity.example.com"}.'
+    config:
+      type: string
   config.authorizationServer.environments:
     displayName: Trust domains
     computed:

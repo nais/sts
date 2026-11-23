@@ -46,3 +46,22 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/* Normalize the Helm map or Fasit JSON string before rendering config and egress. */}}
+{{- define "sts.externalIssuers" -}}
+{{- $issuers := .Values.config.authorizationServer.externalIssuers -}}
+{{- if kindIs "invalid" $issuers -}}
+  {{- $issuers = dict -}}
+{{- else if kindIs "string" $issuers -}}
+  {{- $issuers = default "{}" $issuers | mustFromJson -}}
+{{- end -}}
+{{- if not (kindIs "map" $issuers) -}}
+  {{- fail "config.authorizationServer.externalIssuers must be a map or JSON object mapping aliases to issuer URLs" -}}
+{{- end -}}
+{{- range $alias, $url := $issuers -}}
+  {{- if not (kindIs "string" $url) -}}
+    {{- fail (printf "config.authorizationServer.externalIssuers: issuer URL for alias %q must be a string" $alias) -}}
+  {{- end -}}
+{{- end -}}
+{{- mustToJson $issuers -}}
+{{- end -}}

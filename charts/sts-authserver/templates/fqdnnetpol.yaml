@@ -4,6 +4,10 @@
 {{- $url := required "registrator.registratorJwksUri is required" .registrator.registratorJwksUri }}
 {{- $hosts = append $hosts (urlParse $url).hostname }}
 {{- end }}
+{{- range $alias, $url := (include "sts.externalIssuers" . | mustFromJson) }}
+{{- $host := required (printf "external issuer %q must have a hostname" $alias) (urlParse $url).hostname }}
+{{- $hosts = append $hosts $host }}
+{{- end }}
 apiVersion: networking.gke.io/v1alpha3
 kind: FQDNNetworkPolicy
 metadata:

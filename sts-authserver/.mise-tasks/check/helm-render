@@ -39,7 +39,9 @@ render_config() {
     yq -r '.stringData["config.yaml"]' | yq -o=json
 }
 
-render_config > "$config_dir/default.json"
+render_config | tee "$config_dir/default.json" | jq -e '
+  .authorizationServer.externalIssuers == {}
+' >/dev/null
 
 render_config \
   --set config.authorizationServer.maxClientAuthTokenLifetime=5m \
@@ -56,10 +58,26 @@ render_config \
     $auth.environments[0].registrator.subject == "system:serviceaccount:custom:operator # literal"
   ' >/dev/null
 
+# Fasit passes the same key as a string, not a YAML map.
+fasit_issuers='config.authorizationServer.externalIssuers="{\"one\":\"https://identity.example.com/one\",\"two\":\"https://identity.example.com/two\"}"'
+render_config --set-json "$fasit_issuers" | tee "$config_dir/fasit.json" | jq -e '
+  .authorizationServer.externalIssuers == {
+    "one": "https://identity.example.com/one",
+    "two": "https://identity.example.com/two"
+  }
+' >/dev/null
+
+for invalid in '"{"' '"[]"' '"null"' '"{\"identity\":42}"' '{"identity":42}'; do
+  if render_config --set-json "config.authorizationServer.externalIssuers=$invalid" >/dev/null 2>&1; then
+    printf 'Expected validation failure for externalIssuers=%s\n' "$invalid" >&2
+    exit 1
+  fi
+done
+
 # Check the rendered configuration with the same defaults and validation as startup.
 STS_TEST_CONFIG_DIR="$config_dir" go test -count=1 ./internal/sts -run '^TestLoadRenderedConfigs$'
 
-# FQDN egress: one bare hostname per registrator JWKS host, deduplicated, and
+# FQDN egress: deduplicated registrator JWKS and external issuer hosts;
 # only when enabled and the GKE API is available.
 fqdn_policy() {
   helm template authserver ../charts/sts-authserver --show-only templates/fqdnnetpol.yaml "$@" | yq -o=json
@@ -73,6 +91,13 @@ fqdn_policy --api-versions networking.gke.io/v1alpha3 \
     .kind == "FQDNNetworkPolicy" and
     .spec.egress == [{
       "to": [{"fqdns": ["op.example.com", "other.example.com"]}],
+      "ports": [{"protocol": "TCP", "port": 443}]
+    }]
+  ' >/dev/null
+
+fqdn_policy --api-versions networking.gke.io/v1alpha3 --set-json "$fasit_issuers" | jq -e '
+    .spec.egress == [{
+      "to": [{"fqdns": ["sts-operator.environment.tenant.cloud.nais.io", "identity.example.com"]}],
       "ports": [{"protocol": "TCP", "port": 443}]
     }]
   ' >/dev/null
