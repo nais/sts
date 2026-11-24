@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"log"
 	"log/slog"
 	"os"
@@ -17,16 +16,14 @@ import (
 )
 
 func main() {
-	k3d := flag.Bool("k3d", false, "seed the k3d impersonation demo client")
-	flag.Parse()
 	ctx := context.Background()
-	if err := run(ctx, *k3d); err != nil {
+	if err := run(ctx); err != nil {
 		log.Printf("error running setup_local_env: %v", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, k3d bool) error {
+func run(ctx context.Context) error {
 	cfg, err := sts.LoadConfig()
 	if err != nil {
 		return err
@@ -44,19 +41,6 @@ func run(ctx context.Context, k3d bool) error {
 
 	queries := sqlgen.New(pool)
 	impersonator := oauth.ImpersonatorSubject("person1")
-	if k3d {
-		return upsertClient(ctx, queries, sqlgen.UpsertClientParams{
-			ID:          "sts-operator-dev:sts-demo:impersonation-demo",
-			Environment: "sts-operator-dev",
-			Namespace:   "sts-demo",
-			Name:        "impersonation-demo",
-			Issuer:      string(cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-local"].Issuer),
-			AuthorizationPolicy: oauth.AuthorizationPolicy{
-				AllowedImpersonators: []oauth.ImpersonatorSubject{impersonator},
-			},
-		})
-	}
-
 	clients := []sqlgen.UpsertClientParams{
 		{
 			ID:          "env1:namespace1:workload1",

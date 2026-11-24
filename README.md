@@ -89,6 +89,6 @@ Try token exchange:
 - `mise run sts-authserver:dev:token`: exchange the workload's own service account token against the standalone mock setup. Add `--k3d` to target the full k3d stack instead.
 - Add `--exchange` to either form to exchange a subject token from the mock external issuer instead.
 - `mise run sts-authserver:dev:token --impersonate person1`: exchange a mock external subject token as `person1` acting as `env1:namespace1:workload1`. If you already have a standalone `config.yaml`, add the `people` issuer and its `env1` reference from `config.example.yaml`, then restart the authserver.
-- For k3d, start the stack with `mise run dev`, then run `mise run dev:token --impersonate person1` from the repo root. It uses the seeded `sts-operator-dev:sts-demo:impersonation-demo` client. Both commands print the issued token's `urn:nais:impersonator` claim.
+- For k3d, start the stack with `mise run dev`, then run `mise run dev:token --impersonate person1` from the repo root. It uses the `impersonation-demo` OAuthClient and OAuthImpersonation from the operator samples. Both commands print the issued token's `urn:nais:impersonator` claim.
 
 Run `mise tasks --all` for all commands.

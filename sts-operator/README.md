@@ -189,7 +189,7 @@ Endpoints:
 Inspect the sample clients from `sts-operator/`:
 
 ```shell
-kubectl --kubeconfig=.local/kubeconfig -n sts-demo get oauthclients,configmaps
+kubectl --kubeconfig=.local/kubeconfig -n sts-demo get oauthclients,oauthimpersonations,configmaps
 ```
 
 From the repository root, delete only the development cluster when finished:
