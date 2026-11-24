@@ -39,8 +39,8 @@ The Helm chart's `config` values map verbatim to this file's fields.
 | `clientAuthIssuers.<name>.mode`                   |           | Yes      | `workload` or `impersonation`.                                | How client assertions identify the caller and client.                                          |
 | `clientAuthIssuers.<name>.expectedAudience`       | `nais`    |          | Nonempty.                                                     | Sole audience for tokens from this issuer: client assertions, registration bearer tokens, and subject tokens. |
 | `clientAuthIssuers.<name>.maxTokenLifetime`       | `1h`      |          | Positive duration.                                            | Maximum lifetime of tokens from this issuer, plus one minute of tolerance.                     |
-| `clientAuthIssuers.<name>.claimMappings.client.namespace` |           | Workload | Nonempty dotted claim path.                                  | Namespace used to resolve the registered client.                                               |
-| `clientAuthIssuers.<name>.claimMappings.client.name`      |           | Workload | Nonempty dotted claim path.                                  | Name used to resolve the registered client.                                                    |
+| `clientAuthIssuers.<name>.claimMappings.client.namespace` | `kubernetes.io.namespace` |          | Nonempty dotted claim path.                                  | Namespace used to resolve the registered client.                                               |
+| `clientAuthIssuers.<name>.claimMappings.client.name`      | `kubernetes.io.serviceaccount.name` |          | Nonempty dotted claim path.                                  | Name used to resolve the registered client.                                                    |
 | `clientAuthIssuers.<name>.claimMappings.impersonator.subject` |  | Impersonation | Nonempty dotted claim path. | Impersonator subject matched against `allowed_impersonators`. |
 | `environments[].clientAuthIssuers`                |           | Yes      | Nonempty list of existing definition names; no duplicates.     | Issuers permitted to authenticate clients in this environment.                                 |
 | `environments[].registrator.issuerRef`           |           | Yes      | Reference to a workload-mode issuer trusted by this environment. | Issuer that authenticates this registrator's bearer token.                                  |
@@ -94,6 +94,7 @@ clientAuthIssuers:
     issuer: https://kubernetes.dev.example.com
     alias: kubernetes
     mode: workload
+    # Defaults; override for non-Kubernetes token claims.
     claimMappings:
       client:
         namespace: kubernetes.io.namespace
@@ -102,10 +103,6 @@ clientAuthIssuers:
     issuer: https://kubernetes.prod.example.com
     alias: kubernetes
     mode: workload
-    claimMappings:
-      client:
-        namespace: kubernetes.io.namespace
-        name: kubernetes.io.serviceaccount.name
   employee:
     issuer: https://identity.example.com
     alias: employee

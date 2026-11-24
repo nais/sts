@@ -123,10 +123,10 @@ type ClaimMappings struct {
 
 // ClientClaims contains dotted paths to nonempty string claims.
 // Used to map the claims from a client authentication token to a client ID.
-// TODO: consider setting default values to the kubernetes claims for zero-config setup
+// Defaults match Kubernetes service account tokens.
 type ClientClaims struct {
-	Namespace string `yaml:"namespace"`
-	Name      string `yaml:"name"`
+	Namespace string `yaml:"namespace" default:"kubernetes.io.namespace"`
+	Name      string `yaml:"name" default:"kubernetes.io.serviceaccount.name"`
 }
 
 // ImpersonatorClaims contains dotted paths to nonempty string claims.

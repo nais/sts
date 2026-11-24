@@ -89,10 +89,6 @@ clientAuthIssuers:
     issuer: https://client.example
     alias: kubernetes
     mode: workload
-    claimMappings:
-      client:
-        namespace: kubernetes.io.namespace
-        name: kubernetes.io.serviceaccount.name
   employee:
     issuer: https://people.example
     alias: employee
@@ -118,6 +114,7 @@ environments:
 `), &cfg))
 	assert.Equal(t, "nais", cfg.ClientAuthIssuers["cluster-dev"].ExpectedAudience)
 	assert.Equal(t, time.Hour, cfg.ClientAuthIssuers["cluster-dev"].MaxTokenLifetime)
+	assert.Equal(t, ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"}, cfg.ClientAuthIssuers["cluster-dev"].ClaimMappings.Client)
 	assert.Equal(t, "people-app", cfg.ClientAuthIssuers["employee"].ExpectedAudience)
 	assert.Equal(t, 2*time.Hour, cfg.ClientAuthIssuers["employee"].MaxTokenLifetime)
 	unused := cfg.ClientAuthIssuers["employee"]

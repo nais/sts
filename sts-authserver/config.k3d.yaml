@@ -14,10 +14,6 @@ authorizationServer:
       issuer: https://127.0.0.1:6553
       alias: kubernetes
       mode: workload
-      claimMappings:
-        client:
-          namespace: kubernetes.io.namespace
-          name: kubernetes.io.serviceaccount.name
     people:
       issuer: http://localhost:3004/people
       alias: people

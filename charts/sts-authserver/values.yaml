@@ -20,6 +20,7 @@ config:
         # Client assertions and registration bearer tokens use this as their sole audience.
         expectedAudience: nais
         maxTokenLifetime: "10m"
+        # Defaults; override for non-Kubernetes token claims.
         claimMappings:
           client:
             namespace: kubernetes.io.namespace

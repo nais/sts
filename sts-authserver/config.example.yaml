@@ -15,6 +15,7 @@ authorizationServer:
       issuer: http://localhost:3004/env1
       alias: kubernetes
       mode: workload
+      # Defaults; override for non-Kubernetes token claims.
       claimMappings:
         client:
           namespace: kubernetes.io.namespace
@@ -23,10 +24,6 @@ authorizationServer:
       issuer: http://localhost:3004/env2
       alias: kubernetes
       mode: workload
-      claimMappings:
-        client:
-          namespace: kubernetes.io.namespace
-          name: kubernetes.io.serviceaccount.name
     people:
       issuer: http://localhost:3004/people
       alias: people

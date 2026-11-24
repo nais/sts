@@ -26,10 +26,6 @@ authorizationServer:
       mode: workload
       expectedAudience: nais
       maxTokenLifetime: 1h
-      claimMappings:
-        client:
-          namespace: kubernetes.io.namespace
-          name: kubernetes.io.serviceaccount.name
   environments:
     - name: env1
       clientAuthIssuers: [cluster-env1]

@@ -40,10 +40,6 @@ values:
           mode: workload
           expectedAudience: nais
           maxTokenLifetime: 10m
-          claimMappings:
-            client:
-              namespace: kubernetes.io.namespace
-              name: kubernetes.io.serviceaccount.name
         {{ end }}
         {{ end }}
   config.authorizationServer.environments:
