@@ -28,17 +28,16 @@ func TestResolveCallerIdentityRejectsImpersonation(t *testing.T) {
 		name            string
 		requestedID     ClientID
 		subject         string
-		allowed         Impersonator
+		allowed         ImpersonatorSubject
 		untrustedIssuer bool
 		wantErr         string
 	}{
 		{name: "missing client ID", wantErr: "client_id is required"},
 		{name: "invalid client ID", requestedID: "invalid", wantErr: "invalid client_id"},
 		{name: "unknown client ID", requestedID: "dev:team:unknown", wantErr: "client authentication failed"},
-		{name: "wrong issuer", requestedID: clientID, subject: "alice", allowed: Impersonator{Issuer: "https://other.example", Subject: "alice"}, wantErr: "client authentication failed"},
-		{name: "wrong subject", requestedID: clientID, subject: "bob", allowed: Impersonator{Issuer: issuer, Subject: "alice"}, wantErr: "client authentication failed"},
-		{name: "empty subject", requestedID: clientID, allowed: Impersonator{Issuer: issuer}, wantErr: "failed to extract impersonator subject"},
-		{name: "issuer not trusted by client environment", requestedID: clientID, subject: "alice", allowed: Impersonator{Issuer: issuer, Subject: "alice"}, untrustedIssuer: true, wantErr: "client authentication failed"},
+		{name: "wrong subject", requestedID: clientID, subject: "bob", allowed: "alice", wantErr: "client authentication failed"},
+		{name: "empty subject", requestedID: clientID, allowed: "alice", wantErr: "failed to extract impersonator subject"},
+		{name: "issuer not trusted by client environment", requestedID: clientID, subject: "alice", allowed: "alice", untrustedIssuer: true, wantErr: "client authentication failed"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := validAuthorizationServerConfig()
@@ -48,7 +47,7 @@ func TestResolveCallerIdentityRejectsImpersonation(t *testing.T) {
 			server := &AuthorizationServer{
 				ClientStore: impersonationClientStore{client: &Client{
 					ID: clientID, Environment: "dev",
-					AuthorizationPolicy: AuthorizationPolicy{AllowedImpersonators: []Impersonator{tt.allowed}},
+					AuthorizationPolicy: AuthorizationPolicy{AllowedImpersonators: []ImpersonatorSubject{tt.allowed}},
 				}},
 				AuthorizationServerConfig: cfg,
 			}

@@ -29,8 +29,8 @@ func (s SoftwareStatement) validate() error {
 	}
 
 	for i, impersonator := range s.AuthorizationPolicy.AllowedImpersonators {
-		if impersonator.Issuer == "" || impersonator.Subject == "" {
-			return fmt.Errorf("allowed impersonator %d: issuer and subject must not be empty", i)
+		if impersonator == "" {
+			return fmt.Errorf("allowed impersonator %d: subject must not be empty", i)
 		}
 	}
 

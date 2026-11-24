@@ -280,10 +280,7 @@ func seedSts(t testing.TB, dsn string, oauthServer testServer) {
 	defer pool.Close()
 
 	queries := sqlgen.New(pool)
-	impersonators := []oauth.Impersonator{
-		{Issuer: oauthServer.Endpoint("people"), Subject: fixtures.Impersonator},
-		{Issuer: oauthServer.Endpoint("people-mapped"), Subject: fixtures.Impersonator},
-	}
+	impersonators := []oauth.ImpersonatorSubject{fixtures.Impersonator}
 	policies := map[clientFixture]oauth.AuthorizationPolicy{
 		fixtures.Client1: {AllowedImpersonators: impersonators},
 		fixtures.Client2: {

@@ -43,7 +43,7 @@ func run(ctx context.Context, k3d bool) error {
 	defer pool.Close()
 
 	queries := sqlgen.New(pool)
-	impersonator := oauth.Impersonator{Issuer: "http://localhost:3004/people", Subject: "person1"}
+	impersonator := oauth.ImpersonatorSubject("person1")
 	if k3d {
 		return upsertClient(ctx, queries, sqlgen.UpsertClientParams{
 			ID:          "sts-operator-dev:sts-demo:impersonation-demo",
@@ -52,7 +52,7 @@ func run(ctx context.Context, k3d bool) error {
 			Name:        "impersonation-demo",
 			Issuer:      string(cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-local"].Issuer),
 			AuthorizationPolicy: oauth.AuthorizationPolicy{
-				AllowedImpersonators: []oauth.Impersonator{impersonator},
+				AllowedImpersonators: []oauth.ImpersonatorSubject{impersonator},
 			},
 		})
 	}
@@ -66,7 +66,7 @@ func run(ctx context.Context, k3d bool) error {
 			Issuer:      "http://localhost:3004/env1",
 			AuthorizationPolicy: oauth.AuthorizationPolicy{
 				AllowedScopes:        []string{"env1:namespace1:workload2"},
-				AllowedImpersonators: []oauth.Impersonator{impersonator},
+				AllowedImpersonators: []oauth.ImpersonatorSubject{impersonator},
 			},
 		},
 		{

@@ -26,13 +26,10 @@ type AuthorizationPolicy struct {
 	AllowedScopes     []string           `json:"allowed_scopes,omitempty"`
 	Clients           []AuthorizedClient `json:"clients,omitempty"`
 	// AllowedImpersonators identifies principals allowed to act as this client.
-	AllowedImpersonators []Impersonator `json:"allowed_impersonators,omitempty"`
+	AllowedImpersonators []ImpersonatorSubject `json:"allowed_impersonators,omitempty"`
 }
 
-type Impersonator struct {
-	Issuer  string `json:"issuer"`
-	Subject string `json:"subject"`
-}
+type ImpersonatorSubject = string
 
 type AuthorizedClient struct {
 	Client
