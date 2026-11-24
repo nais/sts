@@ -18,10 +18,10 @@ func validAuthorizationServerConfig() AuthorizationServerConfig {
 	cfg.ClientAuthIssuers = ClientAuthIssuers{
 		"cluster-dev": {
 			Issuer: "https://client.example", Alias: "kubernetes", Mode: ClientAuthWorkload,
-			ClientClaims:     &ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
+			ClaimMappings:    ClaimMappings{Client: ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"}},
 			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
 		},
-		"employee": {Issuer: "https://people.example", Alias: "employee", Mode: ClientAuthImpersonation, ExpectedAudience: "people-app", MaxTokenLifetime: 2 * time.Hour},
+		"employee": {Issuer: "https://people.example", Alias: "employee", Mode: ClientAuthImpersonation, ClaimMappings: ClaimMappings{Impersonator: &ImpersonatorClaims{Subject: "sub"}}, ExpectedAudience: "people-app", MaxTokenLifetime: 2 * time.Hour},
 	}
 	cfg.Environments = Environments{{
 		Name: "dev", ClientAuthIssuers: []string{"cluster-dev", "employee"},
@@ -89,13 +89,17 @@ clientAuthIssuers:
     issuer: https://client.example
     alias: kubernetes
     mode: workload
-    clientClaims:
-      namespace: kubernetes.io.namespace
-      name: kubernetes.io.serviceaccount.name
+    claimMappings:
+      client:
+        namespace: kubernetes.io.namespace
+        name: kubernetes.io.serviceaccount.name
   employee:
     issuer: https://people.example
     alias: employee
     mode: impersonation
+    claimMappings:
+      impersonator:
+        subject: sub
     expectedAudience: people-app
     maxTokenLifetime: 2h
 environments:
@@ -130,17 +134,21 @@ environments:
 
 func TestClientAuthConfigValidate(t *testing.T) {
 	for name, mutate := range map[string]func(*ClientAuthConfig){
-		"missing mode":        func(c *ClientAuthConfig) { c.Mode = "" },
-		"unknown mode":        func(c *ClientAuthConfig) { c.Mode = "unknown" },
-		"missing issuer":      func(c *ClientAuthConfig) { c.Issuer = "" },
-		"insecure issuer":     func(c *ClientAuthConfig) { c.Issuer = "http://client.example" },
-		"missing alias":       func(c *ClientAuthConfig) { c.Alias = "" },
-		"missing mappings":    func(c *ClientAuthConfig) { c.ClientClaims = nil },
-		"missing namespace":   func(c *ClientAuthConfig) { c.ClientClaims.Namespace = "" },
-		"missing name":        func(c *ClientAuthConfig) { c.ClientClaims.Name = "" },
-		"irrelevant mappings": func(c *ClientAuthConfig) { c.Mode = ClientAuthImpersonation },
-		"missing audience":    func(c *ClientAuthConfig) { c.ExpectedAudience = "" },
-		"zero lifetime":       func(c *ClientAuthConfig) { c.MaxTokenLifetime = 0 },
+		"missing mode":                 func(c *ClientAuthConfig) { c.Mode = "" },
+		"unknown mode":                 func(c *ClientAuthConfig) { c.Mode = "unknown" },
+		"missing issuer":               func(c *ClientAuthConfig) { c.Issuer = "" },
+		"insecure issuer":              func(c *ClientAuthConfig) { c.Issuer = "http://client.example" },
+		"missing alias":                func(c *ClientAuthConfig) { c.Alias = "" },
+		"missing mappings":             func(c *ClientAuthConfig) { c.ClaimMappings.Client = ClientClaims{} },
+		"missing namespace":            func(c *ClientAuthConfig) { c.ClaimMappings.Client.Namespace = "" },
+		"missing name":                 func(c *ClientAuthConfig) { c.ClaimMappings.Client.Name = "" },
+		"missing impersonator mapping": func(c *ClientAuthConfig) { c.Mode = ClientAuthImpersonation },
+		"empty impersonator subject": func(c *ClientAuthConfig) {
+			c.Mode = ClientAuthImpersonation
+			c.ClaimMappings.Impersonator = &ImpersonatorClaims{}
+		},
+		"missing audience": func(c *ClientAuthConfig) { c.ExpectedAudience = "" },
+		"zero lifetime":    func(c *ClientAuthConfig) { c.MaxTokenLifetime = 0 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := validAuthorizationServerConfig().ClientAuthIssuers["cluster-dev"]

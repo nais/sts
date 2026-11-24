@@ -67,7 +67,11 @@ func (a *AuthorizationServer) resolveCallerIdentity(claims *jwt.AccessTokenClaim
 			return CallerIdentity{}, err
 		}
 		identity.Client = client
-		identity.Impersonator = &Impersonator{Issuer: claims.Issuer, Subject: claims.Subject}
+		subject, err := cfg.GetImpersonatorSubject(claims)
+		if err != nil {
+			return CallerIdentity{}, errs.InvalidClient(err, "failed to extract impersonator subject from client assertion claims")
+		}
+		identity.Impersonator = &Impersonator{Issuer: claims.Issuer, Subject: subject}
 		if !identity.AllowsImpersonation() {
 			return CallerIdentity{}, errs.InvalidClient(nil, "client authentication failed")
 		}

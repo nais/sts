@@ -59,7 +59,7 @@ type Client struct {
 	UpdatedAt           time.Time
 }
 
-// TODO: why did we choose to copy between api and oauth models? there was a good reason...
+// AuthorizationPolicy should be kept in sync with the public API [api.AuthorizationPolicy].
 type AuthorizationPolicy struct {
 	AllowAll          bool               `json:"allow_all,omitempty"`
 	AllowedNamespaces []string           `json:"allowed_namespaces,omitempty"`

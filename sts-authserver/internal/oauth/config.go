@@ -111,15 +111,28 @@ type ClientAuthConfig struct {
 	Issuer           jwt.Issuer     `yaml:"issuer"`
 	Alias            string         `yaml:"alias"`
 	Mode             ClientAuthMode `yaml:"mode"`
-	ClientClaims     *ClientClaims  `yaml:"clientClaims"`
+	ClaimMappings    ClaimMappings  `yaml:"claimMappings"`
 	ExpectedAudience string         `yaml:"expectedAudience" default:"nais"`
 	MaxTokenLifetime time.Duration  `yaml:"maxTokenLifetime" default:"1h"`
 }
 
+type ClaimMappings struct {
+	Client       ClientClaims        `yaml:"client"`
+	Impersonator *ImpersonatorClaims `yaml:"impersonator"`
+}
+
 // ClientClaims contains dotted paths to nonempty string claims.
+// Used to map the claims from a client authentication token to a client ID.
+// TODO: consider setting default values to the kubernetes claims for zero-config setup
 type ClientClaims struct {
 	Namespace string `yaml:"namespace"`
 	Name      string `yaml:"name"`
+}
+
+// ImpersonatorClaims contains dotted paths to nonempty string claims.
+// Used to map the claims from a client authentication token to an impersonator subject.
+type ImpersonatorClaims struct {
+	Subject string `yaml:"subject"`
 }
 
 func (c ClientAuthConfig) Validate() error {
@@ -138,12 +151,12 @@ func (c ClientAuthConfig) Validate() error {
 
 	switch c.Mode {
 	case ClientAuthWorkload:
-		if c.ClientClaims == nil || c.ClientClaims.Namespace == "" || c.ClientClaims.Name == "" {
-			return fmt.Errorf("workload mode requires clientClaims.namespace and clientClaims.name")
+		if c.ClaimMappings.Client.Namespace == "" || c.ClaimMappings.Client.Name == "" {
+			return fmt.Errorf("workload mode requires claimMappings.client.namespace and claimMappings.client.name")
 		}
 	case ClientAuthImpersonation:
-		if c.ClientClaims != nil {
-			return fmt.Errorf("impersonation mode must not define clientClaims")
+		if c.ClaimMappings.Impersonator == nil || c.ClaimMappings.Impersonator.Subject == "" {
+			return fmt.Errorf("impersonation mode requires claimMappings.impersonator.subject")
 		}
 	default:
 		return fmt.Errorf("client auth mode must be workload or impersonation, got %q", c.Mode)
@@ -321,15 +334,23 @@ func (c AuthorizationServerConfig) GetIssuerAlias(issuer jwt.Issuer) (string, bo
 }
 
 func (c ClientAuthConfig) GetNamespaceAndName(claims *jwt.AccessTokenClaims) (namespace, name string, err error) {
-	name, err = jwt.StringClaim(claims.Claims, c.ClientClaims.Name)
+	name, err = jwt.StringClaim(claims.Claims, c.ClaimMappings.Client.Name)
 	if err != nil {
-		return "", "", fmt.Errorf("clientClaims.name: %w", err)
+		return "", "", fmt.Errorf("claimMappings.client.name: %w", err)
 	}
-	namespace, err = jwt.StringClaim(claims.Claims, c.ClientClaims.Namespace)
+	namespace, err = jwt.StringClaim(claims.Claims, c.ClaimMappings.Client.Namespace)
 	if err != nil {
-		return "", "", fmt.Errorf("clientClaims.namespace: %w", err)
+		return "", "", fmt.Errorf("claimMappings.client.namespace: %w", err)
 	}
 	return namespace, name, nil
+}
+
+func (c ClientAuthConfig) GetImpersonatorSubject(claims *jwt.AccessTokenClaims) (string, error) {
+	subject, err := jwt.StringClaim(claims.Claims, c.ClaimMappings.Impersonator.Subject)
+	if err != nil {
+		return "", fmt.Errorf("claimMappings.impersonator.subject: %w", err)
+	}
+	return subject, nil
 }
 
 func validateSecureURL(value string) error {

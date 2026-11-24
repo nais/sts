@@ -14,13 +14,17 @@ authorizationServer:
       issuer: https://127.0.0.1:6553
       alias: kubernetes
       mode: workload
-      clientClaims:
-        namespace: kubernetes.io.namespace
-        name: kubernetes.io.serviceaccount.name
+      claimMappings:
+        client:
+          namespace: kubernetes.io.namespace
+          name: kubernetes.io.serviceaccount.name
     people:
       issuer: http://localhost:3004/people
       alias: people
       mode: impersonation
+      claimMappings:
+        impersonator:
+          subject: sub
   environments:
     - name: sts-operator-dev
       clientAuthIssuers: [cluster-local, people]

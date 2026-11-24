@@ -36,9 +36,10 @@ authorizationServer:
       issuer: https://your-kubernetes-token-issuer.example.com
       alias: kubernetes
       mode: workload
-      clientClaims:
-        namespace: kubernetes.io.namespace
-        name: kubernetes.io.serviceaccount.name
+      claimMappings:
+        client:
+          namespace: kubernetes.io.namespace
+          name: kubernetes.io.serviceaccount.name
   environments:
     - name: dev-gcp
       clientAuthIssuers: [cluster-dev]

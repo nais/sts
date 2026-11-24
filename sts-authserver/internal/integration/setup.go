@@ -149,23 +149,27 @@ func startSts(t testing.TB, oauthServer testServer, opts ...func(*oauth.Authoriz
 	authCfg.ClientAuthIssuers = oauth.ClientAuthIssuers{
 		"cluster-env1": {
 			Issuer: jwt.Issuer(oauthServer.Endpoint("env1")), Alias: "kubernetes", Mode: oauth.ClientAuthWorkload,
-			ClientClaims:     &oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
+			ClaimMappings:    oauth.ClaimMappings{Client: oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"}},
 			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
 		},
 		"cluster-env2": {
 			Issuer: jwt.Issuer(oauthServer.Endpoint("env2")), Alias: "kubernetes", Mode: oauth.ClientAuthWorkload,
-			ClientClaims:     &oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
+			ClaimMappings:    oauth.ClaimMappings{Client: oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"}},
 			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
 		},
 		"people": {
-			Issuer: jwt.Issuer(oauthServer.Endpoint("people")), Alias: "people", Mode: oauth.ClientAuthImpersonation,
+			Issuer: jwt.Issuer(oauthServer.Endpoint("people")), Alias: "people", Mode: oauth.ClientAuthImpersonation, ClaimMappings: oauth.ClaimMappings{Impersonator: &oauth.ImpersonatorClaims{Subject: "sub"}},
+			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
+		},
+		"people-mapped": {
+			Issuer: jwt.Issuer(oauthServer.Endpoint("people-mapped")), Alias: "people", Mode: oauth.ClientAuthImpersonation, ClaimMappings: oauth.ClaimMappings{Impersonator: &oauth.ImpersonatorClaims{Subject: "person.ident"}},
 			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
 		},
 	}
 	authCfg.Environments = oauth.Environments{
 		{
 			Name:              "env1",
-			ClientAuthIssuers: []string{"cluster-env1", "people"},
+			ClientAuthIssuers: []string{"cluster-env1", "people", "people-mapped"},
 			Registrator: oauth.RegistratorConfig{
 				IssuerRef:          "cluster-env1",
 				Subject:            "system:serviceaccount:namespace1:registrator1",
@@ -275,11 +279,15 @@ func seedSts(t testing.TB, dsn string, oauthServer testServer) {
 	defer pool.Close()
 
 	queries := sqlgen.New(pool)
+	impersonators := []oauth.Impersonator{
+		{Issuer: oauthServer.Endpoint("people"), Subject: fixtures.Impersonator},
+		{Issuer: oauthServer.Endpoint("people-mapped"), Subject: fixtures.Impersonator},
+	}
 	policies := map[clientFixture]oauth.AuthorizationPolicy{
-		fixtures.Client1: {AllowedImpersonators: []oauth.Impersonator{{Issuer: oauthServer.Endpoint("people"), Subject: fixtures.Impersonator}}},
+		fixtures.Client1: {AllowedImpersonators: impersonators},
 		fixtures.Client2: {
 			Clients:              []oauth.AuthorizedClient{{ClientID: oauth.ClientID(fixtures.Client1.ID), Roles: oauth.Roles{fixtures.Role}}},
-			AllowedImpersonators: []oauth.Impersonator{{Issuer: oauthServer.Endpoint("people"), Subject: fixtures.Impersonator}},
+			AllowedImpersonators: impersonators,
 		},
 		fixtures.Client3: {Clients: []oauth.AuthorizedClient{{ClientID: oauth.ClientID(fixtures.Client2.ID), Roles: oauth.Roles{fixtures.Role}}}},
 	}

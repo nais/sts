@@ -39,8 +39,9 @@ The Helm chart's `config` values map verbatim to this file's fields.
 | `clientAuthIssuers.<name>.mode`                   |           | Yes      | `workload` or `impersonation`.                                | How client assertions identify the caller and client.                                          |
 | `clientAuthIssuers.<name>.expectedAudience`       | `nais`    |          | Nonempty.                                                     | Sole audience for tokens from this issuer: client assertions, registration bearer tokens, and subject tokens. |
 | `clientAuthIssuers.<name>.maxTokenLifetime`       | `1h`      |          | Positive duration.                                            | Maximum lifetime of tokens from this issuer, plus one minute of tolerance.                     |
-| `clientAuthIssuers.<name>.clientClaims.namespace` |           | Workload | Nonempty dotted claim path.                                  | Namespace used to resolve the registered client.                                               |
-| `clientAuthIssuers.<name>.clientClaims.name`      |           | Workload | Nonempty dotted claim path.                                  | Name used to resolve the registered client.                                                    |
+| `clientAuthIssuers.<name>.claimMappings.client.namespace` |           | Workload | Nonempty dotted claim path.                                  | Namespace used to resolve the registered client.                                               |
+| `clientAuthIssuers.<name>.claimMappings.client.name`      |           | Workload | Nonempty dotted claim path.                                  | Name used to resolve the registered client.                                                    |
+| `clientAuthIssuers.<name>.claimMappings.impersonator.subject` |  | Impersonation | Nonempty dotted claim path. | Impersonator subject matched against `allowed_impersonators`. |
 | `environments[].clientAuthIssuers`                |           | Yes      | Nonempty list of existing definition names; no duplicates.     | Issuers permitted to authenticate clients in this environment.                                 |
 | `environments[].registrator.issuerRef`           |           | Yes      | Reference to a workload-mode issuer trusted by this environment. | Issuer that authenticates this registrator's bearer token.                                  |
 | `environments[].registrator.subject`              |           | Yes      | Nonempty.                                                     | Subject of the registrator's bearer token.                                                     |
@@ -93,20 +94,25 @@ clientAuthIssuers:
     issuer: https://kubernetes.dev.example.com
     alias: kubernetes
     mode: workload
-    clientClaims:
-      namespace: kubernetes.io.namespace
-      name: kubernetes.io.serviceaccount.name
+    claimMappings:
+      client:
+        namespace: kubernetes.io.namespace
+        name: kubernetes.io.serviceaccount.name
   cluster-prod:
     issuer: https://kubernetes.prod.example.com
     alias: kubernetes
     mode: workload
-    clientClaims:
-      namespace: kubernetes.io.namespace
-      name: kubernetes.io.serviceaccount.name
+    claimMappings:
+      client:
+        namespace: kubernetes.io.namespace
+        name: kubernetes.io.serviceaccount.name
   employee:
     issuer: https://identity.example.com
     alias: employee
     mode: impersonation
+    claimMappings:
+      impersonator:
+        subject: sub
     expectedAudience: sts
     maxTokenLifetime: 2h
 
@@ -132,12 +138,12 @@ environments:
   support dotted object paths, including keys containing dots such as
   `kubernetes.io`; longest matching keys take precedence. Full JSONPath is not supported.
 - `impersonation`: require a request `client_id`. The selected client must
-  explicitly allow the assertion's `(iss, sub)` in
-  its `allowed_impersonators` policy, and its environment must trust the assertion
-  issuer in impersonation mode. `clientClaims` is forbidden in this mode.
+  explicitly allow the assertion issuer and the subject read from
+  `claimMappings.impersonator.subject` in its `allowed_impersonators` policy, and its
+  environment must trust the assertion issuer in impersonation mode.
   The subject token must not be issued by STS, so impersonation only starts an exchange chain.
 
-In impersonation mode, the caller is the verified assertion's `(iss, sub)` acting as
+In impersonation mode, the caller is the verified assertion issuer and mapped subject acting as
 the selected client. Workload callers are identified by their client alone.
 
 These rules describe the caller authenticated by the client assertion. They do

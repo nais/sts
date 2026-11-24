@@ -19,6 +19,7 @@ type Client struct {
 	Namespace string `json:"namespace"`
 }
 
+// AuthorizationPolicy should be kept in sync with the internal API [oauth.AuthorizationPolicy].
 type AuthorizationPolicy struct {
 	AllowAll          bool               `json:"allow_all,omitempty"`
 	AllowedNamespaces []string           `json:"allowed_namespaces,omitempty"`

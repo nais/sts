@@ -46,9 +46,9 @@ render_config | tee "$config_dir/default.json" | jq -e '
 render_config \
   --set-json 'config.authorizationServer.externalIssuers={"identity":"https://identity.example.com"}' \
   --set-json 'config.authorizationServer.clientAuthIssuers={
-    "cluster-dev":{"issuer":"https://issuer.example.com/dev","alias":"kubernetes","mode":"workload","expectedAudience":"true","maxTokenLifetime":"5m","clientClaims":{"namespace":"kubernetes.io.namespace","name":"kubernetes.io.serviceaccount.name"}},
-    "cluster-prod":{"issuer":"https://issuer.example.com/prod","alias":"kubernetes","mode":"workload","clientClaims":{"namespace":"kubernetes.io.namespace","name":"kubernetes.io.serviceaccount.name"}},
-    "employee":{"issuer":"https://people.example.com","alias":"employee","mode":"impersonation","expectedAudience":"people-app"}
+    "cluster-dev":{"issuer":"https://issuer.example.com/dev","alias":"kubernetes","mode":"workload","expectedAudience":"true","maxTokenLifetime":"5m","claimMappings":{"client":{"namespace":"kubernetes.io.namespace","name":"kubernetes.io.serviceaccount.name"}}},
+    "cluster-prod":{"issuer":"https://issuer.example.com/prod","alias":"kubernetes","mode":"workload","claimMappings":{"client":{"namespace":"kubernetes.io.namespace","name":"kubernetes.io.serviceaccount.name"}}},
+    "employee":{"issuer":"https://people.example.com","alias":"employee","mode":"impersonation","claimMappings":{"impersonator":{"subject":"sub"}},"expectedAudience":"people-app"}
   }' \
   --set-json 'config.authorizationServer.environments=[
     {"name":"dev-gcp","clientAuthIssuers":["cluster-dev","employee"],"registrator":{"issuerRef":"cluster-dev","subject":"system:serviceaccount:custom:operator # literal","registratorJwksUri":"https://operator.dev.example.com/jwks","signingAlg":"ES256"}},

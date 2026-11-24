@@ -35,16 +35,16 @@ func TestRegistratorUsesExplicitIssuerBinding(t *testing.T) {
 	cfg.ClientAuthIssuers = oauth.ClientAuthIssuers{
 		"bound": {
 			Issuer: jwt.Issuer(server.URL + "/bound"), Alias: "kubernetes", Mode: oauth.ClientAuthWorkload,
-			ClientClaims:     &oauth.ClientClaims{Namespace: "namespace", Name: "name"},
+			ClaimMappings:    oauth.ClaimMappings{Client: oauth.ClientClaims{Namespace: "namespace", Name: "name"}},
 			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
 		},
 		"unbound": {
 			Issuer: jwt.Issuer(server.URL + "/unbound"), Alias: "other-cluster", Mode: oauth.ClientAuthWorkload,
-			ClientClaims:     &oauth.ClientClaims{Namespace: "namespace", Name: "name"},
+			ClaimMappings:    oauth.ClaimMappings{Client: oauth.ClientClaims{Namespace: "namespace", Name: "name"}},
 			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
 		},
 		"employee": {
-			Issuer: jwt.Issuer(server.URL + "/people"), Alias: "employee", Mode: oauth.ClientAuthImpersonation,
+			Issuer: jwt.Issuer(server.URL + "/people"), Alias: "employee", Mode: oauth.ClientAuthImpersonation, ClaimMappings: oauth.ClaimMappings{Impersonator: &oauth.ImpersonatorClaims{Subject: "sub"}},
 			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
 		},
 	}

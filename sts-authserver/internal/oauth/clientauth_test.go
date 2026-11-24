@@ -1,6 +1,8 @@
 package oauth
 
 import (
+	"encoding/json"
+	"strconv"
 	"testing"
 
 	"github.com/nais/sts/internal/jwt"
@@ -36,7 +38,7 @@ func TestResolveCallerIdentityRejectsImpersonation(t *testing.T) {
 		{name: "unknown client ID", requestedID: "dev:team:unknown", wantErr: "client authentication failed"},
 		{name: "wrong issuer", requestedID: clientID, subject: "alice", allowed: Impersonator{Issuer: "https://other.example", Subject: "alice"}, wantErr: "client authentication failed"},
 		{name: "wrong subject", requestedID: clientID, subject: "bob", allowed: Impersonator{Issuer: issuer, Subject: "alice"}, wantErr: "client authentication failed"},
-		{name: "empty subject", requestedID: clientID, allowed: Impersonator{Issuer: issuer}, wantErr: "client authentication failed"},
+		{name: "empty subject", requestedID: clientID, allowed: Impersonator{Issuer: issuer}, wantErr: "failed to extract impersonator subject"},
 		{name: "issuer not trusted by client environment", requestedID: clientID, subject: "alice", allowed: Impersonator{Issuer: issuer, Subject: "alice"}, untrustedIssuer: true, wantErr: "client authentication failed"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -51,7 +53,10 @@ func TestResolveCallerIdentityRejectsImpersonation(t *testing.T) {
 				}},
 				AuthorizationServerConfig: cfg,
 			}
-			claims := &jwt.AccessTokenClaims{TokenClaims: oidc.TokenClaims{Issuer: issuer, Subject: tt.subject}}
+			claims := &jwt.AccessTokenClaims{TokenClaims: oidc.TokenClaims{Issuer: issuer, Subject: tt.subject}, Claims: map[string]json.RawMessage{}}
+			if tt.subject != "" {
+				claims.Claims["sub"] = json.RawMessage(strconv.Quote(tt.subject))
+			}
 			_, err := server.resolveCallerIdentity(claims, tt.requestedID)
 			require.ErrorContains(t, err, tt.wantErr)
 		})

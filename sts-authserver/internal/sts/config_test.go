@@ -41,9 +41,10 @@ authorizationServer:
       issuer: https://client.example
       alias: kubernetes
       mode: workload
-      clientClaims:
-        namespace: kubernetes.io.namespace
-        name: kubernetes.io.serviceaccount.name
+      claimMappings:
+        client:
+          namespace: kubernetes.io.namespace
+          name: kubernetes.io.serviceaccount.name
   environments:
     - name: dev
       clientAuthIssuers: [cluster-dev]
@@ -117,7 +118,7 @@ func TestLoadFileRejectsUnknownFields(t *testing.T) {
 		"authorizationServer:\n  environments:\n    - unknown: value\n",
 		"authorizationServer:\n  environments:\n    - registrator:\n        unknown: value\n",
 		"authorizationServer:\n  clientAuthIssuers:\n    cluster-dev:\n      unknown: value\n",
-		"authorizationServer:\n  clientAuthIssuers:\n    cluster-dev:\n      clientClaims:\n        unknown: value\n",
+		"authorizationServer:\n  clientAuthIssuers:\n    cluster-dev:\n      claimMappings:\n        client:\n          unknown: value\n",
 	} {
 		_, err := loadFile(writeConfig(t, contents))
 		require.ErrorContains(t, err, "field unknown not found")

@@ -20,9 +20,10 @@ config:
         # Client assertions and registration bearer tokens use this as their sole audience.
         expectedAudience: nais
         maxTokenLifetime: "10m"
-        clientClaims:
-          namespace: kubernetes.io.namespace
-          name: kubernetes.io.serviceaccount.name
+        claimMappings:
+          client:
+            namespace: kubernetes.io.namespace
+            name: kubernetes.io.serviceaccount.name
     environments:
       - name: env1
         clientAuthIssuers: [cluster-env1]
