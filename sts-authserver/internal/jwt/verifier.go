@@ -24,16 +24,6 @@ type issuerConfig struct {
 	maxTokenLifetime time.Duration
 }
 
-type TokenVerifierOption func(*TokenVerifier)
-
-func WithHttpClient(client *http.Client) TokenVerifierOption {
-	return func(t *TokenVerifier) {
-		t.httpClient = client
-	}
-}
-
-type IssuerOption func(*issuerConfig)
-
 func WithIssuer(issuer Issuer, opts ...IssuerOption) TokenVerifierOption {
 	return func(t *TokenVerifier) {
 		cfg := issuerConfig{issuer: issuer}
@@ -44,7 +34,6 @@ func WithIssuer(issuer Issuer, opts ...IssuerOption) TokenVerifierOption {
 	}
 }
 
-// TODO: use IsserOptions?
 func WithIssuerAndKeySet(issuer Issuer, keySet oidc.KeySet, requiredAlgs ...string) TokenVerifierOption {
 	return func(t *TokenVerifier) {
 		t.issuers[issuer] = issuerConfig{
@@ -55,11 +44,21 @@ func WithIssuerAndKeySet(issuer Issuer, keySet oidc.KeySet, requiredAlgs ...stri
 	}
 }
 
+type TokenVerifierOption func(*TokenVerifier)
+
+func WithHttpClient(client *http.Client) TokenVerifierOption {
+	return func(t *TokenVerifier) {
+		t.httpClient = client
+	}
+}
+
 func WithIssuersFrom(other *TokenVerifier) TokenVerifierOption {
 	return func(t *TokenVerifier) {
 		maps.Copy(t.issuers, other.issuers)
 	}
 }
+
+type IssuerOption func(*issuerConfig)
 
 func WithExpectedAudience(audience string) IssuerOption {
 	return func(cfg *issuerConfig) {
@@ -70,12 +69,6 @@ func WithExpectedAudience(audience string) IssuerOption {
 func WithMaxTokenLifetime(maxLifetime time.Duration) IssuerOption {
 	return func(cfg *issuerConfig) {
 		cfg.maxTokenLifetime = maxLifetime
-	}
-}
-
-func (t *TokenVerifier) RemoveIssuers(issuers ...Issuer) {
-	for _, issuer := range issuers {
-		delete(t.issuers, issuer)
 	}
 }
 
