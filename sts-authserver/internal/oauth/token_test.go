@@ -16,7 +16,8 @@ func TestCreateAccessTokenRestartsMalformedCallChain(t *testing.T) {
 
 	claims, err := (&AuthorizationServer{
 		Issuer:      stsIssuer,
-		TokenExpiry: time.Hour}).CreateAccessToken(&AuthorizationResult{
+		TokenExpiry: time.Hour,
+	}).CreateAccessToken(&AuthorizationResult{
 		Target: "audience",
 		Caller: CallerIdentity{Client: &Client{ID: "client"}},
 		SubjectTokenClaims: &jwt.AccessTokenClaims{
@@ -44,7 +45,8 @@ func TestCreateAccessTokenDropsUntrustedImpersonator(t *testing.T) {
 			server := &AuthorizationServer{
 				Issuer:          stsIssuer,
 				TokenExpiry:     time.Hour,
-				ExternalIssuers: IssuerAliases{"external": "https://external.example"}}
+				ExternalIssuers: IssuerAliases{"external": "https://external.example"},
+			}
 			claims, err := server.CreateAccessToken(&AuthorizationResult{
 				Target:             "audience",
 				Caller:             CallerIdentity{Client: &Client{ID: "client"}},
