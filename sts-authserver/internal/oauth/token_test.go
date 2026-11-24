@@ -14,10 +14,9 @@ import (
 func TestCreateAccessTokenRestartsMalformedCallChain(t *testing.T) {
 	const stsIssuer api.STSIssuer = "https://sts.example"
 
-	claims, err := (&AuthorizationServer{AuthorizationServerConfig: AuthorizationServerConfig{
+	claims, err := (&AuthorizationServer{
 		Issuer:      stsIssuer,
-		TokenExpiry: time.Hour,
-	}}).CreateAccessToken(&AuthorizationResult{
+		TokenExpiry: time.Hour}).CreateAccessToken(&AuthorizationResult{
 		Target: "audience",
 		Caller: CallerIdentity{Client: &Client{ID: "client"}},
 		SubjectTokenClaims: &jwt.AccessTokenClaims{

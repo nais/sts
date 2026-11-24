@@ -13,8 +13,8 @@ func TestSoftwareStatementValidate(t *testing.T) {
 			Client: api.Client{Namespace: "team-a", Name: "workload-1"},
 			AuthorizationPolicy: api.AuthorizationPolicy{
 				Clients: []api.AuthorizedClient{{
-					Client: api.Client{Namespace: "team-b", Name: "workload-2"},
-					Roles:  []string{"reader", "writer"},
+					Namespace: "team-b", Name: "workload-2",
+					Roles: []string{"reader", "writer"},
 				}},
 				AllowedNamespaces:    []string{"team-c", "team-d"},
 				AllowedImpersonators: []api.Impersonator{{Issuer: "https://identity.example", Subject: "alice"}},

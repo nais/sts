@@ -76,8 +76,8 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request *Tok
 	subjectTokenClaims, err := a.TokenExchangeVerifier.Verify(ctx, request.SubjectToken, func(claims *jwt.AccessTokenClaims) error {
 		// Only check these claims for subject tokens issued by this STS, since we don't control the claims of externally issued subject tokens.
 		if claims.Issuer == string(a.Issuer) {
-			if !slices.Contains(claims.Audience, string(caller.Client.ID)) {
-				return fmt.Errorf("subject token audience %q does not contain client_id %q", claims.Audience, caller.Client.ID)
+			if !slices.Contains(claims.Audience, string(caller.ID)) {
+				return fmt.Errorf("subject token audience %q does not contain client_id %q", claims.Audience, caller.ID)
 			}
 			// Impersonation is not allowed for subject tokens issued by this STS
 			if caller.Impersonator != nil {
@@ -159,7 +159,7 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr {
 	subjectIssuer := result.SubjectTokenClaims.Issuer
 	attrs := []slog.Attr{
-		slog.String("client_id", string(result.Caller.Client.ID)),
+		slog.String("client_id", string(result.Caller.ID)),
 		slog.String("target", string(result.Target)),
 		slog.Int("role_count", len(result.Roles)),
 		slog.String("subject_token_issuer", subjectIssuer),

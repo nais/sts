@@ -7,7 +7,6 @@ import (
 
 	"github.com/nais/sts/internal/jwt"
 	"github.com/stretchr/testify/require"
-	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
 type impersonationClientStore struct {
@@ -53,7 +52,7 @@ func TestResolveCallerIdentityRejectsImpersonation(t *testing.T) {
 				}},
 				AuthorizationServerConfig: cfg,
 			}
-			claims := &jwt.AccessTokenClaims{TokenClaims: oidc.TokenClaims{Issuer: issuer, Subject: tt.subject}, Claims: map[string]json.RawMessage{}}
+			claims := &jwt.AccessTokenClaims{Issuer: issuer, Subject: tt.subject, Claims: map[string]json.RawMessage{}}
 			if tt.subject != "" {
 				claims.Claims["sub"] = json.RawMessage(strconv.Quote(tt.subject))
 			}

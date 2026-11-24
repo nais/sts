@@ -98,8 +98,8 @@ func TestRegistratorVerifiesAPIClientStatement(t *testing.T) {
 		AuthorizationPolicy: api.AuthorizationPolicy{
 			AllowedImpersonators: []api.Impersonator{{Issuer: "https://identity.example", Subject: "alice"}},
 			Clients: []api.AuthorizedClient{
-				{Client: api.Client{Namespace: "team-b", Name: "app-b"}, Roles: []string{"reader"}},
-				{Client: api.Client{Namespace: "team-c", Name: "app-c"}},
+				{Namespace: "team-b", Name: "app-b", Roles: []string{"reader"}},
+				{Namespace: "team-c", Name: "app-c"},
 			},
 		},
 	}

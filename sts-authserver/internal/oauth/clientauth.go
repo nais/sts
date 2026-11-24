@@ -90,7 +90,7 @@ func (a *AuthorizationServer) resolveCallerIdentity(claims *jwt.AccessTokenClaim
 		identity.Client = client
 	}
 
-	if !a.EnvironmentAllowsIssuer(Name(identity.Client.Environment), jwt.Issuer(claims.Issuer)) {
+	if !a.EnvironmentAllowsIssuer(Name(identity.Environment), jwt.Issuer(claims.Issuer)) {
 		return CallerIdentity{}, errs.InvalidClient(nil, "client authentication failed")
 	}
 	return identity, nil
@@ -98,5 +98,5 @@ func (a *AuthorizationServer) resolveCallerIdentity(claims *jwt.AccessTokenClaim
 
 func (c CallerIdentity) AllowsImpersonation() bool {
 	return c.Impersonator != nil && c.Impersonator.Subject != "" &&
-		slices.Contains(c.Client.AuthorizationPolicy.AllowedImpersonators, *c.Impersonator)
+		slices.Contains(c.AuthorizationPolicy.AllowedImpersonators, *c.Impersonator)
 }
