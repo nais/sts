@@ -20,6 +20,8 @@ func TestOAuthClientScheme(t *testing.T) {
 	}{
 		{kind: "OAuthClient", obj: &stsv1.OAuthClient{}},
 		{kind: "OAuthClientList", obj: &stsv1.OAuthClientList{}},
+		{kind: "OAuthImpersonation", obj: &stsv1.OAuthImpersonation{}},
+		{kind: "OAuthImpersonationList", obj: &stsv1.OAuthImpersonationList{}},
 	} {
 		t.Run(tt.kind, func(t *testing.T) {
 			gvk := stsv1.GroupVersion.WithKind(tt.kind)
