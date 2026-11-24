@@ -25,7 +25,7 @@ authorizationServer:
       alias: kubernetes
       mode: workload
       expectedAudience: nais
-      maxClientAuthTokenLifetime: 1h
+      maxTokenLifetime: 1h
       clientClaims:
         namespace: kubernetes.io.namespace
         name: kubernetes.io.serviceaccount.name
@@ -60,7 +60,7 @@ STS checks the bearer token against the configuration:
 - `iat` and `exp` are valid timestamps. STS allows one minute of clock skew
   when it checks both claims.
 - `exp` must follow `iat`. The lifetime (`exp` - `iat`) cannot exceed the issuer's
-  `maxClientAuthTokenLifetime` plus one minute. In this example, the limit is
+  `maxTokenLifetime` plus one minute. In this example, the limit is
   one hour and one minute.
 
 ## Software statement

@@ -23,7 +23,7 @@ func NewClientAuthTokenVerifier(ctx context.Context, httpClient *http.Client, is
 	}
 
 	for _, cfg := range issuers {
-		opts = append(opts, jwt.WithIssuer(cfg.Issuer, jwt.WithExpectedAudience(cfg.ExpectedAudience), jwt.WithMaxTokenLifetime(cfg.MaxClientAuthTokenLifetime)))
+		opts = append(opts, jwt.WithIssuer(cfg.Issuer, jwt.WithExpectedAudience(cfg.ExpectedAudience), jwt.WithMaxTokenLifetime(cfg.MaxTokenLifetime)))
 	}
 
 	return jwt.NewTokenVerifier(ctx, opts...)

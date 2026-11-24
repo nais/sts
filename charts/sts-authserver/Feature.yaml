@@ -39,7 +39,7 @@ values:
           alias: kubernetes
           mode: workload
           expectedAudience: nais
-          maxClientAuthTokenLifetime: 10m
+          maxTokenLifetime: 10m
           clientClaims:
             namespace: kubernetes.io.namespace
             name: kubernetes.io.serviceaccount.name

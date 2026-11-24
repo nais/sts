@@ -19,9 +19,9 @@ func validAuthorizationServerConfig() AuthorizationServerConfig {
 		"cluster-dev": {
 			Issuer: "https://client.example", Alias: "kubernetes", Mode: ClientAuthWorkload,
 			ClientClaims:     &ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
-			ExpectedAudience: "nais", MaxClientAuthTokenLifetime: time.Hour,
+			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
 		},
-		"employee": {Issuer: "https://people.example", Alias: "employee", Mode: ClientAuthImpersonation, ExpectedAudience: "people-app", MaxClientAuthTokenLifetime: 2 * time.Hour},
+		"employee": {Issuer: "https://people.example", Alias: "employee", Mode: ClientAuthImpersonation, ExpectedAudience: "people-app", MaxTokenLifetime: 2 * time.Hour},
 	}
 	cfg.Environments = Environments{{
 		Name: "dev", ClientAuthIssuers: []string{"cluster-dev", "employee"},
@@ -97,7 +97,7 @@ clientAuthIssuers:
     alias: employee
     mode: impersonation
     expectedAudience: people-app
-    maxClientAuthTokenLifetime: 2h
+    maxTokenLifetime: 2h
 environments:
   - name: dev
     clientAuthIssuers: &issuers [cluster-dev, employee]
@@ -113,9 +113,9 @@ environments:
       subject: operator-prod
 `), &cfg))
 	assert.Equal(t, "nais", cfg.ClientAuthIssuers["cluster-dev"].ExpectedAudience)
-	assert.Equal(t, time.Hour, cfg.ClientAuthIssuers["cluster-dev"].MaxClientAuthTokenLifetime)
+	assert.Equal(t, time.Hour, cfg.ClientAuthIssuers["cluster-dev"].MaxTokenLifetime)
 	assert.Equal(t, "people-app", cfg.ClientAuthIssuers["employee"].ExpectedAudience)
-	assert.Equal(t, 2*time.Hour, cfg.ClientAuthIssuers["employee"].MaxClientAuthTokenLifetime)
+	assert.Equal(t, 2*time.Hour, cfg.ClientAuthIssuers["employee"].MaxTokenLifetime)
 	unused := cfg.ClientAuthIssuers["employee"]
 	unused.Issuer, unused.Alias = "https://unused.example", "unused"
 	cfg.ClientAuthIssuers["unused"] = unused
@@ -140,7 +140,7 @@ func TestClientAuthConfigValidate(t *testing.T) {
 		"missing name":        func(c *ClientAuthConfig) { c.ClientClaims.Name = "" },
 		"irrelevant mappings": func(c *ClientAuthConfig) { c.Mode = ClientAuthImpersonation },
 		"missing audience":    func(c *ClientAuthConfig) { c.ExpectedAudience = "" },
-		"zero lifetime":       func(c *ClientAuthConfig) { c.MaxClientAuthTokenLifetime = 0 },
+		"zero lifetime":       func(c *ClientAuthConfig) { c.MaxTokenLifetime = 0 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := validAuthorizationServerConfig().ClientAuthIssuers["cluster-dev"]

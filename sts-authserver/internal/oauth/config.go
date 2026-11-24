@@ -113,8 +113,7 @@ type ClientAuthConfig struct {
 	Mode             ClientAuthMode `yaml:"mode"`
 	ClientClaims     *ClientClaims  `yaml:"clientClaims"`
 	ExpectedAudience string         `yaml:"expectedAudience" default:"nais"`
-	// TODO: rename to MaxTokenLifetime
-	MaxClientAuthTokenLifetime time.Duration `yaml:"maxClientAuthTokenLifetime" default:"1h"`
+	MaxTokenLifetime time.Duration  `yaml:"maxTokenLifetime" default:"1h"`
 }
 
 // ClientClaims contains dotted paths to nonempty string claims.
@@ -130,8 +129,8 @@ func (c ClientAuthConfig) Validate() error {
 	if err := validateSecureURL(string(c.Issuer)); err != nil {
 		return fmt.Errorf("client auth issuer: %w", err)
 	}
-	if c.MaxClientAuthTokenLifetime <= 0 {
-		return fmt.Errorf("maximum client auth token lifetime must be positive")
+	if c.MaxTokenLifetime <= 0 {
+		return fmt.Errorf("maximum token lifetime must be positive")
 	}
 	if c.ExpectedAudience == "" {
 		return fmt.Errorf("expected audience must not be empty")

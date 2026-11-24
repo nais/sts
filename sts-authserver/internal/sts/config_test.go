@@ -29,7 +29,7 @@ func TestLoadFileUsesDefaults(t *testing.T) {
 	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
 	assert.Equal(t, "text", cfg.LogFormat)
 	assert.Equal(t, "nais", cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-dev"].ExpectedAudience)
-	assert.Equal(t, time.Hour, cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-dev"].MaxClientAuthTokenLifetime)
+	assert.Equal(t, time.Hour, cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-dev"].MaxTokenLifetime)
 	assert.Equal(t, 15*time.Minute, cfg.AuthorizationServerConfig.TokenExpiry)
 }
 
@@ -58,11 +58,11 @@ func TestLoadFileOverridesDefaults(t *testing.T) {
 	base := testConfig
 
 	t.Run("explicit values", func(t *testing.T) {
-		cfg, err := loadFile(writeConfig(t, strings.Replace(base, "      mode: workload\n", "      mode: workload\n      expectedAudience: custom\n      maxClientAuthTokenLifetime: 30m\n", 1)+"  tokenExpiry: 5m\n"))
+		cfg, err := loadFile(writeConfig(t, strings.Replace(base, "      mode: workload\n", "      mode: workload\n      expectedAudience: custom\n      maxTokenLifetime: 30m\n", 1)+"  tokenExpiry: 5m\n"))
 		require.NoError(t, err)
 		issuer := cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-dev"]
 		assert.Equal(t, "custom", issuer.ExpectedAudience)
-		assert.Equal(t, 30*time.Minute, issuer.MaxClientAuthTokenLifetime)
+		assert.Equal(t, 30*time.Minute, issuer.MaxTokenLifetime)
 		assert.Equal(t, 5*time.Minute, cfg.AuthorizationServerConfig.TokenExpiry)
 	})
 
@@ -71,7 +71,7 @@ func TestLoadFileOverridesDefaults(t *testing.T) {
 		want  string
 	}{
 		{`      expectedAudience: ""`, "expected audience must not be empty"},
-		{"      maxClientAuthTokenLifetime: 0s", "maximum client auth token lifetime must be positive"},
+		{"      maxTokenLifetime: 0s", "maximum token lifetime must be positive"},
 	} {
 		t.Run(strings.TrimSpace(tt.field), func(t *testing.T) {
 			_, err := loadFile(writeConfig(t, strings.Replace(base, "      mode: workload\n", "      mode: workload\n"+tt.field+"\n", 1)))

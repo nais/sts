@@ -150,16 +150,16 @@ func startSts(t testing.TB, oauthServer testServer, opts ...func(*oauth.Authoriz
 		"cluster-env1": {
 			Issuer: jwt.Issuer(oauthServer.Endpoint("env1")), Alias: "kubernetes", Mode: oauth.ClientAuthWorkload,
 			ClientClaims:     &oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
-			ExpectedAudience: "nais", MaxClientAuthTokenLifetime: time.Hour,
+			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
 		},
 		"cluster-env2": {
 			Issuer: jwt.Issuer(oauthServer.Endpoint("env2")), Alias: "kubernetes", Mode: oauth.ClientAuthWorkload,
 			ClientClaims:     &oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"},
-			ExpectedAudience: "nais", MaxClientAuthTokenLifetime: time.Hour,
+			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
 		},
 		"people": {
 			Issuer: jwt.Issuer(oauthServer.Endpoint("people")), Alias: "people", Mode: oauth.ClientAuthImpersonation,
-			ExpectedAudience: "nais", MaxClientAuthTokenLifetime: time.Hour,
+			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
 		},
 	}
 	authCfg.Environments = oauth.Environments{

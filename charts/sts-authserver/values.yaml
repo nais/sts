@@ -19,7 +19,7 @@ config:
         mode: workload
         # Client assertions and registration bearer tokens use this as their sole audience.
         expectedAudience: nais
-        maxClientAuthTokenLifetime: "10m"
+        maxTokenLifetime: "10m"
         clientClaims:
           namespace: kubernetes.io.namespace
           name: kubernetes.io.serviceaccount.name

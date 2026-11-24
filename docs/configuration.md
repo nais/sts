@@ -9,7 +9,7 @@ they are rejected where validation requires nonempty or positive values.
 Programmatic callers and tests can start with `oauth.DefaultAuthorizationServerConfig()`
 and then assign required fields and overrides. Plain struct literals do not apply defaults.
 For programmatically added client authentication issuers, set every field explicitly,
-including `ExpectedAudience` and `MaxClientAuthTokenLifetime`; defaults only apply when decoding YAML.
+including `ExpectedAudience` and `MaxTokenLifetime`; defaults only apply when decoding YAML.
 The shared defaults helper lives in `internal/config`; the loader and its tests live in `internal/sts`.
 A nonempty `DATABASE_URL` environment variable overrides the file's `databaseUrl`
 before validation. Otherwise, `databaseUrl` must be supplied in the file.
@@ -38,7 +38,7 @@ The Helm chart's `config` values map verbatim to this file's fields.
 | `clientAuthIssuers.<name>.alias`                  |           | Yes      | Nonempty; must not overlap an external issuer alias.          | Alias assigned to subject tokens from this issuer.                                             |
 | `clientAuthIssuers.<name>.mode`                   |           | Yes      | `workload` or `impersonation`.                                | How client assertions identify the caller and client.                                          |
 | `clientAuthIssuers.<name>.expectedAudience`       | `nais`    |          | Nonempty.                                                     | Sole audience for tokens from this issuer: client assertions, registration bearer tokens, and subject tokens. |
-| `clientAuthIssuers.<name>.maxClientAuthTokenLifetime` | `1h`  |          | Positive duration.                                            | Maximum lifetime of tokens from this issuer, plus one minute of tolerance.                     |
+| `clientAuthIssuers.<name>.maxTokenLifetime`       | `1h`      |          | Positive duration.                                            | Maximum lifetime of tokens from this issuer, plus one minute of tolerance.                     |
 | `clientAuthIssuers.<name>.clientClaims.namespace` |           | Workload | Nonempty dotted claim path.                                  | Namespace used to resolve the registered client.                                               |
 | `clientAuthIssuers.<name>.clientClaims.name`      |           | Workload | Nonempty dotted claim path.                                  | Name used to resolve the registered client.                                                    |
 | `environments[].clientAuthIssuers`                |           | Yes      | Nonempty list of existing definition names; no duplicates.     | Issuers permitted to authenticate clients in this environment.                                 |
@@ -108,7 +108,7 @@ clientAuthIssuers:
     alias: employee
     mode: impersonation
     expectedAudience: sts
-    maxClientAuthTokenLifetime: 2h
+    maxTokenLifetime: 2h
 
 environments:
   - name: dev
@@ -165,7 +165,7 @@ identity provider.
 
 STS accepts subject tokens from `clientAuthIssuers` definitions referenced by an
 environment, using each definition's explicit `alias`. These subject tokens must
-also satisfy the definition's `expectedAudience` and `maxClientAuthTokenLifetime`.
+also satisfy the definition's `expectedAudience` and `maxTokenLifetime`.
 Configure external issuers in `externalIssuers` with aliases as keys and issuer URLs
 as values; they must not reuse any client authentication issuer URL or alias.
 

@@ -63,7 +63,7 @@ spec:
 ```
 
 - `audience` must match the cluster issuer's `clientAuthIssuers.<name>.expectedAudience` (default `nais`).
-- Keep `expirationSeconds` within that issuer's `maxClientAuthTokenLifetime` (default `1h`).
+- Keep `expirationSeconds` within that issuer's `maxTokenLifetime` (default `1h`).
 
 For reference, a decoded projected service account token can contain:
 
