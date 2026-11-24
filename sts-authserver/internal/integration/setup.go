@@ -40,6 +40,7 @@ type testFixtures struct {
 	Client2          clientFixture
 	Client3          clientFixture
 	RegisteredTarget clientFixture
+	Impersonator     string
 	Role             string
 	TokenExpiry      time.Duration
 }
@@ -69,6 +70,7 @@ var fixtures = testFixtures{
 	Client2:          newClientFixture("env1", "namespace1", "workload2"),
 	Client3:          newClientFixture("env1", "namespace1", "workload3"),
 	RegisteredTarget: newClientFixture("env1", "namespace1", "registered-workload"),
+	Impersonator:     "person1",
 	Role:             "reader",
 	TokenExpiry:      time.Hour,
 }
@@ -144,22 +146,42 @@ func startSts(t testing.TB, oauthServer testServer, opts ...func(*oauth.Authoriz
 
 	authCfg := oauth.DefaultAuthorizationServerConfig()
 	authCfg.Issuer = stsapi.STSIssuer(server.Endpoint())
+	authCfg.ClientAuthIssuers = oauth.ClientAuthIssuers{
+		"cluster-env1": {
+			Issuer: jwt.Issuer(oauthServer.Endpoint("env1")), Alias: "kubernetes", Mode: oauth.ClientAuthWorkload,
+			ClaimMappings:    oauth.ClaimMappings{Client: oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"}},
+			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
+		},
+		"cluster-env2": {
+			Issuer: jwt.Issuer(oauthServer.Endpoint("env2")), Alias: "kubernetes", Mode: oauth.ClientAuthWorkload,
+			ClaimMappings:    oauth.ClaimMappings{Client: oauth.ClientClaims{Namespace: "kubernetes.io.namespace", Name: "kubernetes.io.serviceaccount.name"}},
+			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
+		},
+		"people": {
+			Issuer: jwt.Issuer(oauthServer.Endpoint("people")), Alias: "people", Mode: oauth.ClientAuthImpersonation, ClaimMappings: oauth.ClaimMappings{Impersonator: &oauth.ImpersonatorClaims{Subject: "sub"}},
+			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
+		},
+		"people-mapped": {
+			Issuer: jwt.Issuer(oauthServer.Endpoint("people-mapped")), Alias: "people", Mode: oauth.ClientAuthImpersonation, ClaimMappings: oauth.ClaimMappings{Impersonator: &oauth.ImpersonatorClaims{Subject: "person.ident"}},
+			ExpectedAudience: "nais", MaxTokenLifetime: time.Hour,
+		},
+	}
 	authCfg.Environments = oauth.Environments{
 		{
-			Name:                  "env1",
-			ClientAuthIssuer:      jwt.Issuer(oauthServer.Endpoint("env1")),
-			ClientAuthIssuerAlias: "kubernetes",
+			Name:              "env1",
+			ClientAuthIssuers: []string{"cluster-env1", "people", "people-mapped"},
 			Registrator: oauth.RegistratorConfig{
+				IssuerRef:          "cluster-env1",
 				Subject:            "system:serviceaccount:namespace1:registrator1",
 				RegistratorJwksUri: registratorServer.URL,
 				SigningAlg:         signer.Algorithm(),
 			},
 		},
 		{
-			Name:                  "env2",
-			ClientAuthIssuer:      jwt.Issuer(oauthServer.Endpoint("env2")),
-			ClientAuthIssuerAlias: "kubernetes",
+			Name:              "env2",
+			ClientAuthIssuers: []string{"cluster-env2"},
 			Registrator: oauth.RegistratorConfig{
+				IssuerRef:          "cluster-env2",
 				Subject:            "system:serviceaccount:namespace1:registrator2",
 				RegistratorJwksUri: registratorServer.URL,
 				SigningAlg:         signer.Algorithm(),
@@ -257,8 +279,16 @@ func seedSts(t testing.TB, dsn string, oauthServer testServer) {
 	defer pool.Close()
 
 	queries := sqlgen.New(pool)
+	impersonators := []oauth.Impersonator{
+		{Issuer: oauthServer.Endpoint("people"), Subject: fixtures.Impersonator},
+		{Issuer: oauthServer.Endpoint("people-mapped"), Subject: fixtures.Impersonator},
+	}
 	policies := map[clientFixture]oauth.AuthorizationPolicy{
-		fixtures.Client2: {Clients: []oauth.AuthorizedClient{{ClientID: oauth.ClientID(fixtures.Client1.ID), Roles: oauth.Roles{fixtures.Role}}}},
+		fixtures.Client1: {AllowedImpersonators: impersonators},
+		fixtures.Client2: {
+			Clients:              []oauth.AuthorizedClient{{ClientID: oauth.ClientID(fixtures.Client1.ID), Roles: oauth.Roles{fixtures.Role}}},
+			AllowedImpersonators: impersonators,
+		},
 		fixtures.Client3: {Clients: []oauth.AuthorizedClient{{ClientID: oauth.ClientID(fixtures.Client2.ID), Roles: oauth.Roles{fixtures.Role}}}},
 	}
 	for _, client := range []clientFixture{fixtures.Client1, fixtures.Client2, fixtures.Client3} {

@@ -394,7 +394,7 @@ func subtractHistogram(before *dto.Histogram, after *dto.Histogram) (*dto.Histog
 	if sumDelta < 0 {
 		sumDelta = 0
 	}
-	result := &dto.Histogram{SampleCount: uint64Pointer(after.GetSampleCount() - before.GetSampleCount()), SampleSum: float64Pointer(sumDelta)}
+	result := &dto.Histogram{SampleCount: new(after.GetSampleCount() - before.GetSampleCount()), SampleSum: new(sumDelta)}
 	for i, bucket := range after.Bucket {
 		oldCount := uint64(0)
 		if before.GetSampleCount() > 0 && i < len(before.Bucket) {
@@ -406,7 +406,7 @@ func subtractHistogram(before *dto.Histogram, after *dto.Histogram) (*dto.Histog
 		if bucket.GetCumulativeCount() < oldCount {
 			return nil, errors.New("histogram bucket reset")
 		}
-		result.Bucket = append(result.Bucket, &dto.Bucket{UpperBound: float64Pointer(bucket.GetUpperBound()), CumulativeCount: uint64Pointer(bucket.GetCumulativeCount() - oldCount)})
+		result.Bucket = append(result.Bucket, &dto.Bucket{UpperBound: new(bucket.GetUpperBound()), CumulativeCount: new(bucket.GetCumulativeCount() - oldCount)})
 	}
 	return result, nil
 }
@@ -420,17 +420,13 @@ func mergeHistogram(target, source *dto.Histogram) error {
 			return errors.New("histogram bucket layout changed")
 		}
 	}
-	target.SampleCount = uint64Pointer(target.GetSampleCount() + source.GetSampleCount())
-	target.SampleSum = float64Pointer(target.GetSampleSum() + source.GetSampleSum())
+	target.SampleCount = new(target.GetSampleCount() + source.GetSampleCount())
+	target.SampleSum = new(target.GetSampleSum() + source.GetSampleSum())
 	for i := range target.Bucket {
-		target.Bucket[i].CumulativeCount = uint64Pointer(target.Bucket[i].GetCumulativeCount() + source.Bucket[i].GetCumulativeCount())
+		target.Bucket[i].CumulativeCount = new(target.Bucket[i].GetCumulativeCount() + source.Bucket[i].GetCumulativeCount())
 	}
 	return nil
 }
-
-func uint64Pointer(value uint64) *uint64 { return &value }
-
-func float64Pointer(value float64) *float64 { return &value }
 
 func histogramRows(family *dto.MetricFamily, nameLabel string, includeOperation bool) []histogramResult {
 	if family == nil {

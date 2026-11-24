@@ -28,6 +28,20 @@ values:
     description: 'JSON object mapping aliases to issuer URLs, e.g. {"identity":"https://identity.example.com"}.'
     config:
       type: string
+  config.authorizationServer.clientAuthIssuers:
+    displayName: Client authentication issuers
+    computed:
+      template: |
+        {{ range $obj := .Envs }}
+        {{ if and (hasPrefix $.Env.name $obj.name) (not (empty $obj.apiserver_oidc_issuer)) }}
+        {{ $obj.name | quote }}:
+          issuer: {{ $obj.apiserver_oidc_issuer | quote }}
+          alias: kubernetes
+          mode: workload
+          expectedAudience: nais
+          maxTokenLifetime: 10m
+        {{ end }}
+        {{ end }}
   config.authorizationServer.environments:
     displayName: Trust domains
     computed:
@@ -35,8 +49,9 @@ values:
         {{ range $obj := .Envs }}
         {{ if and (hasPrefix $.Env.name $obj.name) (not (empty $obj.apiserver_oidc_issuer)) }}
         - name: {{ $obj.name | quote }}
-          clientAuthIssuer: {{ $obj.apiserver_oidc_issuer | quote }}
+          clientAuthIssuers: [{{ $obj.name | quote }}]
           registrator:
+            issuerRef: {{ $obj.name | quote }}
             subject: system:serviceaccount:nais-system:sts-operator
             registratorJwksUri: https://sts-operator.{{ $obj.name }}.{{ $.Tenant.Name }}.cloud.nais.io/jwks
             signingAlg: ES256

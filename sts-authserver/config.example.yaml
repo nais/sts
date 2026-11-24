@@ -6,22 +6,43 @@ logFormat: text
 
 authorizationServer:
   issuer: http://localhost:8080
-  # Client assertions and registration bearer tokens use this as their sole audience.
-  expectedAudience: nais
   externalIssuers:
     name1: http://localhost:3004/subject1
     name2: http://localhost:3004/subject2
   tokenExpiry: "1h"
+  clientAuthIssuers:
+    cluster-fss:
+      issuer: http://localhost:3004/env1
+      alias: kubernetes
+      mode: workload
+      # Defaults; override for non-Kubernetes token claims.
+      claimMappings:
+        client:
+          namespace: kubernetes.io.namespace
+          name: kubernetes.io.serviceaccount.name
+    cluster-gcp:
+      issuer: http://localhost:3004/env2
+      alias: kubernetes
+      mode: workload
+    people:
+      issuer: http://localhost:3004/people
+      alias: people
+      mode: impersonation
+      claimMappings:
+        impersonator:
+          subject: sub
   environments:
-    - name: dev-fss # required
-      clientAuthIssuer: http://localhost:3004/env1 # required
-      registrator: # required
-        subject: system:serviceaccount:namespace1:client-registrator # required
-        registratorJwksUri: http://localhost:3004/env1/jwks # required
-        signingAlg: ES256 # required
-    - name: dev-gcp
-      clientAuthIssuer: http://localhost:3004/env2
+    - name: env1
+      clientAuthIssuers: [cluster-fss, people]
       registrator:
+        issuerRef: cluster-fss
+        subject: system:serviceaccount:namespace1:client-registrator
+        registratorJwksUri: http://localhost:3004/env1/jwks
+        signingAlg: ES256
+    - name: env2
+      clientAuthIssuers: [cluster-gcp]
+      registrator:
+        issuerRef: cluster-gcp
         subject: system:serviceaccount:namespace1:client-registrator
         registratorJwksUri: http://localhost:3004/env2/jwks
         signingAlg: ES256

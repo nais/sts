@@ -2,56 +2,68 @@ package sts
 
 import (
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/nais/sts/api"
-	"github.com/nais/sts/internal/jwt"
 	"github.com/nais/sts/internal/oauth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestLoadFileUsesDefaults(t *testing.T) {
-	cfg, err := loadFile(writeConfig(t, `
-databaseUrl: postgres://localhost/sts
-authorizationServer:
-  issuer: https://sts.example
-  environments:
-    - name: dev
-      clientAuthIssuer: https://client.example
-      registrator:
-        subject: registrator
-        registratorJwksUri: https://registrator.example/jwks
-        signingAlg: RS256
-  externalIssuers:
-    issuerName: https://subject.example
-`))
+	cfg, err := loadFile(writeConfig(t, testConfig+"  externalIssuers:\n    issuerName: https://subject.example\n"))
 	require.NoError(t, err)
 
 	assert.Equal(t, api.STSIssuer("https://sts.example"), cfg.AuthorizationServerConfig.Issuer)
-	assert.Equal(t, []jwt.Issuer{"https://client.example"}, cfg.AuthorizationServerConfig.Environments.ClientAuthIssuers())
-	assert.Equal(t, "kubernetes", cfg.AuthorizationServerConfig.Environments[0].ClientAuthIssuerAlias)
+	assert.Equal(t, []string{"cluster-dev"}, slices.Collect(maps.Keys(cfg.AuthorizationServerConfig.ReferencedClientAuthIssuers())))
+	assert.Equal(t, "kubernetes", cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-dev"].Alias)
 	assert.Equal(t, oauth.IssuerAliases{"issuerName": "https://subject.example"}, cfg.AuthorizationServerConfig.ExternalIssuers)
 	assert.Equal(t, ":8080", cfg.BindAddress)
 	assert.Equal(t, ":8081", cfg.InternalBindAddress)
 	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
 	assert.Equal(t, "text", cfg.LogFormat)
-	assert.Equal(t, "nais", cfg.AuthorizationServerConfig.ExpectedAudience)
-	assert.Equal(t, time.Hour, cfg.AuthorizationServerConfig.MaxClientAuthTokenLifetime)
+	assert.Equal(t, "nais", cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-dev"].ExpectedAudience)
+	assert.Equal(t, time.Hour, cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-dev"].MaxTokenLifetime)
 	assert.Equal(t, 15*time.Minute, cfg.AuthorizationServerConfig.TokenExpiry)
 }
 
+const testConfig = `databaseUrl: postgres://localhost/sts
+authorizationServer:
+  issuer: https://sts.example
+  clientAuthIssuers:
+    cluster-dev:
+      issuer: https://client.example
+      alias: kubernetes
+      mode: workload
+      claimMappings:
+        client:
+          namespace: kubernetes.io.namespace
+          name: kubernetes.io.serviceaccount.name
+  environments:
+    - name: dev
+      clientAuthIssuers: [cluster-dev]
+      registrator:
+        issuerRef: cluster-dev
+        subject: registrator
+        registratorJwksUri: https://registrator.example/jwks
+        signingAlg: RS256
+`
+
 func TestLoadFileOverridesDefaults(t *testing.T) {
-	base := "databaseUrl: postgres://localhost/sts\nauthorizationServer:\n  issuer: https://sts.example\n  environments:\n    - name: dev\n      clientAuthIssuer: https://client.example\n      registrator:\n        subject: registrator\n        registratorJwksUri: https://registrator.example/jwks\n        signingAlg: RS256\n"
+	base := testConfig
 
 	t.Run("explicit values", func(t *testing.T) {
-		cfg, err := loadFile(writeConfig(t, base+"  expectedAudience: custom\n  maxClientAuthTokenLifetime: 30m\n  tokenExpiry: 5m\n"))
+		cfg, err := loadFile(writeConfig(t, strings.Replace(base, "      mode: workload\n", "      mode: workload\n      expectedAudience: custom\n      maxTokenLifetime: 30m\n", 1)+"  tokenExpiry: 5m\n"))
 		require.NoError(t, err)
-		assert.Equal(t, "custom", cfg.AuthorizationServerConfig.ExpectedAudience)
-		assert.Equal(t, 30*time.Minute, cfg.AuthorizationServerConfig.MaxClientAuthTokenLifetime)
+		issuer := cfg.AuthorizationServerConfig.ClientAuthIssuers["cluster-dev"]
+		assert.Equal(t, "custom", issuer.ExpectedAudience)
+		assert.Equal(t, 30*time.Minute, issuer.MaxTokenLifetime)
 		assert.Equal(t, 5*time.Minute, cfg.AuthorizationServerConfig.TokenExpiry)
 	})
 
@@ -59,15 +71,18 @@ func TestLoadFileOverridesDefaults(t *testing.T) {
 		field string
 		want  string
 	}{
-		{`expectedAudience: ""`, "expected audience must not be empty"},
-		{"maxClientAuthTokenLifetime: 0s", "maximum client auth token lifetime must be positive"},
-		{"tokenExpiry: 0s", "token expiry must be positive"},
+		{`      expectedAudience: ""`, "expected audience must not be empty"},
+		{"      maxTokenLifetime: 0s", "maximum token lifetime must be positive"},
 	} {
-		t.Run(tt.field, func(t *testing.T) {
-			_, err := loadFile(writeConfig(t, base+"  "+tt.field+"\n"))
+		t.Run(strings.TrimSpace(tt.field), func(t *testing.T) {
+			_, err := loadFile(writeConfig(t, strings.Replace(base, "      mode: workload\n", "      mode: workload\n"+tt.field+"\n", 1)))
 			require.ErrorContains(t, err, tt.want)
 		})
 	}
+	t.Run("tokenExpiry: 0s", func(t *testing.T) {
+		_, err := loadFile(writeConfig(t, base+"  tokenExpiry: 0s\n"))
+		require.ErrorContains(t, err, "token expiry must be positive")
+	})
 }
 
 func TestLoadFileDatabaseURL(t *testing.T) {
@@ -85,7 +100,7 @@ func TestLoadFileDatabaseURL(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("DATABASE_URL", tt.envURL)
-			cfg, err := loadFile(writeConfig(t, "databaseUrl: "+tt.fileURL+"\nauthorizationServer:\n  issuer: https://sts.example\n  environments:\n    - name: dev\n      clientAuthIssuer: https://client.example\n      registrator:\n        subject: registrator\n        registratorJwksUri: https://registrator.example/jwks\n        signingAlg: RS256\n"))
+			cfg, err := loadFile(writeConfig(t, strings.Replace(testConfig, "postgres://localhost/sts", tt.fileURL, 1)))
 			if tt.wantErr {
 				require.ErrorContains(t, err, "database URL must not be empty")
 				return
@@ -102,6 +117,8 @@ func TestLoadFileRejectsUnknownFields(t *testing.T) {
 		"authorizationServer:\n  unknown: value\n",
 		"authorizationServer:\n  environments:\n    - unknown: value\n",
 		"authorizationServer:\n  environments:\n    - registrator:\n        unknown: value\n",
+		"authorizationServer:\n  clientAuthIssuers:\n    cluster-dev:\n      unknown: value\n",
+		"authorizationServer:\n  clientAuthIssuers:\n    cluster-dev:\n      claimMappings:\n        client:\n          unknown: value\n",
 	} {
 		_, err := loadFile(writeConfig(t, contents))
 		require.ErrorContains(t, err, "field unknown not found")
@@ -140,7 +157,7 @@ func writeConfig(t *testing.T, contents string) string {
 }
 
 func TestLoadFileAdditionalCAFile(t *testing.T) {
-	base := "databaseUrl: postgres://localhost/sts\nauthorizationServer:\n  issuer: https://sts.example\n  environments:\n    - name: dev\n      clientAuthIssuer: https://client.example\n      registrator:\n        subject: registrator\n        registratorJwksUri: https://registrator.example/jwks\n        signingAlg: RS256\n"
+	base := testConfig
 
 	cfg, err := loadFile(writeConfig(t, base))
 	require.NoError(t, err)

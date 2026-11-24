@@ -33,23 +33,36 @@ type Registrator struct {
 }
 
 func NewRegistrators(ctx context.Context, httpClient *nethttp.Client, authServerCfg oauth.AuthorizationServerConfig) (*Registrators, error) {
-	environments := authServerCfg.Environments
-	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, environments.ClientAuthIssuers(), authServerCfg.ExpectedAudience, authServerCfg.MaxClientAuthTokenLifetime)
-	if err != nil {
-		return nil, err
+	if err := authServerCfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid authorization server configuration: %w", err)
 	}
+	environments := authServerCfg.Environments
 	registrators := make(map[registratorIdentity]*Registrator, len(environments))
 	names := make([]oauth.Name, len(environments))
+
+	issuers := make(oauth.ClientAuthIssuers)
 	for i, env := range environments {
 		names[i] = env.Name
-		issuer := string(env.ClientAuthIssuer)
-		registrators[registratorIdentity{issuer: issuer, subject: env.Registrator.Subject}] = &Registrator{
-			Environment:  env.Name,
-			AuthIssuer:   issuer,
-			AuthSubject:  env.Registrator.Subject,
-			RequiredAlgs: []string{env.Registrator.SigningAlg},
-			KeySet:       rp.NewRemoteKeySet(httpClient, env.Registrator.RegistratorJwksUri),
+		cfg, ok := authServerCfg.ClientAuthIssuers[env.Registrator.IssuerRef]
+		if !ok {
+			return nil, fmt.Errorf("could not find client auth issuer for %q", env.Registrator.IssuerRef)
 		}
+		if cfg.Mode == oauth.ClientAuthWorkload {
+			issuers[string(cfg.Issuer)] = cfg
+			issuer := string(cfg.Issuer)
+			identity := registratorIdentity{issuer: issuer, subject: env.Registrator.Subject}
+			registrators[identity] = &Registrator{
+				Environment:  env.Name,
+				AuthIssuer:   issuer,
+				AuthSubject:  env.Registrator.Subject,
+				RequiredAlgs: []string{env.Registrator.SigningAlg},
+				KeySet:       rp.NewRemoteKeySet(httpClient, env.Registrator.RegistratorJwksUri),
+			}
+		}
+	}
+	verifier, err := oauth.NewClientAuthTokenVerifier(ctx, httpClient, issuers)
+	if err != nil {
+		return nil, err
 	}
 	return &Registrators{
 		environments:       names,

@@ -19,12 +19,18 @@ this [STS configuration](configuration.md):
 
 ```yaml
 authorizationServer:
-  expectedAudience: nais
-  maxClientAuthTokenLifetime: 1h
+  clientAuthIssuers:
+    cluster-env1:
+      issuer: https://issuer.example.com/env1
+      alias: kubernetes
+      mode: workload
+      expectedAudience: nais
+      maxTokenLifetime: 1h
   environments:
     - name: env1
-      clientAuthIssuer: https://issuer.example.com/env1
+      clientAuthIssuers: [cluster-env1]
       registrator:
+        issuerRef: cluster-env1
         subject: client-registrator
         registratorJwksUri: https://registrator.example.com/jwks
         signingAlg: ES256
@@ -44,13 +50,14 @@ The bearer token's decoded claims look like this:
 
 STS checks the bearer token against the configuration:
 
-- `iss` matches `environments[0].clientAuthIssuer`.
+- `iss` matches the issuer definition referenced by `environments[0].registrator.issuerRef`.
+  Other issuers trusted for client authentication cannot authenticate this registrator.
 - `sub` matches `environments[0].registrator.subject`.
-- `aud` contains only `expectedAudience`: `nais`.
+- `aud` contains only the issuer's `expectedAudience`: `nais`.
 - `iat` and `exp` are valid timestamps. STS allows one minute of clock skew
   when it checks both claims.
-- `exp` must follow `iat`. The lifetime (`exp` - `iat`) cannot exceed
-  `maxClientAuthTokenLifetime` plus one minute. In this example, the limit is
+- `exp` must follow `iat`. The lifetime (`exp` - `iat`) cannot exceed the issuer's
+  `maxTokenLifetime` plus one minute. In this example, the limit is
   one hour and one minute.
 
 ## Software statement
@@ -98,6 +105,23 @@ STS adds all roles from the policy, including `reader`, to the issued token.
 
 Roles are optional.
 Omit `roles` or supply `"roles": []` to grant access without a `urn:nais:roles` claim.
+
+### Allowed impersonators
+
+A client can allow a person to act as it by adding issuer-qualified subjects to
+its software statement's `authorization_policy`:
+
+```json
+{
+  "allowed_impersonators": [
+    {"issuer": "https://identity.example.com", "subject": "person-123"}
+  ]
+}
+```
+
+Both values are required and compared exactly against the verified client
+assertion's `iss` and `sub`. The client's environment must also configure that
+issuer with `mode: impersonation`. An absent or empty list denies impersonation.
 
 ### Public key
 

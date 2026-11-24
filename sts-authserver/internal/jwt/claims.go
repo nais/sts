@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
@@ -49,4 +50,37 @@ func (a *AccessTokenClaims) Kubernetes() (*KubernetesClaims, error) {
 		return nil, errors.New("kubernetes.io claim has no namespace or service account name")
 	}
 	return &kubernetes, nil
+}
+
+// StringClaim supports dotted object paths, not full JSONPath. Longest matching
+// keys take precedence so keys containing dots (such as kubernetes.io) work.
+func StringClaim(claims map[string]json.RawMessage, path string) (string, error) {
+	if path == "" {
+		return "", errors.New("claim path is required")
+	}
+	for key := path; key != ""; {
+		if raw, ok := claims[key]; ok {
+			if key == path {
+				var value string
+				if err := json.Unmarshal(raw, &value); err != nil {
+					return "", fmt.Errorf("claim %q must be a string: %w", path, err)
+				}
+				if value == "" {
+					return "", fmt.Errorf("claim %q must not be empty", path)
+				}
+				return value, nil
+			}
+			var nested map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &nested); err != nil {
+				return "", fmt.Errorf("claim %q must be an object: %w", key, err)
+			}
+			return StringClaim(nested, path[len(key)+1:])
+		}
+		index := strings.LastIndexByte(key, '.')
+		if index < 0 {
+			break
+		}
+		key = key[:index]
+	}
+	return "", fmt.Errorf("claim %q is missing", path)
 }

@@ -7,13 +7,25 @@ logFormat: text
 
 authorizationServer:
   issuer: http://localhost:8080
-  expectedAudience: nais
   externalIssuers:
     name1: http://localhost:3004/subject1
+  clientAuthIssuers:
+    cluster-local:
+      issuer: https://127.0.0.1:6553
+      alias: kubernetes
+      mode: workload
+    people:
+      issuer: http://localhost:3004/people
+      alias: people
+      mode: impersonation
+      claimMappings:
+        impersonator:
+          subject: sub
   environments:
     - name: sts-operator-dev
-      clientAuthIssuer: https://127.0.0.1:6553
+      clientAuthIssuers: [cluster-local, people]
       registrator:
+        issuerRef: cluster-local
         subject: system:serviceaccount:sts-operator-dev:sts-operator
         registratorJwksUri: http://localhost:8182/jwks
         signingAlg: ES256

@@ -5,7 +5,7 @@ config:
   maxConcurrentReconciles: 20
   syncInterval: 1m
 
-# Must match the authserver's authorizationServer.expectedAudience.
+# Must match expectedAudience of the authserver's clientAuthIssuers entry for this cluster.
 authToken:
   audience: nais
   expirationSeconds: 600

@@ -27,19 +27,28 @@ The image must contain the `sts-operator` binary, not the authserver. The
 [operator workflow](../../.github/workflows/operator.yaml) publishes the image
 and chart together; chart-only changes reuse the latest operator image.
 
-Configure the authserver's matching `authorizationServer.environments` entry:
+Configure the authserver's shared issuer and matching environment:
 
 ```yaml
-name: dev-gcp
-clientAuthIssuer: https://your-kubernetes-token-issuer.example.com
-registrator:
-  subject: system:serviceaccount:nais-system:sts-operator
-  registratorJwksUri: https://sts-operator.example.com/jwks
-  signingAlg: ES256
+authorizationServer:
+  clientAuthIssuers:
+    cluster-dev:
+      issuer: https://your-kubernetes-token-issuer.example.com
+      alias: kubernetes
+      mode: workload
+  environments:
+    - name: dev-gcp
+      clientAuthIssuers: [cluster-dev]
+      registrator:
+        issuerRef: cluster-dev
+        subject: system:serviceaccount:nais-system:sts-operator
+        registratorJwksUri: https://sts-operator.example.com/jwks
+        signingAlg: ES256
 ```
 
 The subject must match the release namespace and `serviceAccount.name`.
-`authToken.audience` must match `authorizationServer.expectedAudience` (default
+`authToken.audience` must match the `expectedAudience` of the authserver's
+client authentication issuer for this cluster (default
 `nais`). The chart mounts a rotating, one-hour projected service account token
 for STS authentication. Kubernetes API access uses the separate, automatically
 mounted service account token.

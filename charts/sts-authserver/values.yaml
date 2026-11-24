@@ -8,17 +8,28 @@ config:
   logFormat: json
   authorizationServer:
     issuer: https://sts.environment.tenant.cloud.nais.io
-    # Client assertions and registration bearer tokens use this as their sole audience.
-    expectedAudience: nais
     # Set an alias-to-URL map in Helm or a JSON object string in Fasit.
     # Leave unset to trust no external issuers.
     externalIssuers: null
     tokenExpiry: "1h"
-    maxClientAuthTokenLifetime: "10m"
+    clientAuthIssuers:
+      cluster-env1:
+        issuer: https://kubernetes.default.svc
+        alias: kubernetes
+        mode: workload
+        # Client assertions and registration bearer tokens use this as their sole audience.
+        expectedAudience: nais
+        maxTokenLifetime: "10m"
+        # Defaults; override for non-Kubernetes token claims.
+        claimMappings:
+          client:
+            namespace: kubernetes.io.namespace
+            name: kubernetes.io.serviceaccount.name
     environments:
       - name: env1
-        clientAuthIssuer: https://kubernetes.default.svc
+        clientAuthIssuers: [cluster-env1]
         registrator:
+          issuerRef: cluster-env1
           subject: system:serviceaccount:nais-system:sts-operator
           registratorJwksUri: https://sts-operator.environment.tenant.cloud.nais.io/jwks
           signingAlg: ES256

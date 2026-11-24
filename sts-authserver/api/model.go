@@ -19,11 +19,19 @@ type Client struct {
 	Namespace string `json:"namespace"`
 }
 
+// AuthorizationPolicy should be kept in sync with the internal API [oauth.AuthorizationPolicy].
 type AuthorizationPolicy struct {
 	AllowAll          bool               `json:"allow_all,omitempty"`
 	AllowedNamespaces []string           `json:"allowed_namespaces,omitempty"`
 	AllowedScopes     []string           `json:"allowed_scopes,omitempty"`
 	Clients           []AuthorizedClient `json:"clients,omitempty"`
+	// AllowedImpersonators identifies principals allowed to act as this client.
+	AllowedImpersonators []Impersonator `json:"allowed_impersonators,omitempty"`
+}
+
+type Impersonator struct {
+	Issuer  string `json:"issuer"`
+	Subject string `json:"subject"`
 }
 
 type AuthorizedClient struct {

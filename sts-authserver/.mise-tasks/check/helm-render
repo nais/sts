@@ -44,15 +44,18 @@ render_config | tee "$config_dir/default.json" | jq -e '
 ' >/dev/null
 
 render_config \
-  --set config.authorizationServer.maxClientAuthTokenLifetime=5m \
-  --set-string config.authorizationServer.expectedAudience=true \
   --set-json 'config.authorizationServer.externalIssuers={"identity":"https://identity.example.com"}' \
+  --set-json 'config.authorizationServer.clientAuthIssuers={
+    "cluster-dev":{"issuer":"https://issuer.example.com/dev","alias":"kubernetes","mode":"workload","expectedAudience":"true","maxTokenLifetime":"5m","claimMappings":{"client":{"namespace":"kubernetes.io.namespace","name":"kubernetes.io.serviceaccount.name"}}},
+    "cluster-prod":{"issuer":"https://issuer.example.com/prod","alias":"kubernetes","mode":"workload","claimMappings":{"client":{"namespace":"kubernetes.io.namespace","name":"kubernetes.io.serviceaccount.name"}}},
+    "employee":{"issuer":"https://people.example.com","alias":"employee","mode":"impersonation","claimMappings":{"impersonator":{"subject":"sub"}},"expectedAudience":"people-app"}
+  }' \
   --set-json 'config.authorizationServer.environments=[
-    {"name":"dev-gcp","clientAuthIssuer":"https://issuer.example.com/dev","registrator":{"subject":"system:serviceaccount:custom:operator # literal","registratorJwksUri":"https://operator.dev.example.com/jwks","signingAlg":"ES256"}},
-    {"name":"prod-gcp","clientAuthIssuer":"https://issuer.example.com/prod","registrator":{"subject":"system:serviceaccount:nais-system:sts-operator","registratorJwksUri":"https://operator.prod.example.com/jwks","signingAlg":"RS256"}}
+    {"name":"dev-gcp","clientAuthIssuers":["cluster-dev","employee"],"registrator":{"issuerRef":"cluster-dev","subject":"system:serviceaccount:custom:operator # literal","registratorJwksUri":"https://operator.dev.example.com/jwks","signingAlg":"ES256"}},
+    {"name":"prod-gcp","clientAuthIssuers":["cluster-prod","employee"],"registrator":{"issuerRef":"cluster-prod","subject":"system:serviceaccount:nais-system:sts-operator","registratorJwksUri":"https://operator.prod.example.com/jwks","signingAlg":"RS256"}}
   ]' | tee "$config_dir/custom.json" | jq -e '
     .authorizationServer as $auth |
-    $auth.expectedAudience == "true" and
+    $auth.clientAuthIssuers["cluster-dev"].expectedAudience == "true" and
     $auth.externalIssuers == {"identity":"https://identity.example.com"} and
     ($auth.environments | length) == 2 and
     $auth.environments[0].registrator.subject == "system:serviceaccount:custom:operator # literal"
@@ -84,9 +87,9 @@ fqdn_policy() {
 }
 fqdn_policy --api-versions networking.gke.io/v1alpha3 \
   --set-json 'config.authorizationServer.environments=[
-    {"name":"a","clientAuthIssuer":"https://a.example.com","registrator":{"subject":"s","registratorJwksUri":"https://op.example.com:8443/jwks","signingAlg":"ES256"}},
-    {"name":"b","clientAuthIssuer":"https://b.example.com","registrator":{"subject":"s","registratorJwksUri":"https://op.example.com/jwks","signingAlg":"ES256"}},
-    {"name":"c","clientAuthIssuer":"https://c.example.com","registrator":{"subject":"s","registratorJwksUri":"https://other.example.com/jwks","signingAlg":"ES256"}}
+    {"name":"a","clientAuthIssuers":["cluster-env1"],"registrator":{"issuerRef":"cluster-env1","subject":"operator-a","registratorJwksUri":"https://op.example.com:8443/jwks","signingAlg":"ES256"}},
+    {"name":"b","clientAuthIssuers":["cluster-env1"],"registrator":{"issuerRef":"cluster-env1","subject":"operator-b","registratorJwksUri":"https://op.example.com/jwks","signingAlg":"ES256"}},
+    {"name":"c","clientAuthIssuers":["cluster-env1"],"registrator":{"issuerRef":"cluster-env1","subject":"operator-c","registratorJwksUri":"https://other.example.com/jwks","signingAlg":"ES256"}}
   ]' | jq -e '
     .kind == "FQDNNetworkPolicy" and
     .spec.egress == [{

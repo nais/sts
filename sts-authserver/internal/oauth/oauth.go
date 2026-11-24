@@ -24,12 +24,7 @@ type AuthorizationServer struct {
 }
 
 func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg AuthorizationServerConfig, clientStore ClientStore, keyStore KeyStore, metrics *stsmetrics.Metrics) (*AuthorizationServer, error) {
-	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx,
-		httpClient,
-		cfg.Environments.ClientAuthIssuers(),
-		cfg.ExpectedAudience,
-		cfg.MaxClientAuthTokenLifetime,
-	)
+	clientAuthVerifier, err := NewClientAuthTokenVerifier(ctx, httpClient, cfg.ReferencedClientAuthIssuers())
 	if err != nil {
 		return nil, fmt.Errorf("creating client auth verifier: %w", err)
 	}
@@ -60,9 +55,9 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 }
 
 type AuthorizationResult struct {
+	Caller             CallerIdentity
 	Target             ClientID
 	SubjectTokenClaims *jwt.AccessTokenClaims
-	Client             *Client
 	Roles              Roles
 }
 
@@ -71,32 +66,34 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request *Tok
 		return nil, err
 	}
 
-	finishStep := a.Metrics.StartTokenStep(ctx, "verify_client_assertion")
-	clientAuthClaims, err := a.ClientAuthVerifier.Verify(ctx, request.ClientAssertion)
-	finishStep(err)
-	if err != nil {
-		return nil, errs.InvalidClient(err, "client assertion is invalid")
-	}
-
-	finishStep = a.Metrics.StartTokenStep(ctx, "get_client")
-	client, err := a.ClientStore.Get(ctx, clientAuthClaims)
-	finishStep(err)
-	if errors.Is(err, ErrClientNotFound) {
-		return nil, errs.InvalidClient(err, "client authentication failed")
-	}
+	caller, err := a.authenticateClient(ctx, request)
 	if err != nil {
 		return nil, err
 	}
 
-	finishStep = a.Metrics.StartTokenStep(ctx, "verify_subject_token")
-	subjectTokenClaims, err := a.verifySubjectToken(ctx, request.SubjectToken, client)
+	finishStep := a.Metrics.StartTokenStep(ctx, "verify_subject_token")
+
+	subjectTokenClaims, err := a.TokenExchangeVerifier.Verify(ctx, request.SubjectToken, func(claims *jwt.AccessTokenClaims) error {
+		// Only check these claims for subject tokens issued by this STS, since we don't control the claims of externally issued subject tokens.
+		if claims.Issuer == string(a.Issuer) {
+			if !slices.Contains(claims.Audience, string(caller.ID)) {
+				return fmt.Errorf("subject token audience %q does not contain client_id %q", claims.Audience, caller.ID)
+			}
+			// Impersonation is not allowed for subject tokens issued by this STS
+			if caller.Impersonator != nil {
+				return fmt.Errorf("impersonation requires a subject token not issued by STS")
+			}
+		}
+
+		return nil
+	})
 	finishStep(err)
 	if err != nil {
-		return nil, err
+		return nil, errs.InvalidRequest(err, "subject token is invalid")
 	}
 
 	finishStep = a.Metrics.StartTokenStep(ctx, "authorize_target")
-	roles, err := a.ClientStore.AuthorizeTarget(ctx, client, request.Audience)
+	roles, err := a.ClientStore.AuthorizeTarget(ctx, caller.Client, request.Audience)
 	finishStep(err)
 	if errors.Is(err, ErrTargetUnauthorized) {
 		return nil, errs.InvalidTarget(err, "client is not authorized for target %q", request.Audience)
@@ -106,9 +103,9 @@ func (a *AuthorizationServer) AuthorizeRequest(ctx context.Context, request *Tok
 	}
 
 	return &AuthorizationResult{
+		Caller:             caller,
 		Target:             request.Audience,
 		SubjectTokenClaims: subjectTokenClaims,
-		Client:             client,
 		Roles:              roles,
 	}, nil
 }
@@ -162,7 +159,7 @@ func (a *AuthorizationServer) CreateTokenResponse(ctx context.Context, result *A
 func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr {
 	subjectIssuer := result.SubjectTokenClaims.Issuer
 	attrs := []slog.Attr{
-		slog.String("client_id", string(result.Client.ID)),
+		slog.String("client_id", string(result.Caller.ID)),
 		slog.String("target", string(result.Target)),
 		slog.Int("role_count", len(result.Roles)),
 		slog.String("subject_token_issuer", subjectIssuer),
@@ -173,23 +170,4 @@ func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr 
 	}
 
 	return attrs
-}
-
-func (a *AuthorizationServer) verifySubjectToken(ctx context.Context, subjectToken string, client *Client) (*jwt.AccessTokenClaims, error) {
-	claims, err := a.TokenExchangeVerifier.Verify(ctx, subjectToken, func(claims *jwt.AccessTokenClaims) error {
-		// Only check these claims for subject tokens issued by this STS, since we don't control the claims of externally issued subject tokens.
-		if claims.Issuer != string(a.Issuer) {
-			return nil
-		}
-
-		if !slices.Contains(claims.Audience, string(client.ID)) {
-			return fmt.Errorf("subject token audience %q does not contain client_id %q", claims.Audience, client.ID)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, errs.InvalidRequest(err, "subject token is invalid")
-	}
-
-	return claims, nil
 }

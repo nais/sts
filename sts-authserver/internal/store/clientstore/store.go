@@ -13,7 +13,6 @@ import (
 	"github.com/nais/sts/internal/cache"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
-	"github.com/nais/sts/internal/jwt"
 	"github.com/nais/sts/internal/oauth"
 )
 
@@ -75,22 +74,30 @@ func (s *Store) Close() {
 	s.listener.Close()
 }
 
-func (s *Store) Get(_ context.Context, claims *jwt.AccessTokenClaims) (*oauth.Client, error) {
-	// TODO: should we move the KubernetesClaims type here, i.e. to the store package?
-	workload, err := claims.Kubernetes()
-	if err != nil {
-		return nil, err
-	}
-	key := clientKey{issuer: claims.Issuer, namespace: workload.Namespace, name: workload.ServiceAccount.Name}
-
+func (s *Store) Get(issuer, namespace, name string) (*oauth.Client, error) {
 	snapshot, ok := s.snapshot.Current()
 	if !ok {
 		return nil, errors.New("client cache is not initialized")
 	}
 
+	key := clientKey{issuer: issuer, namespace: namespace, name: name}
 	row, ok := snapshot.clients[key]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", oauth.ErrClientNotFound, key)
+	}
+
+	return toClient(row), nil
+}
+
+func (s *Store) GetByID(clientID oauth.ClientID) (*oauth.Client, error) {
+	snapshot, ok := s.snapshot.Current()
+	if !ok {
+		return nil, errors.New("client cache is not initialized")
+	}
+
+	row, ok := snapshot.clientsById[clientID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", oauth.ErrClientNotFound, clientID)
 	}
 
 	return toClient(row), nil
@@ -129,4 +136,23 @@ func (s *Store) initialize(ctx context.Context) error {
 		return fmt.Errorf("load initial client cache snapshot: %w", err)
 	}
 	return nil
+}
+
+func loadClientSnapshot(ctx context.Context, queries *sqlgen.Queries) (*clientSnapshot, error) {
+	clients, err := queries.ListClients(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list Kubernetes clients: %w", err)
+	}
+
+	result := &clientSnapshot{
+		clients:     make(map[clientKey]sqlgen.Client, len(clients)),
+		clientsById: make(map[oauth.ClientID]sqlgen.Client, len(clients)),
+		policies:    make(map[oauth.ClientID]policy, len(clients)),
+	}
+	for _, client := range clients {
+		result.clients[clientKeyFromRow(client)] = client
+		result.clientsById[client.ID] = client
+		result.policies[client.ID] = newPolicy(client.AuthorizationPolicy)
+	}
+	return result, nil
 }

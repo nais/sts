@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nais/sts/api"
 	"github.com/nais/sts/internal/errs"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
@@ -58,12 +59,17 @@ type Client struct {
 	UpdatedAt           time.Time
 }
 
+// AuthorizationPolicy should be kept in sync with the public API [api.AuthorizationPolicy].
 type AuthorizationPolicy struct {
 	AllowAll          bool               `json:"allow_all,omitempty"`
 	AllowedNamespaces []string           `json:"allowed_namespaces,omitempty"`
 	AllowedScopes     []string           `json:"allowed_scopes,omitempty"`
 	Clients           []AuthorizedClient `json:"clients,omitempty"`
+	// AllowedImpersonators identifies principals allowed to act as this client.
+	AllowedImpersonators []Impersonator `json:"allowed_impersonators,omitempty"`
 }
+
+type Impersonator = api.Impersonator
 
 type AuthorizedClient struct {
 	ClientID ClientID `json:"client_id"`
@@ -84,6 +90,7 @@ func (c *ClientAuthCredentials) Validate() error {
 
 type TokenExchangeRequest struct {
 	ClientAuthCredentials
+	ClientID           ClientID
 	SubjectToken       string
 	SubjectTokenType   string
 	ActorToken         string

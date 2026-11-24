@@ -62,8 +62,8 @@ spec:
               expirationSeconds: 600
 ```
 
-- `audience` must match `authorizationServer.expectedAudience` (normally `nais`).
-- Keep `expirationSeconds` within `authorizationServer.maxClientAuthTokenLifetime` (default `1h`).
+- `audience` must match the cluster issuer's `clientAuthIssuers.<name>.expectedAudience` (default `nais`).
+- Keep `expirationSeconds` within that issuer's `maxTokenLifetime` (default `1h`).
 
 For reference, a decoded projected service account token can contain:
 
@@ -188,11 +188,17 @@ STS starts with the subject token's claims, then sets these values in the exchan
 | `urn:nais:idp`        | Issuer URL of the first subject token exchanged.          | Added on the first exchange; retained on later STS exchanges.    |
 | `urn:nais:idp_alias`  | Short, stable alias for that issuer.                      | Added on the first exchange; retained on later STS exchanges.    |
 | `urn:nais:call_chain` | Client IDs in exchange order, oldest first.               | Added; appends the requesting client ID to a prior STS call chain. |
+| `urn:nais:impersonator` | Impersonating person, as `{"issuer", "subject"}`. | Added on an impersonation exchange; retained on later STS exchanges. Otherwise removed. |
 
 The `sub` claim and other claims, such as `department` and `act` in the example, keep their values.
 Workloads can use `urn:nais:idp_alias` to distinguish original issuers without depending on their exact URLs.
 `urn:nais:call_chain` lists the client IDs that performed each exchange, oldest first.
 STS preserves the chain from STS-issued subject tokens as history, not as authorization policy input. It ignores any `urn:nais:call_chain` in external subject tokens. A malformed chain in an STS-issued subject token starts a new chain.
+`urn:nais:impersonator` records the person who authenticated in impersonation mode and acted as the requesting client.
+Impersonation is only allowed with subject tokens not issued by STS, so it always starts a chain and `urn:nais:call_chain[0]` is the impersonated client.
+An impersonation request with an STS-issued subject token fails with `invalid_request` and `subject token is invalid`.
+Later STS exchanges keep the impersonator as history.
+STS removes the claim from subject tokens it did not issue and drops malformed values.
 STS does not add or extend `act`; [RFC 8693](https://www.rfc-editor.org/rfc/rfc8693.html#section-4.1) reserves it for delegation with an `actor_token`, which STS does not support.
 
 ### Trusting exchanged tokens
@@ -205,9 +211,9 @@ The `sub` claim, `urn:nais:idp`, `urn:nais:idp_alias`, and other claims copied f
 STS verifies that a trusted issuer signed that token, but not that the token belongs to the requesting client.
 Do not use these claims to identify or authorize the caller.
 
-`urn:nais:idp_alias` is the environment's `clientAuthIssuerAlias` (default `kubernetes`)
-when the original subject token came from an internal issuer.
-`urn:nais:idp` then contains that Kubernetes issuer.
+`urn:nais:idp_alias` is the matching `clientAuthIssuers.<name>.alias`
+when the original subject token came from a configured client authentication issuer.
+`urn:nais:idp` then contains that issuer.
 
 ### Chained exchange
 
