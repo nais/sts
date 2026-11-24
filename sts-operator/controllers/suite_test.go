@@ -28,6 +28,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	controllerconfig "sigs.k8s.io/controller-runtime/pkg/config"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	ctrlmetricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -130,6 +131,7 @@ func TestOAuthClientReconciler(t *testing.T) {
 
 	err = controllers.NewOAuthClientReconciler(mgr, cfg, registrator)
 	require.NoError(t, err)
+	require.NoError(t, controllers.NewOAuthImpersonationReconciler(mgr))
 
 	keySet, err := registrator.PublicKeySet()
 	require.NoError(t, err)
@@ -269,6 +271,43 @@ func TestOAuthClientReconciler(t *testing.T) {
 		var after corev1.ConfigMap
 		require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &after))
 		assert.Equal(t, before.UID, after.UID, "config map should be updated in place")
+	}) {
+		t.FailNow()
+	}
+
+	if !t.Run("impersonation adds impersonators to registration", func(t *testing.T) {
+		impersonation := &stsv1.OAuthImpersonation{
+			Name: appName, Namespace: namespace,
+			Spec: stsv1.OAuthImpersonationSpec{AllowedSubjects: []string{"alice"}},
+		}
+		require.NoError(t, k8sClient.Create(ctx, impersonation))
+
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			var obj stsv1.OAuthImpersonation
+			if !assert.NoError(c, k8sClient.Get(ctx, key, &obj)) {
+				return
+			}
+			assert.True(c, meta.IsStatusConditionTrue(obj.Status.Conditions, stsv1.ConditionReady))
+			assert.NotNil(c, obj.Status.SynchronizationTimestamp)
+			owned, err := controllerutil.HasOwnerReference(obj.OwnerReferences, oauthClient, scheme)
+			assert.NoError(c, err)
+			assert.True(c, owned, "OAuthImpersonation should be owned by OAuthClient")
+		}, reconcileTimeout, pollInterval)
+
+		require.Len(t, registrations, 1)
+		statement := verifySoftwareStatement(t, <-registrations, keySet)
+		assert.Equal(t, []string{"alice"}, statement.AuthorizationPolicy.AllowedImpersonators)
+
+		require.NoError(t, k8sClient.Delete(ctx, impersonation))
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			var obj stsv1.OAuthClient
+			if assert.NoError(c, k8sClient.Get(ctx, key, &obj)) {
+				assert.Nil(c, obj.Status.ObservedImpersonation)
+			}
+		}, reconcileTimeout, pollInterval)
+
+		require.Len(t, registrations, 1)
+		assert.Empty(t, verifySoftwareStatement(t, <-registrations, keySet).AuthorizationPolicy.AllowedImpersonators)
 	}) {
 		t.FailNow()
 	}

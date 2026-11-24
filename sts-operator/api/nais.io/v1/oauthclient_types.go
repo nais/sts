@@ -88,8 +88,10 @@ type Role = string
 const ConditionReady = "Ready"
 
 const (
-	ReasonSucceeded = "Succeeded"
-	ReasonFailed    = "Failed"
+	ReasonSucceeded      = "Succeeded"
+	ReasonFailed         = "Failed"
+	ReasonPending        = "Pending"
+	ReasonClientNotFound = "ClientNotFound"
 )
 
 // OAuthClientStatus defines the observed state of OAuthClient.
@@ -97,6 +99,10 @@ type OAuthClientStatus struct {
 	// ClientID is the OAuth2 client ID most recently returned by STS.
 	// +optional
 	ClientID string `json:"clientID,omitempty"`
+	// ObservedImpersonation identifies the OAuthImpersonation included in the
+	// last successful registration; unset when none was included.
+	// +optional
+	ObservedImpersonation *ObservedImpersonation `json:"observedImpersonation,omitempty"`
 	// SynchronizationTimestamp is the time of the last successful reconciliation.
 	// +optional
 	SynchronizationTimestamp *metav1.Time `json:"synchronizationTimestamp,omitempty"`

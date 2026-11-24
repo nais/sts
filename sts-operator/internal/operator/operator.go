@@ -120,6 +120,10 @@ func Run(cfg *config.Config, log *slog.Logger, opts ...Option) error {
 		return fmt.Errorf("create OAuthClient reconciler: %w", err)
 	}
 
+	if err = controllers.NewOAuthImpersonationReconciler(mgr); err != nil {
+		return fmt.Errorf("create OAuthImpersonation reconciler: %w", err)
+	}
+
 	log.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		return fmt.Errorf("problem running manager: %w", err)

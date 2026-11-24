@@ -162,6 +162,40 @@ func TestReconcileReadyTransitions(t *testing.T) {
 	assert.NotNil(t, meta.FindStatusCondition(periodic.Status.Conditions, other.Type))
 }
 
+func TestReconcileSyncsWhenImpersonationChanges(t *testing.T) {
+	impersonation := &stsv1.OAuthImpersonation{
+		Name: "new-client", Namespace: "default", UID: "impersonation-uid", Generation: 1,
+		Spec: stsv1.OAuthImpersonationSpec{AllowedSubjects: []string{"alice"}},
+	}
+	rt := newReconcileTest(t, newSyncedOAuthClient(), impersonation)
+
+	_, err := rt.reconcile()
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), rt.stub.registrations.Load())
+	assert.Equal(t, &stsv1.ObservedImpersonation{UID: "impersonation-uid", Generation: 1}, rt.get().Status.ObservedImpersonation)
+
+	// A changed impersonation syncs within the interval.
+	require.NoError(t, rt.client.Get(rt.ctx, client.ObjectKeyFromObject(impersonation), impersonation))
+	impersonation.Generation = 2
+	require.NoError(t, rt.client.Update(rt.ctx, impersonation))
+	_, err = rt.reconcile()
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), rt.stub.registrations.Load())
+	assert.Equal(t, int64(2), rt.get().Status.ObservedImpersonation.Generation)
+
+	// A deleted impersonation syncs within the interval.
+	require.NoError(t, rt.client.Delete(rt.ctx, impersonation))
+	_, err = rt.reconcile()
+	require.NoError(t, err)
+	assert.Equal(t, int32(3), rt.stub.registrations.Load())
+	assert.Nil(t, rt.get().Status.ObservedImpersonation)
+
+	// An unchanged state is skipped.
+	_, err = rt.reconcile()
+	require.NoError(t, err)
+	assert.Equal(t, int32(3), rt.stub.registrations.Load())
+}
+
 func TestReconcileDeletionWithoutClientID(t *testing.T) {
 	oauthClient := newSyncedOAuthClient()
 	oauthClient.Status = stsv1.OAuthClientStatus{}
@@ -222,7 +256,7 @@ type reconcileTest struct {
 	failStatusUpdate bool
 }
 
-func newReconcileTest(t *testing.T, oauthClient *stsv1.OAuthClient) *reconcileTest {
+func newReconcileTest(t *testing.T, oauthClient *stsv1.OAuthClient, objs ...client.Object) *reconcileTest {
 	t.Helper()
 	rt := &reconcileTest{
 		t:    t,
@@ -237,8 +271,8 @@ func newReconcileTest(t *testing.T, oauthClient *stsv1.OAuthClient) *reconcileTe
 
 	rt.client = fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(oauthClient).
-		WithStatusSubresource(&stsv1.OAuthClient{}).
+		WithObjects(append(objs, oauthClient)...).
+		WithStatusSubresource(&stsv1.OAuthClient{}, &stsv1.OAuthImpersonation{}).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 				if _, ok := obj.(*corev1.ConfigMap); ok && rt.failConfigMap {

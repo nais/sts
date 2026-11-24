@@ -3,6 +3,7 @@ package nais_io_v1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 func init() {
@@ -43,6 +44,12 @@ type OAuthImpersonationSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:items:MinLength=1
 	AllowedSubjects []string `json:"allowedSubjects"`
+}
+
+// ObservedImpersonation identifies a version of an OAuthImpersonation.
+type ObservedImpersonation struct {
+	UID        types.UID `json:"uid"`
+	Generation int64     `json:"generation"`
 }
 
 // OAuthImpersonationStatus defines the observed state of OAuthImpersonation.

@@ -29,5 +29,5 @@ metadata:
   namespace: team-b
 spec:
   allowedSubjects:
-    - yolo@nav.no
+    - yolo@nais.io
 

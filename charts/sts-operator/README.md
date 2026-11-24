@@ -87,7 +87,8 @@ interrupt reconciliation and JWKS availability. Do not scale this deployment or
 run multiple operators for the same cluster.
 
 The chart grants cluster-wide access to OAuthClients, their status/finalizers,
-ConfigMaps and events, matching the reconciler's kubebuilder RBAC markers.
+OAuthImpersonations and their status, ConfigMaps and events, matching the
+reconcilers' kubebuilder RBAC markers.
 The operator labels its ConfigMaps `app.kubernetes.io/managed-by: sts-operator`
 and caches only ConfigMaps with that label. Don't remove the label: the operator
 would no longer see the ConfigMap and would fail to recreate it. It does not grant
