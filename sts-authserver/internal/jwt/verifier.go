@@ -111,17 +111,17 @@ func (t *TokenVerifier) Verify(ctx context.Context, rawToken string, verifyFn ..
 	}
 
 	if err := oidc.CheckSignature(ctx, rawToken, payload, claims, cfg.requiredAlgs, cfg.keyset); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("issuer %q: %w", claims.Issuer, err)
 	}
 
 	verifiedClaims, err := t.verifyClaims(cfg, claims)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("issuer %q: %w", claims.Issuer, err)
 	}
 
 	for _, fn := range verifyFn {
 		if err := fn(verifiedClaims); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("issuer %q: %w", claims.Issuer, err)
 		}
 	}
 
