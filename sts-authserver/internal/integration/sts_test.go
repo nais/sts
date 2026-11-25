@@ -679,10 +679,12 @@ func assertTokenClaims(
 	assert.GreaterOrEqual(t, response.ExpiresIn, wantExpiresIn-10)
 	assert.LessOrEqual(t, response.ExpiresIn, wantExpiresIn)
 
-	verifier, err := jwt.NewTokenVerifier(t.Context(), jwt.WithIssuerAndKeySet(
+	verifier, err := jwt.NewTokenVerifier(t.Context(), jwt.WithIssuer(
 		jwt.Issuer(sts.Endpoint()),
-		rp.NewRemoteKeySet(http.DefaultClient, sts.Endpoint("jwks")),
-		string(oauth.InternalSigningAlgorithm),
+		jwt.WithKeySet(
+			rp.NewRemoteKeySet(http.DefaultClient, sts.Endpoint("jwks")),
+			string(oauth.InternalSigningAlgorithm),
+		),
 	))
 	require.NoError(t, err)
 	rawClaims, err := verifier.Verify(t.Context(), response.AccessToken)

@@ -34,13 +34,11 @@ func WithIssuer(issuer Issuer, opts ...IssuerOption) TokenVerifierOption {
 	}
 }
 
-func WithIssuerAndKeySet(issuer Issuer, keySet oidc.KeySet, requiredAlgs ...string) TokenVerifierOption {
-	return func(t *TokenVerifier) {
-		t.issuers[issuer] = issuerConfig{
-			issuer:       issuer,
-			keyset:       keySet,
-			requiredAlgs: requiredAlgs,
-		}
+// WithKeySet uses keySet instead of discovering the issuer's remote key set.
+func WithKeySet(keySet oidc.KeySet, requiredAlgs ...string) IssuerOption {
+	return func(cfg *issuerConfig) {
+		cfg.keyset = keySet
+		cfg.requiredAlgs = requiredAlgs
 	}
 }
 
