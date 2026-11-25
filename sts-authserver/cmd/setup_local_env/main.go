@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"log/slog"
 	"os"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/nais/sts/internal/database"
 	"github.com/nais/sts/internal/database/sqlgen"
 	"github.com/nais/sts/internal/oauth"
@@ -43,7 +45,7 @@ func run(ctx context.Context, k3d bool) error {
 	queries := sqlgen.New(pool)
 	impersonator := oauth.Impersonator{Issuer: "http://localhost:3004/people", Subject: "person1"}
 	if k3d {
-		_, err := queries.UpsertClient(ctx, sqlgen.UpsertClientParams{
+		return upsertClient(ctx, queries, sqlgen.UpsertClientParams{
 			ID:          "sts-operator-dev:sts-demo:impersonation-demo",
 			Environment: "sts-operator-dev",
 			Namespace:   "sts-demo",
@@ -53,7 +55,6 @@ func run(ctx context.Context, k3d bool) error {
 				AllowedImpersonators: []oauth.Impersonator{impersonator},
 			},
 		})
-		return err
 	}
 
 	clients := []sqlgen.UpsertClientParams{
@@ -83,10 +84,18 @@ func run(ctx context.Context, k3d bool) error {
 	}
 
 	for _, client := range clients {
-		if _, err := queries.UpsertClient(ctx, client); err != nil {
+		if err := upsertClient(ctx, queries, client); err != nil {
 			return err
 		}
 	}
 
+	return nil
+}
+
+func upsertClient(ctx context.Context, queries *sqlgen.Queries, params sqlgen.UpsertClientParams) error {
+	// UpsertClient returns pgx.ErrNoRows when the stored client is unchanged.
+	if _, err := queries.UpsertClient(ctx, params); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
 	return nil
 }
