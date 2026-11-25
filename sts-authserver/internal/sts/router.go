@@ -16,6 +16,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/riandyrn/otelchi"
 	otelchimetric "github.com/riandyrn/otelchi/metric"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -31,6 +33,7 @@ func stsApi(
 	clientStore oauth.ClientStore,
 	keyStore oauth.KeyStore,
 	provider *stsmetrics.Provider,
+	tracerProvider trace.TracerProvider,
 ) (http.Handler, error) {
 	r := chi.NewRouter()
 
@@ -44,12 +47,12 @@ func stsApi(
 		otelchimetric.NewServerRequestBodySize(httpMetrics),
 		otelchimetric.NewServerResponseBodySize(httpMetrics),
 	)
-	// TODO: set up a tracer provider and propagator; without them these spans
-	// are no-ops and logs never get trace_id/span_id.
 	r.Use(otelchi.Middleware(
 		instrumentationName,
 		otelchi.WithChiRoutes(r),
 		otelchi.WithRequestMethodInSpanName(true),
+		otelchi.WithTracerProvider(tracerProvider),
+		otelchi.WithPropagators(propagation.TraceContext{}),
 	))
 
 	var opts []httpClientOption

@@ -15,6 +15,7 @@ import (
 	stsmetrics "github.com/nais/sts/internal/metrics"
 	"github.com/nais/sts/internal/store/clientstore"
 	"github.com/nais/sts/internal/store/keystore"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -36,6 +37,10 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	defer ioconvenience.CloseFunc(context.Background(), metricsProvider.Shutdown)
 
+	// TODO: add an exporter to ship spans; for now this only generates trace and span IDs for logs.
+	tracerProvider := sdktrace.NewTracerProvider()
+	defer ioconvenience.CloseFunc(context.Background(), tracerProvider.Shutdown)
+
 	pool, err := database.NewPool(ctx, cfg.DatabaseURL, slog.Default(), metricsProvider.Meter())
 	if err != nil {
 		return err
@@ -53,7 +58,7 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 
-	api, err := stsApi(ctx, cfg, clientStore, keyStore, metricsProvider)
+	api, err := stsApi(ctx, cfg, clientStore, keyStore, metricsProvider, tracerProvider)
 	if err != nil {
 		return fmt.Errorf("set up api router: %w", err)
 	}
