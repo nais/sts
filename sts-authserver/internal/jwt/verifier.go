@@ -143,9 +143,6 @@ func (t *TokenVerifier) verifyClaims(cfg issuerConfig, claims *AccessTokenClaims
 	if !claims.Expiration.AsTime().After(claims.IssuedAt.AsTime()) {
 		return nil, fmt.Errorf("expiration (%v) must be after issued-at (%v)", claims.Expiration.AsTime(), claims.IssuedAt.AsTime())
 	}
-	if err := oidc.CheckSubject(claims); err != nil {
-		return nil, err
-	}
 	if !claims.NotBefore.AsTime().IsZero() {
 		nowWithOffset := time.Now().Add(SkewTime).Round(time.Second)
 		if claims.NotBefore.AsTime().After(nowWithOffset) {

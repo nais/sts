@@ -101,6 +101,16 @@
           }
         }
       ]
+    },
+    {
+      "issuerId": "subject3",
+      "requestMappings": [
+        {
+          "requestParam": "grant_type",
+          "match": "authorization_code",
+          "claims": {}
+        }
+      ]
     }
   ]
 }

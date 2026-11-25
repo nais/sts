@@ -16,7 +16,7 @@ const InternalSigningAlgorithm = jwk.Algorithm
 
 type STSTokenClaims struct {
 	Issuer           string        `json:"iss"`
-	Subject          string        `json:"sub"`
+	Subject          string        `json:"sub,omitempty"`
 	Audience         oidc.Audience `json:"aud"`
 	ClientID         string        `json:"client_id"`
 	JWTID            string        `json:"jti"`

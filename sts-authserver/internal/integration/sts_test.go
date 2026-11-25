@@ -427,6 +427,14 @@ func TestSts(t *testing.T) {
 			},
 			idpAlias: "name1",
 		},
+		"external without sub": {
+			subjectToken: func(t *testing.T) (string, *jwt.AccessTokenClaims) {
+				token, claims := getSubjectTokenFromIssuer(t, oauthServer, "subject3")
+				require.Empty(t, claims.Subject)
+				return token, claims
+			},
+			idpAlias: "name3",
+		},
 		"internal": {
 			subjectToken: func(t *testing.T) (string, *jwt.AccessTokenClaims) {
 				return getClientTokenWithClaims(t, oauthServer, fixtures.Client1)
