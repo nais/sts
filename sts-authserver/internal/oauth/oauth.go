@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 
@@ -46,6 +47,7 @@ func NewAuthorizationServer(ctx context.Context, httpClient *http.Client, cfg Au
 	if err != nil {
 		return nil, fmt.Errorf("creating token exchange verifier: %w", err)
 	}
+	logResolvedIssuers(ctx, cfg)
 
 	return &AuthorizationServer{
 		ClientAuthVerifier:        clientAuthVerifier,
@@ -173,4 +175,25 @@ func (a *AuthorizationServer) logAttrs(result *AuthorizationResult) []slog.Attr 
 	}
 
 	return attrs
+}
+
+func logResolvedIssuers(ctx context.Context, cfg AuthorizationServerConfig) {
+	clientAuthIssuers := cfg.ReferencedClientAuthIssuers()
+	for _, name := range slices.Sorted(maps.Keys(clientAuthIssuers)) {
+		issuer := clientAuthIssuers[name]
+		slog.InfoContext(ctx, "issuer resolved",
+			"kind", "client_auth",
+			"name", name,
+			"alias", issuer.Alias,
+			"mode", issuer.Mode,
+			"issuer", issuer.Issuer,
+		)
+	}
+	for _, alias := range slices.Sorted(maps.Keys(cfg.ExternalIssuers)) {
+		slog.InfoContext(ctx, "issuer resolved",
+			"kind", "external",
+			"alias", alias,
+			"issuer", cfg.ExternalIssuers[alias],
+		)
+	}
 }
