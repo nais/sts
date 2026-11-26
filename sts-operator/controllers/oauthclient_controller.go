@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
+	"slices"
 
 	stsv1 "github.com/nais/sts-operator/api/nais.io/v1"
 	"github.com/nais/sts-operator/internal/config"
@@ -12,14 +12,18 @@ import (
 	stsmetrics "github.com/nais/sts-operator/internal/metric"
 	stsapi "github.com/nais/sts/api"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 const (
@@ -50,8 +54,16 @@ func (r *OAuthClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	opts := controller.Options{
 		MaxConcurrentReconciles: r.Config.MaxConcurrentReconciles,
 	}
+	// Ignore status-only updates so status writes don't trigger re-registration.
+	// Finalizer changes pass because Reconcile relies on that event to start the
+	// first sync; setting deletionTimestamp bumps generation.
+	finalizersChanged := predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return !slices.Equal(e.ObjectOld.GetFinalizers(), e.ObjectNew.GetFinalizers())
+		},
+	}
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&stsv1.OAuthClient{}).
+		For(&stsv1.OAuthClient{}, builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, finalizersChanged))).
 		WithOptions(opts).
 		Complete(r)
 }
@@ -92,22 +104,9 @@ func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	condition := meta.FindStatusCondition(oauthClient.Status.Conditions, stsv1.ConditionReady)
-	specSynced := condition != nil && condition.Status == metav1.ConditionTrue &&
-		condition.ObservedGeneration == oauthClient.GetGeneration()
-	lastSync := oauthClient.Status.SynchronizationTimestamp
-
-	if specSynced && lastSync != nil {
-		if remaining := time.Until(lastSync.Add(r.Config.SyncInterval)); remaining > 0 {
-			log.V(4).WithValues(
-				".metadata.generation", oauthClient.GetGeneration(),
-				"remaining", remaining,
-			).Info("skipping reconciliation")
-			return ctrl.Result{RequeueAfter: remaining}, nil
-		}
-	}
-
-	if err := r.synchronize(ctx, req, &oauthClient); err != nil {
+	previousStatus := oauthClient.Status.DeepCopy()
+	changed, err := r.synchronize(ctx, req, &oauthClient)
+	if err != nil {
 		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
 		err = fmt.Errorf("synchronize: %w", err)
 		if statusErr := r.Status().Update(ctx, &oauthClient); statusErr != nil {
@@ -116,29 +115,43 @@ func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	oauthClient.Status.SynchronizationTimestamp = new(metav1.Now())
 	ready(&oauthClient)
 
-	if err := r.Status().Update(ctx, &oauthClient); err != nil {
-		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
-		return ctrl.Result{}, fmt.Errorf("updating status: %w", err)
+	// Periodic syncs usually leave status unchanged; skipping the write avoids
+	// API server churn for every client on each interval.
+	statusChanged := !equality.Semantic.DeepEqual(previousStatus, &oauthClient.Status)
+	if statusChanged {
+		if err := r.Status().Update(ctx, &oauthClient); err != nil {
+			stsmetrics.OAuthClientsProcessingFailedCount.Inc()
+			return ctrl.Result{}, fmt.Errorf("updating status: %w", err)
+		}
 	}
 
-	log.Info("successfully reconciled")
+	if changed || statusChanged {
+		log.Info("successfully reconciled")
+	} else {
+		log.V(1).Info("successfully reconciled without changes")
+	}
 	return ctrl.Result{RequeueAfter: r.Config.SyncInterval}, nil
 }
 
-func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Request, oauthClient *stsv1.OAuthClient) error {
+// synchronize registers the client with STS and reconciles its ConfigMap. It
+// reports whether either the registration or the ConfigMap changed.
+func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Request, oauthClient *stsv1.OAuthClient) (bool, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("subsystem", "synchronize")
 
 	registration, err := r.Register(ctx, makeSoftwareStatement(oauthClient))
 	if err != nil {
-		return failed(oauthClient, "Registration with STS failed", fmt.Errorf("registering client with STS: %w", err))
+		return false, failed(oauthClient, "Registration with STS failed", fmt.Errorf("registering client with STS: %w", err))
 	}
 	// Retain the registration ID even if ConfigMap reconciliation fails, so finalization can clean it up.
 	oauthClient.Status.ClientID = registration.ClientID
 
-	log.Info(fmt.Sprintf("registered %q with STS", registration.ClientID))
+	if registration.Changed {
+		log.Info(fmt.Sprintf("registered %q with STS", registration.ClientID))
+	} else {
+		log.V(1).Info(fmt.Sprintf("registration %q unchanged in STS", registration.ClientID))
+	}
 
 	cmName := oauthClient.Spec.ConfigMapName
 	configMap := configmap.Spec(cmName, req.Namespace, configmap.ConfigMapData{
@@ -159,13 +172,14 @@ func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Reques
 		return ctrl.SetControllerReference(oauthClient, target, r.Scheme)
 	})
 	if err != nil {
-		return failed(oauthClient, fmt.Sprintf("ConfigMap %q could not be reconciled", cmName), fmt.Errorf("creating or updating config map %q: %w", cmName, err))
+		return registration.Changed, failed(oauthClient, fmt.Sprintf("ConfigMap %q could not be reconciled", cmName), fmt.Errorf("creating or updating config map %q: %w", cmName, err))
 	}
 
-	if res != controllerutil.OperationResultNone {
+	configMapChanged := res != controllerutil.OperationResultNone
+	if configMapChanged {
 		log.Info(fmt.Sprintf("config map %q %s", cmName, res))
 	}
-	return nil
+	return registration.Changed || configMapChanged, nil
 }
 
 // finalize purges relevant resources from external systems (i.e. the STS instances)

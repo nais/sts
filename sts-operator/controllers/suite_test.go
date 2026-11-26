@@ -170,7 +170,6 @@ func TestOAuthClientReconciler(t *testing.T) {
 				assert.Equal(c, metav1.ConditionTrue, ready.Status)
 				assert.Equal(c, obj.Generation, ready.ObservedGeneration)
 			}
-			assert.NotNil(c, obj.Status.SynchronizationTimestamp)
 			assert.Contains(c, obj.Finalizers, finalizerName)
 		}, reconcileTimeout, pollInterval)
 		require.NoError(t, k8sClient.Get(ctx, key, oauthClient))

@@ -15,7 +15,6 @@ func init() {
 // +genclient
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="Created",type="date",JSONPath=".metadata.creationTimestamp"
-// +kubebuilder:printcolumn:name="Synced",type="date",JSONPath=".status.synchronizationTimestamp"
 // +kubebuilder:printcolumn:name="Client ID",type="string",JSONPath=".status.clientID",priority=1
 // +kubebuilder:printcolumn:name="ConfigMap",type="string",JSONPath=".spec.configMapName",priority=1
 // +kubebuilder:object:root=true
@@ -97,9 +96,6 @@ type OAuthClientStatus struct {
 	// ClientID is the OAuth2 client ID most recently returned by STS.
 	// +optional
 	ClientID string `json:"clientID,omitempty"`
-	// SynchronizationTimestamp is the time of the last successful reconciliation.
-	// +optional
-	SynchronizationTimestamp *metav1.Time `json:"synchronizationTimestamp,omitempty"`
 	// Conditions describe the observed state. Ready reports the outcome of the
 	// last reconciliation; it applies to the current spec only when its
 	// observedGeneration matches metadata.generation.
