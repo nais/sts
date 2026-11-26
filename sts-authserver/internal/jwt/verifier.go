@@ -129,12 +129,13 @@ func (t *TokenVerifier) Verify(ctx context.Context, rawToken string, verifyFn ..
 }
 
 func (t *TokenVerifier) verifyClaims(cfg issuerConfig, claims *AccessTokenClaims) (*AccessTokenClaims, error) {
-	const SkewTime = time.Minute
+	const SkewTime = 30 * time.Second
 
 	if claims.Issuer != string(cfg.issuer) {
 		return nil, oidc.ErrIssuerInvalid
 	}
-	if err := oidc.CheckExpiration(claims, SkewTime); err != nil {
+	// CheckExpiration compares exp with now+offset; a negative offset allows skew after exp.
+	if err := oidc.CheckExpiration(claims, -SkewTime); err != nil {
 		return nil, err
 	}
 	if err := oidc.CheckIssuedAt(claims, cfg.maxTokenLifetime, SkewTime); err != nil {
