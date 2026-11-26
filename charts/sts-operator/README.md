@@ -88,7 +88,7 @@ run multiple operators for the same cluster.
 
 The chart grants cluster-wide access to OAuthClients, their status/finalizers,
 OAuthImpersonations and their status, ConfigMaps and events, matching the
-reconcilers' kubebuilder RBAC markers.
+reconciler's kubebuilder RBAC markers.
 The operator labels its ConfigMaps `app.kubernetes.io/managed-by: sts-operator`
 and caches only ConfigMaps with that label. Don't remove the label: the operator
 would no longer see the ConfigMap and would fail to recreate it. It does not grant

@@ -131,7 +131,6 @@ func TestOAuthClientReconciler(t *testing.T) {
 
 	err = controllers.NewOAuthClientReconciler(mgr, cfg, registrator)
 	require.NoError(t, err)
-	require.NoError(t, controllers.NewOAuthImpersonationReconciler(mgr))
 
 	keySet, err := registrator.PublicKeySet()
 	require.NoError(t, err)

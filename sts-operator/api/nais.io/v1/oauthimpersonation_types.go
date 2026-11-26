@@ -21,6 +21,8 @@ func init() {
 // +kubebuilder:subresource:status
 
 // OAuthImpersonation allows subjects to impersonate the OAuthClient with the same name.
+// The OAuthClient owns it and sets its status when synchronizing, so an
+// OAuthImpersonation without a matching OAuthClient has no status.
 type OAuthImpersonation struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -57,8 +59,8 @@ type OAuthImpersonationStatus struct {
 	// SynchronizationTimestamp is the time of the last successful reconciliation.
 	// +optional
 	SynchronizationTimestamp *metav1.Time `json:"synchronizationTimestamp,omitempty"`
-	// Conditions describe the observed state. Ready reports the outcome of the
-	// last reconciliation; it applies to the current spec only when its
+	// Conditions describe the observed state. Ready mirrors the outcome of the
+	// OAuthClient's last synchronization; it applies to the current spec only when its
 	// observedGeneration matches metadata.generation.
 	// +listType=map
 	// +listMapKey=type

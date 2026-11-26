@@ -47,10 +47,10 @@ spec:
 An `OAuthImpersonation` lets the listed subjects impersonate the `OAuthClient`
 with the same name and namespace. The OAuthClient reconciler adds the subjects
 to that client's registration and re-registers when the impersonation changes
-or is deleted. The OAuthImpersonation becomes `Ready` once the client has
-registered its current generation; without a matching client it reports
-`ClientNotFound`. The operator sets the OAuthClient as owner, so deleting the
-client deletes its impersonation.
+or is deleted. Each synchronization copies the client's `Ready` condition to
+the impersonation, so an impersonation without a matching client has no
+status. The operator sets the OAuthClient as owner, so deleting the client
+deletes its impersonation.
 
 ## Migration status
 

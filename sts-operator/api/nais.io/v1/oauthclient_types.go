@@ -88,10 +88,8 @@ type Role = string
 const ConditionReady = "Ready"
 
 const (
-	ReasonSucceeded      = "Succeeded"
-	ReasonFailed         = "Failed"
-	ReasonPending        = "Pending"
-	ReasonClientNotFound = "ClientNotFound"
+	ReasonSucceeded = "Succeeded"
+	ReasonFailed    = "Failed"
 )
 
 // OAuthClientStatus defines the observed state of OAuthClient.

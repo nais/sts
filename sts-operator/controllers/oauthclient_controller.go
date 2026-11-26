@@ -66,7 +66,8 @@ func (r *OAuthClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // +kubebuilder:rbac:groups=nais.io,resources=oauthclients,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=nais.io,resources=oauthclients/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=nais.io,resources=oauthclients/finalizers,verbs=update
-// +kubebuilder:rbac:groups=nais.io,resources=oauthimpersonations,verbs=get;list;watch
+// +kubebuilder:rbac:groups=nais.io,resources=oauthimpersonations,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=nais.io,resources=oauthimpersonations/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="";events.k8s.io,resources=events,verbs=create;update;patch
 
@@ -126,6 +127,9 @@ func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.synchronize(ctx, req, &oauthClient, impersonation); err != nil {
 		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
 		err = fmt.Errorf("synchronize: %w", err)
+		if impersonationErr := r.updateImpersonation(ctx, &oauthClient, impersonation); impersonationErr != nil {
+			err = errors.Join(err, fmt.Errorf("updating impersonation: %w", impersonationErr))
+		}
 		if statusErr := r.Status().Update(ctx, &oauthClient); statusErr != nil {
 			err = errors.Join(err, fmt.Errorf("updating status: %w", statusErr))
 		}
@@ -135,6 +139,13 @@ func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	oauthClient.Status.SynchronizationTimestamp = new(metav1.Now())
 	oauthClient.Status.ObservedImpersonation = ref
 	ready(&oauthClient)
+
+	// Update the impersonation first: a failure leaves the client status stale,
+	// so the next reconcile retries instead of skipping.
+	if err := r.updateImpersonation(ctx, &oauthClient, impersonation); err != nil {
+		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
+		return ctrl.Result{}, fmt.Errorf("updating impersonation: %w", err)
+	}
 
 	if err := r.Status().Update(ctx, &oauthClient); err != nil {
 		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
@@ -164,6 +175,38 @@ func impersonationRef(impersonation *stsv1.OAuthImpersonation) *stsv1.ObservedIm
 		return nil
 	}
 	return &stsv1.ObservedImpersonation{UID: impersonation.UID, Generation: impersonation.Generation}
+}
+
+// updateImpersonation makes the OAuthClient own the impersonation, so they are
+// deleted together, and copies the client's Ready condition to it.
+func (r *OAuthClientReconciler) updateImpersonation(ctx context.Context, oauthClient *stsv1.OAuthClient, impersonation *stsv1.OAuthImpersonation) error {
+	if impersonation == nil {
+		return nil
+	}
+
+	owned, err := controllerutil.HasOwnerReference(impersonation.OwnerReferences, oauthClient, r.Scheme)
+	if err != nil {
+		return fmt.Errorf("checking owner reference: %w", err)
+	}
+	if !owned {
+		if err := controllerutil.SetOwnerReference(oauthClient, impersonation, r.Scheme); err != nil {
+			return fmt.Errorf("setting owner reference: %w", err)
+		}
+		if err := r.Update(ctx, impersonation); err != nil {
+			return fmt.Errorf("updating owner reference: %w", err)
+		}
+	}
+
+	condition := *meta.FindStatusCondition(oauthClient.Status.Conditions, stsv1.ConditionReady)
+	condition.ObservedGeneration = impersonation.GetGeneration()
+	meta.SetStatusCondition(&impersonation.Status.Conditions, condition)
+	if condition.Status == metav1.ConditionTrue {
+		impersonation.Status.SynchronizationTimestamp = oauthClient.Status.SynchronizationTimestamp
+	}
+	if err := r.Status().Update(ctx, impersonation); err != nil {
+		return fmt.Errorf("updating status: %w", err)
+	}
+	return nil
 }
 
 func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Request, oauthClient *stsv1.OAuthClient, impersonation *stsv1.OAuthImpersonation) error {

@@ -27,8 +27,10 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
-        description: OAuthImpersonation allows subjects to impersonate the OAuthClient
-          with the same name.
+        description: |-
+          OAuthImpersonation allows subjects to impersonate the OAuthClient with the same name.
+          The OAuthClient owns it and sets its status when synchronizing, so an
+          OAuthImpersonation without a matching OAuthClient has no status.
         properties:
           apiVersion:
             description: |-
@@ -66,8 +68,8 @@ spec:
             properties:
               conditions:
                 description: |-
-                  Conditions describe the observed state. Ready reports the outcome of the
-                  last reconciliation; it applies to the current spec only when its
+                  Conditions describe the observed state. Ready mirrors the outcome of the
+                  OAuthClient's last synchronization; it applies to the current spec only when its
                   observedGeneration matches metadata.generation.
                 items:
                   description: Condition contains details for one aspect of the current

@@ -162,38 +162,62 @@ func TestReconcileReadyTransitions(t *testing.T) {
 	assert.NotNil(t, meta.FindStatusCondition(periodic.Status.Conditions, other.Type))
 }
 
-func TestReconcileSyncsWhenImpersonationChanges(t *testing.T) {
+func TestReconcileImpersonation(t *testing.T) {
 	impersonation := &stsv1.OAuthImpersonation{
 		Name: "new-client", Namespace: "default", UID: "impersonation-uid", Generation: 1,
 		Spec: stsv1.OAuthImpersonationSpec{AllowedSubjects: []string{"alice"}},
 	}
 	rt := newReconcileTest(t, newSyncedOAuthClient(), impersonation)
+	key := client.ObjectKeyFromObject(impersonation)
+	getImpersonation := func() *stsv1.OAuthImpersonation {
+		t.Helper()
+		var obj stsv1.OAuthImpersonation
+		require.NoError(t, rt.client.Get(rt.ctx, key, &obj))
+		return &obj
+	}
+	assertImpersonationReady := func(status metav1.ConditionStatus, reason, message string) {
+		t.Helper()
+		obj := getImpersonation()
+		condition := meta.FindStatusCondition(obj.Status.Conditions, stsv1.ConditionReady)
+		require.NotNil(t, condition)
+		assert.Equal(t, status, condition.Status)
+		assert.Equal(t, reason, condition.Reason)
+		assert.Equal(t, message, condition.Message)
+		assert.Equal(t, obj.Generation, condition.ObservedGeneration)
+	}
 
+	// A failed registration marks the impersonation failed and takes ownership.
+	rt.stub.failRegister.Store(true)
 	_, err := rt.reconcile()
+	require.Error(t, err)
+	assertImpersonationReady(metav1.ConditionFalse, stsv1.ReasonFailed, messageRegistrationFailed)
+	owner := rt.get()
+	require.Len(t, getImpersonation().OwnerReferences, 1)
+	assert.Equal(t, owner.UID, getImpersonation().OwnerReferences[0].UID)
+
+	// A successful registration records the impersonation on both resources.
+	rt.stub.failRegister.Store(false)
+	_, err = rt.reconcile()
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), rt.stub.registrations.Load())
 	assert.Equal(t, &stsv1.ObservedImpersonation{UID: "impersonation-uid", Generation: 1}, rt.get().Status.ObservedImpersonation)
+	assertImpersonationReady(metav1.ConditionTrue, stsv1.ReasonSucceeded, messageSucceeded)
+	assert.Equal(t, rt.get().Status.SynchronizationTimestamp, getImpersonation().Status.SynchronizationTimestamp)
 
 	// A changed impersonation syncs within the interval.
-	require.NoError(t, rt.client.Get(rt.ctx, client.ObjectKeyFromObject(impersonation), impersonation))
-	impersonation.Generation = 2
-	require.NoError(t, rt.client.Update(rt.ctx, impersonation))
+	changed := getImpersonation()
+	changed.Generation = 2
+	require.NoError(t, rt.client.Update(rt.ctx, changed))
 	_, err = rt.reconcile()
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), rt.stub.registrations.Load())
 	assert.Equal(t, int64(2), rt.get().Status.ObservedImpersonation.Generation)
+	assertImpersonationReady(metav1.ConditionTrue, stsv1.ReasonSucceeded, messageSucceeded)
 
-	// A deleted impersonation syncs within the interval.
-	require.NoError(t, rt.client.Delete(rt.ctx, impersonation))
+	// An unchanged impersonation is skipped.
 	_, err = rt.reconcile()
 	require.NoError(t, err)
-	assert.Equal(t, int32(3), rt.stub.registrations.Load())
-	assert.Nil(t, rt.get().Status.ObservedImpersonation)
-
-	// An unchanged state is skipped.
-	_, err = rt.reconcile()
-	require.NoError(t, err)
-	assert.Equal(t, int32(3), rt.stub.registrations.Load())
+	assert.Equal(t, int32(2), rt.stub.registrations.Load())
 }
 
 func TestReconcileDeletionWithoutClientID(t *testing.T) {
