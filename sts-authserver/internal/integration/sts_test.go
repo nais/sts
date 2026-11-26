@@ -108,6 +108,14 @@ func TestSts(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, status, response)
 			assert.Equal(t, signed, response.SoftwareStatement)
+			assert.True(t, response.Changed)
+
+			// Periodic resubmission of an identical registration reports no change.
+			status, response = postRegistration[api.ClientRegistrationResponse](t, stsAddress, registratorToken, api.ClientRegistration{
+				SoftwareStatement: signed,
+			})
+			require.Equal(t, http.StatusOK, status, response)
+			assert.False(t, response.Changed)
 		})
 
 		t.Run("registers another client", func(t *testing.T) {

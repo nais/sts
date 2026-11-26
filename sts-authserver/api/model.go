@@ -7,6 +7,8 @@ type ClientRegistration struct {
 type ClientRegistrationResponse struct {
 	ClientRegistration
 	ClientID string `json:"client_id"`
+	// Changed reports whether STS created or updated the stored registration.
+	Changed bool `json:"changed"`
 }
 
 type SoftwareStatement struct {
