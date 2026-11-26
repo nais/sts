@@ -55,19 +55,25 @@ func (a *Api) PostEndpoint() nethttp.HandlerFunc {
 			return errs.InvalidSoftwareStatement(err, "software statement is invalid")
 		}
 
-		clientID, err := a.SaveRegistration(r.Context(), registrator, ss)
+		clientID, changed, err := a.SaveRegistration(r.Context(), registrator, ss)
 		if err != nil {
 			return err
 		}
 
-		slog.InfoContext(r.Context(), "client registered",
+		level := slog.LevelDebug
+		if changed {
+			level = slog.LevelInfo
+		}
+		slog.Log(r.Context(), level, "client registered",
 			slog.String("client_id", string(clientID)),
 			slog.String("registrator_issuer", registrator.AuthIssuer),
+			slog.Bool("changed", changed),
 		)
 
 		http.WriteJSON(w, r, &api.ClientRegistrationResponse{
 			ClientRegistration: *registration,
 			ClientID:           string(clientID),
+			Changed:            changed,
 		})
 
 		return nil
@@ -106,9 +112,9 @@ func (a *Api) DeleteEndpoint() nethttp.HandlerFunc {
 }
 
 // SaveRegistration stores the client in the registrator's environment and
-// returns its client ID. Each policy authorizes the consumer namespace and name
+// returns its client ID and whether the stored registration changed. Each policy authorizes the consumer namespace and name
 // in every configured environment, including consumers not registered yet.
-func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s *SoftwareStatement) (oauth.ClientID, error) {
+func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s *SoftwareStatement) (oauth.ClientID, bool, error) {
 	clientID := oauth.NewClientID(registrator.Environment, oauth.Name(s.Client.Namespace), oauth.Name(s.Client.Name))
 
 	policy := oauth.AuthorizationPolicy{
@@ -127,7 +133,7 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 		}
 	}
 
-	err := a.store.Save(ctx, &oauth.Client{
+	changed, err := a.store.Save(ctx, &oauth.Client{
 		ID:                  clientID,
 		Environment:         string(registrator.Environment),
 		Namespace:           s.Client.Namespace,
@@ -137,12 +143,12 @@ func (a *Api) SaveRegistration(ctx context.Context, registrator *Registrator, s 
 	}, registrator.AuthIssuer)
 	if err != nil {
 		if errors.Is(err, oauth.ErrRegistrationUnauthorized) {
-			return "", errs.UnauthorizedClient(err, "registrator is not authorized for client")
+			return "", false, errs.UnauthorizedClient(err, "registrator is not authorized for client")
 		}
-		return "", err
+		return "", false, err
 	}
 
-	return clientID, nil
+	return clientID, changed, nil
 }
 
 func decodeClientRegistration(w nethttp.ResponseWriter, r *nethttp.Request) (*api.ClientRegistration, error) {

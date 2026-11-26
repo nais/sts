@@ -11,10 +11,12 @@ import (
 	"github.com/nais/sts/internal/oauth"
 )
 
-func (s *Store) Save(ctx context.Context, client *oauth.Client, authoritativeIssuer string) error {
+// Save creates or updates client and reports whether the stored registration
+// changed. Identical registrations leave the row untouched.
+func (s *Store) Save(ctx context.Context, client *oauth.Client, authoritativeIssuer string) (bool, error) {
 	// TODO: should we allow "takeovers" (e.g. move a client from one issuer to another)
 	if client.Issuer != authoritativeIssuer {
-		return errRegistrationUnauthorized(string(client.ID), client.Issuer, authoritativeIssuer)
+		return false, errRegistrationUnauthorized(string(client.ID), client.Issuer, authoritativeIssuer)
 	}
 	_, err := s.queries.UpsertClient(ctx, sqlgen.UpsertClientParams{
 		ID:                  client.ID,
@@ -24,11 +26,15 @@ func (s *Store) Save(ctx context.Context, client *oauth.Client, authoritativeIss
 		Issuer:              client.Issuer,
 		AuthorizationPolicy: client.AuthorizationPolicy,
 	})
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("upsert client: %w", err)
+	// The upsert returns no row when its conditional update matched an identical registration.
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("upsert client: %w", err)
 	}
 
-	return nil
+	return true, nil
 }
 
 func (s *Store) Delete(ctx context.Context, clientID oauth.ClientID, authoritativeIssuer string) error {

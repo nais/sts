@@ -39,7 +39,7 @@ const (
 	messageConfigMapFailed    = `ConfigMap "new-config" could not be reconciled`
 )
 
-func TestReconcileRegistersAndRefreshesConfigMapEverySyncInterval(t *testing.T) {
+func TestReconcileRegistersAndRefreshesConfigMapOnEverySync(t *testing.T) {
 	rt := newReconcileTest(t, newSyncedOAuthClient())
 	stale := &corev1.ConfigMap{
 		Name: "new-config", Namespace: "default",
@@ -48,11 +48,11 @@ func TestReconcileRegistersAndRefreshesConfigMapEverySyncInterval(t *testing.T) 
 	}
 	require.NoError(t, rt.client.Create(rt.ctx, stale))
 
-	// An expired sync registers and refreshes the ConfigMap.
 	res, err := rt.reconcile()
 	require.NoError(t, err)
 	assert.Equal(t, testSyncInterval, res.RequeueAfter)
 	assert.Equal(t, int32(1), rt.stub.registrations.Load())
+	assert.Equal(t, 1, rt.statusUpdates)
 
 	var cm corev1.ConfigMap
 	require.NoError(t, rt.client.Get(rt.ctx, client.ObjectKeyFromObject(stale), &cm))
@@ -63,12 +63,12 @@ func TestReconcileRegistersAndRefreshesConfigMapEverySyncInterval(t *testing.T) 
 	assert.Equal(t, registeredClientID, synced.Status.ClientID)
 	assertReady(t, synced, metav1.ConditionTrue, stsv1.ReasonSucceeded, messageSucceeded)
 
-	// A fresh sync is skipped until the interval expires.
+	// A periodic sync re-registers to repair drift but skips the unchanged status write.
 	res, err = rt.reconcile()
 	require.NoError(t, err)
-	assert.Positive(t, res.RequeueAfter)
-	assert.LessOrEqual(t, res.RequeueAfter, testSyncInterval)
-	assert.Equal(t, int32(1), rt.stub.registrations.Load())
+	assert.Equal(t, testSyncInterval, res.RequeueAfter)
+	assert.Equal(t, int32(2), rt.stub.registrations.Load())
+	assert.Equal(t, 1, rt.statusUpdates)
 }
 
 func TestReconcileReturnsErrorWhenStatusUpdateFails(t *testing.T) {
@@ -82,37 +82,6 @@ func TestReconcileReturnsErrorWhenStatusUpdateFails(t *testing.T) {
 	assert.Equal(t, before.Status, rt.get().Status)
 }
 
-func TestReconcileSyncsWithinIntervalUnlessCurrentSpecIsReady(t *testing.T) {
-	tests := []struct {
-		name   string
-		mutate func(*stsv1.OAuthClient)
-	}{
-		{"spec changed", func(o *stsv1.OAuthClient) {
-			o.Generation = 2
-		}},
-		{"not ready", func(o *stsv1.OAuthClient) {
-			_ = failed(o, messageRegistrationFailed, nil)
-		}},
-		{"no Ready condition", func(o *stsv1.OAuthClient) {
-			o.Status.Conditions = nil
-		}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			oauthClient := newSyncedOAuthClient()
-			now := metav1.Now()
-			oauthClient.Status.SynchronizationTimestamp = &now
-			tt.mutate(oauthClient)
-			rt := newReconcileTest(t, oauthClient)
-
-			_, err := rt.reconcile()
-			require.NoError(t, err)
-
-			assert.Equal(t, int32(1), rt.stub.registrations.Load())
-		})
-	}
-}
-
 func TestReconcileReadyTransitions(t *testing.T) {
 	oauthClient := newSyncedOAuthClient()
 	other := metav1.Condition{Type: "Other", Status: metav1.ConditionTrue, Reason: "Other", LastTransitionTime: metav1.Now()}
@@ -120,7 +89,7 @@ func TestReconcileReadyTransitions(t *testing.T) {
 	rt := newReconcileTest(t, oauthClient)
 	initial := rt.get()
 
-	// A registration failure sets Ready False and keeps the last successful sync.
+	// A registration failure sets Ready False and keeps the client ID.
 	rt.stub.failRegister.Store(true)
 	_, err := rt.reconcile()
 	require.ErrorContains(t, err, "registering client with STS")
@@ -128,7 +97,6 @@ func TestReconcileReadyTransitions(t *testing.T) {
 	failed := rt.get()
 	assertReady(t, failed, metav1.ConditionFalse, stsv1.ReasonFailed, messageRegistrationFailed)
 	assert.Equal(t, initial.Status.ClientID, failed.Status.ClientID)
-	assert.Equal(t, initial.Status.SynchronizationTimestamp, failed.Status.SynchronizationTimestamp)
 
 	// A ConfigMap failure keeps the new registration's client ID.
 	rt.stub.failRegister.Store(false)
@@ -148,16 +116,13 @@ func TestReconcileReadyTransitions(t *testing.T) {
 	recovered := rt.get()
 	assertReady(t, recovered, metav1.ConditionTrue, stsv1.ReasonSucceeded, messageSucceeded)
 
-	// A periodic success keeps Ready's transition time and moves the sync timestamp.
-	expired := metav1.NewTime(time.Now().Add(-2 * testSyncInterval))
-	recovered.Status.SynchronizationTimestamp = &expired
-	require.NoError(t, rt.client.Status().Update(rt.ctx, recovered))
+	// A periodic success keeps Ready's transition time.
 	_, err = rt.reconcile()
 	require.NoError(t, err)
 
 	periodic := rt.get()
+	assert.Equal(t, recovered.ResourceVersion, periodic.ResourceVersion)
 	assert.Equal(t, readyCondition(t, recovered).LastTransitionTime, readyCondition(t, periodic).LastTransitionTime)
-	assert.True(t, periodic.Status.SynchronizationTimestamp.After(expired.Time))
 
 	assert.NotNil(t, meta.FindStatusCondition(periodic.Status.Conditions, other.Type))
 }
@@ -177,18 +142,14 @@ func TestReconcileDeletionWithoutClientID(t *testing.T) {
 	assert.True(t, apierrors.IsNotFound(err))
 }
 
-// newSyncedOAuthClient returns a Ready client with a finalizer whose last sync has expired.
+// newSyncedOAuthClient returns a Ready client with a finalizer.
 func newSyncedOAuthClient() *stsv1.OAuthClient {
-	expired := metav1.NewTime(time.Now().Add(-2 * testSyncInterval))
 	oauthClient := &stsv1.OAuthClient{
 		Name: "new-client", Namespace: "default", UID: "new-uid",
 		Generation: 1,
 		Finalizers: []string{finalizer},
 		Spec:       stsv1.OAuthClientSpec{ConfigMapName: "new-config"},
-		Status: stsv1.OAuthClientStatus{
-			ClientID:                 "existing-client",
-			SynchronizationTimestamp: &expired,
-		},
+		Status:     stsv1.OAuthClientStatus{ClientID: "existing-client"},
 	}
 	ready(oauthClient)
 	return oauthClient
@@ -220,6 +181,7 @@ type reconcileTest struct {
 
 	failConfigMap    bool
 	failStatusUpdate bool
+	statusUpdates    int
 }
 
 func newReconcileTest(t *testing.T, oauthClient *stsv1.OAuthClient) *reconcileTest {
@@ -250,6 +212,7 @@ func newReconcileTest(t *testing.T, oauthClient *stsv1.OAuthClient) *reconcileTe
 				if rt.failStatusUpdate {
 					return errors.New("status update rejected")
 				}
+				rt.statusUpdates++
 				return c.SubResource(sub).Update(ctx, obj, opts...)
 			},
 		}).

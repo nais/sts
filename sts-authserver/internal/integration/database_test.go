@@ -316,17 +316,19 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 
 	run("updates issuer", func(t *testing.T) {
 		client := testClient("scope")
-		require.NoError(t, clients.Save(t.Context(), client, client.Issuer))
+		_, err := clients.Save(t.Context(), client, client.Issuer)
+		require.NoError(t, err)
 
 		client.Issuer = "https://new-issuer.example"
-		require.NoError(t, clients.Save(t.Context(), client, client.Issuer))
+		_, err = clients.Save(t.Context(), client, client.Issuer)
+		require.NoError(t, err)
 
 		stored, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.NoError(t, err)
 		require.Equal(t, client.Issuer, stored.Issuer)
 	})
 
-	run("notifies only when registration changes", func(t *testing.T) {
+	run("reports and notifies only registration changes", func(t *testing.T) {
 		// A fresh connection avoids notifications queued on reused pool connections.
 		listener, err := pgx.ConnectConfig(t.Context(), pool.Config().ConnConfig.Copy())
 		require.NoError(t, err)
@@ -369,7 +371,9 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 			if step.name != "initial registration" {
 				require.NoError(t, err)
 			}
-			require.NoError(t, clients.Save(t.Context(), client, client.Issuer), step.name)
+			changed, err := clients.Save(t.Context(), client, client.Issuer)
+			require.NoError(t, err, step.name)
+			require.Equal(t, step.want == 1, changed, step.name)
 
 			// This marker commits after Save. Reading through it checks for absent
 			// or duplicate notifications without relying on a timeout for silence.
@@ -397,9 +401,10 @@ func testClientRegistrationStore(t *testing.T, pool *pgxpool.Pool) {
 
 	run("rejects issuer outside authority", func(t *testing.T) {
 		client := testClient("scope")
-		require.ErrorIs(t, clients.Save(t.Context(), client, "https://other.example"), oauth.ErrRegistrationUnauthorized)
+		_, err := clients.Save(t.Context(), client, "https://other.example")
+		require.ErrorIs(t, err, oauth.ErrRegistrationUnauthorized)
 
-		_, err := queries.GetClientByIDForUpdate(t.Context(), client.ID)
+		_, err = queries.GetClientByIDForUpdate(t.Context(), client.ID)
 		require.ErrorIs(t, err, pgx.ErrNoRows)
 	})
 }

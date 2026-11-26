@@ -19,7 +19,7 @@ type ClientStore interface {
 	Delete(ctx context.Context, clientID ClientID, authoritativeIssuer string) error
 	Get(issuer, namespace, name string) (*Client, error)
 	GetByID(clientID ClientID) (*Client, error)
-	Save(ctx context.Context, client *Client, authoritativeIssuer string) error
+	Save(ctx context.Context, client *Client, authoritativeIssuer string) (changed bool, err error)
 }
 
 type KeyStore interface {
