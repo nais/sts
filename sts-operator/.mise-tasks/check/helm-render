@@ -7,27 +7,28 @@ chart=../charts/sts-operator
 crd_chart=../charts/sts-operator-crds
 
 # The chart copy differs from the generated source only by Helm retention.
-cmp \
-  <(yq -o=json config/crd/bases/nais.io_oauthclients.yaml | jq -S .) \
-  <(yq -o=json "$crd_chart/templates/nais.io_oauthclients.yaml" |
-    jq -S 'del(.metadata.annotations."helm.sh/resource-policy")')
+crds=(config/crd/bases/*.yaml)
+for source in "${crds[@]}"; do
+  cmp \
+    <(yq -o=json "$source" | jq -S .) \
+    <(yq -o=json "$crd_chart/templates/$(basename "$source")" |
+      jq -S 'del(.metadata.annotations."helm.sh/resource-policy")')
+done
 
 # CRDs must be regular Helm templates with keep retention.
 helm template sts-operator-crds "$crd_chart" --namespace nais-system \
-  | yq -o=json | jq -s -e '
-  length == 1 and
-  .[0].kind == "CustomResourceDefinition" and
-  .[0].metadata.annotations."helm.sh/resource-policy" == "keep"
+  | yq -o=json | jq -s -e --argjson count "${#crds[@]}" '
+  length == $count and
+  all(.[]; .kind == "CustomResourceDefinition" and
+    .metadata.annotations."helm.sh/resource-policy" == "keep")
 ' >/dev/null
 
-# The parent must bundle the current CRD.
+# The parent must bundle the current CRDs.
 cmp \
-  <(yq -o=json "$crd_chart/templates/nais.io_oauthclients.yaml" | jq -S .) \
+  <(for source in "${crds[@]}"; do yq -o=json "$crd_chart/templates/$(basename "$source")"; done |
+    jq -s -S 'sort_by(.metadata.name)') \
   <(helm template sts-operator "$chart" --namespace nais-system |
-    yq -o=json | jq -s -S '
-      [.[] | select(.kind == "CustomResourceDefinition")] |
-      if length == 1 then .[0] else error("expected one bundled CRD") end
-    ')
+    yq -o=json | jq -s -S '[.[] | select(.kind == "CustomResourceDefinition")] | sort_by(.metadata.name)')
 
 helm template sts-operator "$chart" --namespace nais-system | yq -o=json | jq -s -e '
   [.[] | select(.kind == "Deployment")][0] as $deployment |
@@ -52,7 +53,9 @@ helm template sts-operator "$chart" --namespace nais-system | yq -o=json | jq -s
   $binding.roleRef.name == $role.metadata.name and
   $binding.subjects == [{"kind": "ServiceAccount", "name": $pod.serviceAccountName, "namespace": "nais-system"}] and
   any($role.rules[]; .resources == ["oauthclients"] and (.verbs | index("watch")) != null) and
-  any($role.rules[]; .resources == ["oauthclients"] and (.verbs | index("delete")) != null) and
+  any($role.rules[]; .resources == ["oauthclients"] and (.verbs | index("update")) != null) and
+  any($role.rules[]; .resources == ["oauthimpersonations"] and (.verbs | index("watch")) != null) and
+  any($role.rules[]; .resources == ["oauthimpersonations/status"] and (.verbs | index("update")) != null) and
   any($role.rules[]; .resources == ["configmaps"] and (.verbs | index("create")) != null) and
   any($role.rules[]; .resources == ["configmaps"] and (.verbs | index("delete")) != null) and
   any($role.rules[]; .resources == ["configmaps"] and (.verbs | index("watch")) != null) and

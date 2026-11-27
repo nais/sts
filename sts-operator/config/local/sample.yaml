@@ -38,3 +38,19 @@ metadata:
 spec:
   configMapName: sts-consumer
   acl: []
+---
+apiVersion: nais.io/v1
+kind: OAuthClient
+metadata:
+  name: impersonation-demo
+  namespace: sts-demo
+spec:
+  configMapName: sts-impersonation-demo
+---
+apiVersion: nais.io/v1
+kind: OAuthImpersonation
+metadata:
+  name: impersonation-demo
+  namespace: sts-demo
+spec:
+  allowedSubjects: [person1]

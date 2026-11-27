@@ -12,14 +12,18 @@ import (
 	stsmetrics "github.com/nais/sts-operator/internal/metric"
 	stsapi "github.com/nais/sts/api"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 const (
@@ -52,13 +56,18 @@ func (r *OAuthClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&stsv1.OAuthClient{}).
+		// An OAuthImpersonation adds impersonators to the OAuthClient with the same name.
+		Watches(&stsv1.OAuthImpersonation{}, &handler.EnqueueRequestForObject{},
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		WithOptions(opts).
 		Complete(r)
 }
 
-// +kubebuilder:rbac:groups=nais.io,resources=oauthclients,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=nais.io,resources=oauthclients,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=nais.io,resources=oauthclients/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=nais.io,resources=oauthclients/finalizers,verbs=update
+// +kubebuilder:rbac:groups=nais.io,resources=oauthimpersonations,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=nais.io,resources=oauthimpersonations/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="";events.k8s.io,resources=events,verbs=create;update;patch
 
@@ -92,12 +101,20 @@ func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
+	impersonation, err := r.getImpersonation(ctx, req)
+	if err != nil {
+		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
+		return ctrl.Result{}, fmt.Errorf("getting impersonation: %w", err)
+	}
+	ref := impersonationRef(impersonation)
+
 	condition := meta.FindStatusCondition(oauthClient.Status.Conditions, stsv1.ConditionReady)
-	specSynced := condition != nil && condition.Status == metav1.ConditionTrue &&
+	readyForGeneration := condition != nil && condition.Status == metav1.ConditionTrue &&
 		condition.ObservedGeneration == oauthClient.GetGeneration()
+	impersonationSynced := equality.Semantic.DeepEqual(ref, oauthClient.Status.ObservedImpersonation)
 	lastSync := oauthClient.Status.SynchronizationTimestamp
 
-	if specSynced && lastSync != nil {
+	if readyForGeneration && impersonationSynced && lastSync != nil {
 		if remaining := time.Until(lastSync.Add(r.Config.SyncInterval)); remaining > 0 {
 			log.V(4).WithValues(
 				".metadata.generation", oauthClient.GetGeneration(),
@@ -107,9 +124,12 @@ func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	if err := r.synchronize(ctx, req, &oauthClient); err != nil {
+	if err := r.synchronize(ctx, req, &oauthClient, impersonation); err != nil {
 		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
 		err = fmt.Errorf("synchronize: %w", err)
+		if impersonationErr := r.updateImpersonation(ctx, &oauthClient, impersonation); impersonationErr != nil {
+			err = errors.Join(err, fmt.Errorf("updating impersonation: %w", impersonationErr))
+		}
 		if statusErr := r.Status().Update(ctx, &oauthClient); statusErr != nil {
 			err = errors.Join(err, fmt.Errorf("updating status: %w", statusErr))
 		}
@@ -117,7 +137,15 @@ func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	oauthClient.Status.SynchronizationTimestamp = new(metav1.Now())
+	oauthClient.Status.ObservedImpersonation = ref
 	ready(&oauthClient)
+
+	// Update the impersonation first: a failure leaves the client status stale,
+	// so the next reconcile retries instead of skipping.
+	if err := r.updateImpersonation(ctx, &oauthClient, impersonation); err != nil {
+		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
+		return ctrl.Result{}, fmt.Errorf("updating impersonation: %w", err)
+	}
 
 	if err := r.Status().Update(ctx, &oauthClient); err != nil {
 		stsmetrics.OAuthClientsProcessingFailedCount.Inc()
@@ -128,10 +156,63 @@ func (r *OAuthClientReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{RequeueAfter: r.Config.SyncInterval}, nil
 }
 
-func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Request, oauthClient *stsv1.OAuthClient) error {
+// getImpersonation returns the OAuthImpersonation with the client's name, or nil
+// if it does not exist or is being deleted.
+func (r *OAuthClientReconciler) getImpersonation(ctx context.Context, req ctrl.Request) (*stsv1.OAuthImpersonation, error) {
+	var impersonation stsv1.OAuthImpersonation
+	if err := r.Get(ctx, req.NamespacedName, &impersonation); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	if !impersonation.DeletionTimestamp.IsZero() {
+		return nil, nil
+	}
+	return &impersonation, nil
+}
+
+// impersonationRef identifies the impersonation's current version, or returns nil.
+func impersonationRef(impersonation *stsv1.OAuthImpersonation) *stsv1.ObservedImpersonation {
+	if impersonation == nil {
+		return nil
+	}
+	return &stsv1.ObservedImpersonation{UID: impersonation.UID, Generation: impersonation.Generation}
+}
+
+// updateImpersonation makes the OAuthClient own the impersonation, so they are
+// deleted together, and copies the client's Ready condition to it.
+func (r *OAuthClientReconciler) updateImpersonation(ctx context.Context, oauthClient *stsv1.OAuthClient, impersonation *stsv1.OAuthImpersonation) error {
+	if impersonation == nil {
+		return nil
+	}
+
+	owned, err := controllerutil.HasOwnerReference(impersonation.OwnerReferences, oauthClient, r.Scheme)
+	if err != nil {
+		return fmt.Errorf("checking owner reference: %w", err)
+	}
+	if !owned {
+		if err := controllerutil.SetOwnerReference(oauthClient, impersonation, r.Scheme); err != nil {
+			return fmt.Errorf("setting owner reference: %w", err)
+		}
+		if err := r.Update(ctx, impersonation); err != nil {
+			return fmt.Errorf("updating owner reference: %w", err)
+		}
+	}
+
+	condition := *meta.FindStatusCondition(oauthClient.Status.Conditions, stsv1.ConditionReady)
+	condition.ObservedGeneration = impersonation.GetGeneration()
+	meta.SetStatusCondition(&impersonation.Status.Conditions, condition)
+	if condition.Status == metav1.ConditionTrue {
+		impersonation.Status.SynchronizationTimestamp = oauthClient.Status.SynchronizationTimestamp
+	}
+	if err := r.Status().Update(ctx, impersonation); err != nil {
+		return fmt.Errorf("updating status: %w", err)
+	}
+	return nil
+}
+
+func (r *OAuthClientReconciler) synchronize(ctx context.Context, req ctrl.Request, oauthClient *stsv1.OAuthClient, impersonation *stsv1.OAuthImpersonation) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("subsystem", "synchronize")
 
-	registration, err := r.Register(ctx, makeSoftwareStatement(oauthClient))
+	registration, err := r.Register(ctx, makeSoftwareStatement(oauthClient, impersonation))
 	if err != nil {
 		return failed(oauthClient, "Registration with STS failed", fmt.Errorf("registering client with STS: %w", err))
 	}
@@ -213,7 +294,7 @@ func failed(oauthClient *stsv1.OAuthClient, message string, err error) error {
 	return err
 }
 
-func makeSoftwareStatement(oauthClient *stsv1.OAuthClient) stsapi.SoftwareStatement {
+func makeSoftwareStatement(oauthClient *stsv1.OAuthClient, impersonation *stsv1.OAuthImpersonation) stsapi.SoftwareStatement {
 	var clients []stsapi.AuthorizedClient
 	var namespaces []string
 	for _, acl := range oauthClient.Spec.AccessControlList {
@@ -228,12 +309,18 @@ func makeSoftwareStatement(oauthClient *stsv1.OAuthClient) stsapi.SoftwareStatem
 		}
 	}
 
+	var impersonators []stsapi.ImpersonatorSubject
+	if impersonation != nil {
+		impersonators = impersonation.Spec.AllowedSubjects
+	}
+
 	return stsapi.SoftwareStatement{
 		Client: stsapi.Client{Namespace: oauthClient.Namespace, Name: oauthClient.Name},
 		AuthorizationPolicy: stsapi.AuthorizationPolicy{
-			AllowAll:          oauthClient.Spec.AllowAll,
-			AllowedNamespaces: namespaces,
-			Clients:           clients,
+			AllowAll:             oauthClient.Spec.AllowAll,
+			AllowedNamespaces:    namespaces,
+			Clients:              clients,
+			AllowedImpersonators: impersonators,
 		},
 	}
 }

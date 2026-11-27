@@ -17,7 +17,7 @@ func TestSoftwareStatementValidate(t *testing.T) {
 					Roles: []string{"reader", "writer"},
 				}},
 				AllowedNamespaces:    []string{"team-c", "team-d"},
-				AllowedImpersonators: []api.Impersonator{{Issuer: "https://identity.example", Subject: "alice"}},
+				AllowedImpersonators: []api.ImpersonatorSubject{"alice"},
 			},
 		}
 	}
@@ -35,12 +35,8 @@ func TestSoftwareStatementValidate(t *testing.T) {
 			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicy.Clients[0].Namespace = "Team-b" },
 			wantErr: "authorized client 0",
 		},
-		"missing impersonator issuer": {
-			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicy.AllowedImpersonators[0].Issuer = "" },
-			wantErr: "allowed impersonator 0",
-		},
 		"missing impersonator subject": {
-			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicy.AllowedImpersonators[0].Subject = "" },
+			mutate:  func(s *SoftwareStatement) { s.AuthorizationPolicy.AllowedImpersonators[0] = "" },
 			wantErr: "allowed impersonator 0",
 		},
 		"invalid allowed namespace": {

@@ -31,6 +31,27 @@ without roles; listed workloads still get their roles. Each team must set
 - [CRD manifest](config/crd/bases/nais.io_oauthclients.yaml)
 - [Example resources](config/examples/oauth-client-sample.yaml)
 
+### Impersonation
+
+```yaml
+apiVersion: nais.io/v1
+kind: OAuthImpersonation
+metadata:
+  name: workload-b
+  namespace: team-b
+spec:
+  allowedSubjects:
+    - person@nais.io
+```
+
+An `OAuthImpersonation` lets the listed subjects impersonate the `OAuthClient`
+with the same name and namespace. The OAuthClient reconciler adds the subjects
+to that client's registration and re-registers when the impersonation changes
+or is deleted. Each synchronization copies the client's `Ready` condition to
+the impersonation, so an impersonation without a matching client has no
+status. The operator sets the OAuthClient as owner, so deleting the client
+deletes its impersonation.
+
 ## Migration status
 
 The operator creates application configuration in the same namespace, in the
@@ -168,7 +189,7 @@ Endpoints:
 Inspect the sample clients from `sts-operator/`:
 
 ```shell
-kubectl --kubeconfig=.local/kubeconfig -n sts-demo get oauthclients,configmaps
+kubectl --kubeconfig=.local/kubeconfig -n sts-demo get oauthclients,oauthimpersonations,configmaps
 ```
 
 From the repository root, delete only the development cluster when finished:

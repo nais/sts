@@ -102,5 +102,5 @@ func (a *AuthorizationServer) resolveCallerIdentity(claims *jwt.AccessTokenClaim
 
 func (c CallerIdentity) AllowsImpersonation() bool {
 	return c.Impersonator != nil && c.Impersonator.Subject != "" &&
-		slices.Contains(c.AuthorizationPolicy.AllowedImpersonators, *c.Impersonator)
+		slices.Contains(c.AuthorizationPolicy.AllowedImpersonators, c.Impersonator.Subject)
 }

@@ -21,3 +21,13 @@ spec:
         - name: workload-b
           roles: [x]
         - name: workload-c
+---
+apiVersion: nais.io/v1
+kind: OAuthImpersonation
+metadata:
+  name: workload-b
+  namespace: team-b
+spec:
+  allowedSubjects:
+    - yolo@nais.io
+
